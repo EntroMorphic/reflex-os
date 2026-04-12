@@ -95,7 +95,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: B004
 
 ### B006 Serial Shell Core
-- Status: `todo`
+- Status: `done`
 - Goal: Implement a line-oriented serial shell over the USB serial console.
 - Deliverables:
 - input loop
@@ -107,7 +107,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Notes: keep command dispatch simple and static for MVP.
 
 ### B007 Base Shell Commands
-- Status: `todo`
+- Status: `done`
 - Goal: Implement the first built-in commands.
 - Deliverables:
 - `help`
@@ -118,7 +118,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: B002, B006
 
 ### B008 Config Shell Commands
-- Status: `todo`
+- Status: `done`
 - Goal: Make persisted config manageable from the shell.
 - Deliverables:
 - `config get <key>`

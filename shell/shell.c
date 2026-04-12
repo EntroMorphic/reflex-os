@@ -10,9 +10,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "esp_app_desc.h"
 #include "esp_check.h"
+#include "esp_heap_caps.h"
+#include "esp_system.h"
+#include "esp_timer.h"
 
 #include "reflex_log.h"
+#include "reflex_config.h"
 #include "reflex_ternary.h"
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
@@ -135,7 +140,34 @@ static int reflex_shell_tokenize(char *line, char *argv[REFLEX_SHELL_ARGV_MAX])
 
 static void reflex_shell_help(void)
 {
-    printf("commands: help, vm info, vm load, vm run [steps], vm step, vm regs, vm task <start|stop|status>\n");
+    printf("commands: help, reboot, version, uptime, heap, config <get|set>, vm info, vm load, vm run [steps], vm step, vm regs, vm task <start|stop|status>\n");
+}
+
+static void reflex_shell_version(void)
+{
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+
+    printf("project=%s version=%s idf=%s\n",
+           app_desc->project_name,
+           app_desc->version,
+           app_desc->idf_ver);
+}
+
+static void reflex_shell_uptime(void)
+{
+    printf("uptime_ms=%lu\n", (unsigned long)(esp_timer_get_time() / 1000));
+}
+
+static void reflex_shell_heap(void)
+{
+    printf("heap_free=%lu\n", (unsigned long)esp_get_free_heap_size());
+}
+
+static void reflex_shell_reboot(void)
+{
+    printf("rebooting\n");
+    fflush(stdout);
+    esp_restart();
 }
 
 static void reflex_shell_vm_info(void)
@@ -160,6 +192,86 @@ static void reflex_shell_vm_regs(void)
         printf("r%u=", (unsigned)i);
         reflex_shell_print_word18(&reflex_shell_vm.registers[i]);
         printf("\n");
+    }
+}
+
+static void reflex_shell_config_get(const char *key)
+{
+    if (key == NULL) {
+        printf("usage: config get <key>\n");
+        return;
+    }
+
+    if (strcmp(key, "device_name") == 0) {
+        char name[32];
+        if (reflex_config_get_device_name(name, sizeof(name)) == ESP_OK) {
+            printf("device_name=%s\n", name);
+        } else {
+            printf("failed to get device_name\n");
+        }
+    } else if (strcmp(key, "log_level") == 0) {
+        int32_t level;
+        if (reflex_config_get_log_level(&level) == ESP_OK) {
+            printf("log_level=%ld\n", (long)level);
+        } else {
+            printf("failed to get log_level\n");
+        }
+    } else if (strcmp(key, "wifi_ssid") == 0) {
+        char ssid[33];
+        if (reflex_config_get_wifi_ssid(ssid, sizeof(ssid)) == ESP_OK) {
+            printf("wifi_ssid=%s\n", ssid);
+        } else {
+            printf("failed to get wifi_ssid\n");
+        }
+    } else if (strcmp(key, "wifi_password") == 0) {
+        char pass[65];
+        if (reflex_config_get_wifi_password(pass, sizeof(pass)) == ESP_OK) {
+            printf("wifi_password=***\n");
+        } else {
+            printf("failed to get wifi_password\n");
+        }
+    } else if (strcmp(key, "safe_mode") == 0) {
+        bool safe;
+        if (reflex_config_get_safe_mode(&safe) == ESP_OK) {
+            printf("safe_mode=%s\n", safe ? "true" : "false");
+        } else {
+            printf("failed to get safe_mode\n");
+        }
+    } else {
+        printf("unknown key: %s\n", key);
+    }
+}
+
+static void reflex_shell_config_set(const char *key, const char *value)
+{
+    if (key == NULL || value == NULL) {
+        printf("usage: config set <key> <value>\n");
+        return;
+    }
+
+    esp_err_t err = ESP_OK;
+
+    if (strcmp(key, "device_name") == 0) {
+        err = reflex_config_set_device_name(value);
+    } else if (strcmp(key, "log_level") == 0) {
+        int32_t level = atoi(value);
+        err = reflex_config_set_log_level(level);
+    } else if (strcmp(key, "wifi_ssid") == 0) {
+        err = reflex_config_set_wifi_ssid(value);
+    } else if (strcmp(key, "wifi_password") == 0) {
+        err = reflex_config_set_wifi_password(value);
+    } else if (strcmp(key, "safe_mode") == 0) {
+        bool safe = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
+        err = reflex_config_set_safe_mode(safe);
+    } else {
+        printf("unknown key: %s\n", key);
+        return;
+    }
+
+    if (err == ESP_OK) {
+        printf("config set %s ok\n", key);
+    } else {
+        printf("config set %s failed err=%d\n", key, err);
     }
 }
 
@@ -271,6 +383,50 @@ static void reflex_shell_dispatch(int argc, char *argv[REFLEX_SHELL_ARGV_MAX])
 
     if (strcmp(argv[0], "help") == 0) {
         reflex_shell_help();
+        return;
+    }
+
+    if (strcmp(argv[0], "reboot") == 0) {
+        reflex_shell_reboot();
+        return;
+    }
+
+    if (strcmp(argv[0], "version") == 0) {
+        reflex_shell_version();
+        return;
+    }
+
+    if (strcmp(argv[0], "uptime") == 0) {
+        reflex_shell_uptime();
+        return;
+    }
+
+    if (strcmp(argv[0], "heap") == 0) {
+        reflex_shell_heap();
+        return;
+    }
+
+    if (strcmp(argv[0], "config") == 0) {
+        if (argc < 3) {
+            printf("usage: config <get|set> <key> [value]\n");
+            return;
+        }
+
+        if (strcmp(argv[1], "get") == 0) {
+            reflex_shell_config_get(argv[2]);
+            return;
+        }
+
+        if (strcmp(argv[1], "set") == 0) {
+            if (argc < 4) {
+                printf("usage: config set <key> <value>\n");
+                return;
+            }
+            reflex_shell_config_set(argv[2], argv[3]);
+            return;
+        }
+
+        printf("unknown config command\n");
         return;
     }
 

@@ -37,6 +37,20 @@ The ternary runtime path from representation through background execution is imp
 - typed config getters/setters with persisted defaults
 - VM config syscall now reads from real config storage
 
+### B006 Serial Shell Core
+- Status: done
+- Output:
+- `shell/shell.c`
+- blocking USB Serial/JTAG command input
+
+### B007 Base Shell Commands
+- Status: done
+- Output: `help`, `reboot`, `version`, `uptime`, `heap`
+
+### B008 Config Shell Commands
+- Status: done
+- Output: `config get`, `config set`
+
 ## Completed T Tasks
 
 ### T001 Ternary Architecture Note
@@ -121,6 +135,12 @@ The ternary runtime path from representation through background execution is imp
 ## Current Shell Surface
 
 - `help`
+- `reboot`
+- `version`
+- `uptime`
+- `heap`
+- `config get <key>`
+- `config set <key> <value>`
 - `vm info`
 - `vm load`
 - `vm run [steps]`
@@ -149,8 +169,6 @@ The ternary runtime path from representation through background execution is imp
 
 Recommended next work remains:
 
-1. `B006` broader serial shell core beyond VM control
-2. `B007` base shell commands
-3. `B008` config shell commands
-4. `B009` service registry
-5. `B010` core service manager
+1. `B009` service registry
+2. `B010` core service manager
+3. `H001` event bus core
