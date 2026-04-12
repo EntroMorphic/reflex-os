@@ -374,6 +374,16 @@ Phase 1: Ternary Architecture And Host Foundation
 - minimal service boot profile
 - Dependencies: R001, B010
 
+### R005 Stability Signal & Pointer Hardening (Red-Team Remediations)
+- Status: `done`
+- Goal: Fix critical architectural risks identified during red-teaming.
+- Deliverables:
+- async event bus with dedicated task
+- 10s stability window for boot count reset
+- VM state and memory access boundary checks
+- TLD/TST realized with checked memory helpers
+- Dependencies: H001, T006, B005
+
 ### R003 Factory Reset Command
 - Status: `todo`
 - Goal: Clear persisted state and recover to defaults.

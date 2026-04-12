@@ -35,6 +35,12 @@ esp_err_t reflex_event_bus_init(void);
 esp_err_t reflex_event_subscribe(reflex_event_type_t type, reflex_event_handler_t handler, void *ctx);
 esp_err_t reflex_event_publish(reflex_event_type_t type, void *data, size_t data_len);
 
+/**
+ * @brief Process pending events. 
+ * This is now handled by an internal task, but exposed for lifecycle management.
+ */
+esp_err_t reflex_event_bus_start(void);
+
 #ifdef __cplusplus
 }
 #endif

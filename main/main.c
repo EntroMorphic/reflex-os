@@ -5,6 +5,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "reflex_boot.h"
 #include "reflex_log.h"
@@ -21,6 +23,19 @@
 #include "reflex_vm_loader.h"
 
 #define REFLEX_BOOT_LOOP_THRESHOLD 3
+#define REFLEX_STABILITY_MS 10000
+
+static void reflex_stability_task(void *arg)
+{
+    // Wait for the stability window to pass
+    vTaskDelay(pdMS_TO_TICKS(REFLEX_STABILITY_MS));
+    
+    // If we haven't crashed yet, assume we are stable and clear the boot count
+    reflex_config_set_boot_count(0);
+    REFLEX_LOGI(REFLEX_BOOT_TAG, "system_stable=confirmed");
+    
+    vTaskDelete(NULL);
+}
 
 void app_main(void)
 {
@@ -48,7 +63,7 @@ void app_main(void)
 
     if (safe_mode) {
         REFLEX_LOGW(REFLEX_BOOT_TAG, "safe mode active");
-        // Reset boot count so we don't stay here forever if fixed manually
+        // Reset boot count and safe mode so we can try normal boot again if fixed
         reflex_config_set_boot_count(0);
         reflex_config_set_safe_mode(false);
         reflex_shell_run();
@@ -56,9 +71,13 @@ void app_main(void)
     }
 
     // 3. Normal Startup
+    // Increment boot count immediately
     reflex_config_set_boot_count(boot_count + 1);
     
+    // Start Event Bus Task
     reflex_event_bus_init();
+    reflex_event_bus_start();
+    
     reflex_service_manager_init();
     
     reflex_led_service_register();
@@ -69,7 +88,8 @@ void app_main(void)
     
     reflex_service_start_all();
 
-    reflex_config_set_boot_count(0);
+    // Start stability monitor to clear boot_count after 10s
+    xTaskCreate(reflex_stability_task, "reflex-stable", 2048, NULL, 5, NULL);
 
     reflex_event_publish(REFLEX_EVENT_BOOT_COMPLETE, NULL, 0);
 

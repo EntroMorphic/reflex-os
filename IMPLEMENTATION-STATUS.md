@@ -98,6 +98,13 @@ The ternary runtime path from representation through background execution is imp
 - NVS-persisted `boot_count` and `safe_mode` flags
 - Minimal shell fallback on detection
 
+### R005 Red-Team Remediations
+- Status: done
+- Output:
+- `core/event_bus.c` asynchronous queue-based dispatch
+- `main/main.c` 10s stability window for boot recovery
+- `vm/interpreter.c` strict state validation and checked memory access (VMM)
+
 ## Completed T Tasks
 
 ### T001 Ternary Architecture Note
