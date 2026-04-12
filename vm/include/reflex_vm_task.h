@@ -9,6 +9,7 @@
 
 #include "esp_err.h"
 
+#include "reflex_service.h"
 #include "reflex_vm_loader.h"
 
 #ifdef __cplusplus
@@ -37,7 +38,15 @@ esp_err_t reflex_vm_task_start(reflex_vm_task_runtime_t *runtime,
                                const reflex_vm_task_config_t *config);
 esp_err_t reflex_vm_task_stop(reflex_vm_task_runtime_t *runtime);
 bool reflex_vm_task_is_running(const reflex_vm_task_runtime_t *runtime);
+
+esp_err_t reflex_vm_task_service_init(void *ctx);
+esp_err_t reflex_vm_task_service_start(void *ctx);
+esp_err_t reflex_vm_task_service_stop(void *ctx);
+reflex_service_status_t reflex_vm_task_service_status(void *ctx);
+
 esp_err_t reflex_vm_task_self_check(void);
+
+esp_err_t reflex_vm_task_register_service(reflex_vm_task_runtime_t *runtime, const char *name);
 
 #ifdef __cplusplus
 }

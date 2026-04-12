@@ -51,6 +51,17 @@ The ternary runtime path from representation through background execution is imp
 - Status: done
 - Output: `config get`, `config set`
 
+### B009 Service Registry
+- Status: done
+- Output:
+- `core/include/reflex_service.h`
+- `core/service_manager.c`
+- service descriptor and registration API
+
+### B010 Core Service Manager
+- Status: done
+- Output: lifecycle management (init, start, stop, status) and shell commands
+
 ## Completed T Tasks
 
 ### T001 Ternary Architecture Note

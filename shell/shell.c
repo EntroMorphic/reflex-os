@@ -18,6 +18,7 @@
 
 #include "reflex_log.h"
 #include "reflex_config.h"
+#include "reflex_service.h"
 #include "reflex_ternary.h"
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
@@ -140,7 +141,35 @@ static int reflex_shell_tokenize(char *line, char *argv[REFLEX_SHELL_ARGV_MAX])
 
 static void reflex_shell_help(void)
 {
-    printf("commands: help, reboot, version, uptime, heap, config <get|set>, vm info, vm load, vm run [steps], vm step, vm regs, vm task <start|stop|status>\n");
+    printf("commands: help, reboot, version, uptime, heap, config <get|set>, services, vm info, vm load, vm run [steps], vm step, vm regs, vm task <start|stop|status>\n");
+}
+
+static const char *reflex_shell_service_status_name(reflex_service_status_t status)
+{
+    switch (status) {
+    case REFLEX_SERVICE_STATUS_STOPPED:
+        return "stopped";
+    case REFLEX_SERVICE_STATUS_STARTED:
+        return "started";
+    case REFLEX_SERVICE_STATUS_FAULTED:
+        return "faulted";
+    default:
+        return "unknown";
+    }
+}
+
+static void reflex_shell_services(void)
+{
+    size_t count = reflex_service_get_count();
+    printf("services=%zu\n", count);
+    for (size_t i = 0; i < count; ++i) {
+        const reflex_service_desc_t *svc = reflex_service_get_by_index(i);
+        reflex_service_status_t status = REFLEX_SERVICE_STATUS_STOPPED;
+        if (svc->status != NULL) {
+            status = svc->status(svc->context);
+        }
+        printf("%zu: name=%s status=%s\n", i, svc->name, reflex_shell_service_status_name(status));
+    }
 }
 
 static void reflex_shell_version(void)
@@ -403,6 +432,11 @@ static void reflex_shell_dispatch(int argc, char *argv[REFLEX_SHELL_ARGV_MAX])
 
     if (strcmp(argv[0], "heap") == 0) {
         reflex_shell_heap();
+        return;
+    }
+
+    if (strcmp(argv[0], "services") == 0) {
+        reflex_shell_services();
         return;
     }
 

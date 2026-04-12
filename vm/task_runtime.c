@@ -119,6 +119,54 @@ bool reflex_vm_task_is_running(const reflex_vm_task_runtime_t *runtime)
     return runtime != NULL && runtime->running;
 }
 
+esp_err_t reflex_vm_task_service_init(void *ctx)
+{
+    reflex_vm_task_runtime_t *runtime = (reflex_vm_task_runtime_t *)ctx;
+    ESP_RETURN_ON_FALSE(runtime != NULL, ESP_ERR_INVALID_ARG, "vm_task", "runtime required");
+    reflex_vm_task_runtime_init(runtime);
+    return ESP_OK;
+}
+
+esp_err_t reflex_vm_task_service_start(void *ctx)
+{
+    reflex_vm_task_runtime_t *runtime = (reflex_vm_task_runtime_t *)ctx;
+    ESP_RETURN_ON_FALSE(runtime != NULL, ESP_ERR_INVALID_ARG, "vm_task", "runtime required");
+    if (runtime->image == NULL) {
+        return ESP_OK; // Or ESP_ERR_INVALID_STATE if we require an image
+    }
+    return reflex_vm_task_start(runtime, runtime->image, &runtime->config);
+}
+
+esp_err_t reflex_vm_task_service_stop(void *ctx)
+{
+    reflex_vm_task_runtime_t *runtime = (reflex_vm_task_runtime_t *)ctx;
+    return reflex_vm_task_stop(runtime);
+}
+
+reflex_service_status_t reflex_vm_task_service_status(void *ctx)
+{
+    reflex_vm_task_runtime_t *runtime = (reflex_vm_task_runtime_t *)ctx;
+    if (runtime == NULL) return REFLEX_SERVICE_STATUS_STOPPED;
+    
+    if (runtime->vm.status == REFLEX_VM_STATUS_FAULTED) {
+        return REFLEX_SERVICE_STATUS_FAULTED;
+    }
+    
+    return (runtime->handle != NULL) ? REFLEX_SERVICE_STATUS_STARTED : REFLEX_SERVICE_STATUS_STOPPED;
+}
+
+esp_err_t reflex_vm_task_register_service(reflex_vm_task_runtime_t *runtime, const char *name)
+{
+    static reflex_service_desc_t desc;
+    desc.name = name;
+    desc.init = reflex_vm_task_service_init;
+    desc.start = reflex_vm_task_service_start;
+    desc.stop = reflex_vm_task_service_stop;
+    desc.status = reflex_vm_task_service_status;
+    desc.context = runtime;
+    return reflex_service_register(&desc);
+}
+
 esp_err_t reflex_vm_task_self_check(void)
 {
     static const reflex_vm_instruction_t program[] = {

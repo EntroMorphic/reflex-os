@@ -128,7 +128,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: B005, B006
 
 ### B009 Service Registry
-- Status: `todo`
+- Status: `done`
 - Goal: Define the runtime model for named internal services.
 - Deliverables:
 - service descriptor type
@@ -138,7 +138,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: B003
 
 ### B010 Core Service Manager
-- Status: `todo`
+- Status: `done`
 - Goal: Implement service lifecycle orchestration.
 - Deliverables:
 - service manager module

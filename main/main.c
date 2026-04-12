@@ -5,17 +5,25 @@
 
 #include "reflex_boot.h"
 #include "reflex_storage.h"
+#include "reflex_service.h"
 #include "reflex_ternary.h"
 #include "reflex_shell.h"
 #include "reflex_vm.h"
+#include "reflex_vm_task.h"
 #include "reflex_vm_loader.h"
 
 void app_main(void)
 {
     esp_err_t storage_result;
+    static reflex_vm_task_runtime_t system_vm;
 
     reflex_boot_print_banner();
     storage_result = reflex_storage_init();
+    
+    reflex_service_manager_init();
+    reflex_vm_task_runtime_init(&system_vm);
+    reflex_vm_task_register_service(&system_vm, "system-vm");
+    reflex_service_start_all();
 
     esp_err_t ternary_result = reflex_ternary_self_check();
     esp_err_t vm_result = reflex_vm_self_check();
