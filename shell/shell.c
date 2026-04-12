@@ -15,11 +15,13 @@
 #include "esp_heap_caps.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "esp_netif.h"
 
 #include "reflex_log.h"
 #include "reflex_config.h"
 #include "reflex_event.h"
 #include "reflex_service.h"
+#include "reflex_wifi.h"
 #include "reflex_ternary.h"
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
@@ -142,7 +144,41 @@ static int reflex_shell_tokenize(char *line, char *argv[REFLEX_SHELL_ARGV_MAX])
 
 static void reflex_shell_help(void)
 {
-    printf("commands: help, reboot, version, uptime, heap, config <get|set>, services, event test, vm info, vm load, vm run [steps], vm step, vm regs, vm task <start|stop|status>\n");
+    printf("commands: help, reboot, version, uptime, heap, config <get|set>, services, event test, wifi <status|connect>, vm info, vm load, vm run [steps], vm step, vm regs, vm task <start|stop|status>\n");
+}
+
+static void reflex_shell_wifi_status(void)
+{
+    char ssid[33] = {0};
+    esp_netif_ip_info_t ip_info;
+    
+    if (reflex_config_get_wifi_ssid(ssid, sizeof(ssid)) == ESP_OK && strlen(ssid) > 0) {
+        printf("configured_ssid=%s\n", ssid);
+    } else {
+        printf("wifi not configured\n");
+        return;
+    }
+
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+        printf("ip=" IPSTR "\n", IP2STR(&ip_info.ip));
+        printf("gw=" IPSTR "\n", IP2STR(&ip_info.gw));
+        printf("mask=" IPSTR "\n", IP2STR(&ip_info.netmask));
+    } else {
+        printf("ip=disconnected\n");
+    }
+}
+
+static void reflex_shell_wifi_connect(const char *ssid, const char *pass)
+{
+    if (ssid == NULL || pass == NULL) {
+        printf("usage: wifi connect <ssid> <password>\n");
+        return;
+    }
+
+    reflex_config_set_wifi_ssid(ssid);
+    reflex_config_set_wifi_password(pass);
+    printf("wifi credentials updated, reboot to connect\n");
 }
 
 static void reflex_shell_event_handler(const reflex_event_t *event, void *ctx)
@@ -464,6 +500,30 @@ static void reflex_shell_dispatch(int argc, char *argv[REFLEX_SHELL_ARGV_MAX])
             return;
         }
         reflex_shell_event_test();
+        return;
+    }
+
+    if (strcmp(argv[0], "wifi") == 0) {
+        if (argc < 2) {
+            printf("usage: wifi <status|connect>\n");
+            return;
+        }
+
+        if (strcmp(argv[1], "status") == 0) {
+            reflex_shell_wifi_status();
+            return;
+        }
+
+        if (strcmp(argv[1], "connect") == 0) {
+            if (argc < 4) {
+                printf("usage: wifi connect <ssid> <password>\n");
+                return;
+            }
+            reflex_shell_wifi_connect(argv[2], argv[3]);
+            return;
+        }
+
+        printf("unknown wifi command\n");
         return;
     }
 

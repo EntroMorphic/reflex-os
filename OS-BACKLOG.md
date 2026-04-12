@@ -268,7 +268,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: B010
 
 ### H002 Boot And Service Events
-- Status: `todo`
+- Status: `done`
 - Goal: Publish system lifecycle events on boot and service transitions.
 - Deliverables:
 - boot-complete event
@@ -277,7 +277,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: H001, B010
 
 ### H003 LED HAL
-- Status: `todo`
+- Status: `done`
 - Goal: Create the first hardware abstraction module around the onboard LED.
 - Deliverables:
 - LED pin mapping for XIAO ESP32C6
@@ -285,7 +285,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: B003
 
 ### H004 LED Service
-- Status: `todo`
+- Status: `done`
 - Goal: Expose LED control as a managed service.
 - Deliverables:
 - LED service registration
@@ -320,7 +320,7 @@ Phase 1: Ternary Architecture And Host Foundation
 ## Milestone 4: Connectivity
 
 ### N001 Wi-Fi Config Integration
-- Status: `todo`
+- Status: `done`
 - Goal: Connect Wi-Fi config entries to the networking stack.
 - Deliverables:
 - config-to-runtime Wi-Fi credential loading
@@ -328,7 +328,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: B005
 
 ### N002 Wi-Fi Manager Service
-- Status: `todo`
+- Status: `done`
 - Goal: Add managed station-mode Wi-Fi support.
 - Deliverables:
 - init and teardown path
@@ -337,7 +337,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: B010, N001
 
 ### N003 Network Event Mapping
-- Status: `todo`
+- Status: `done`
 - Goal: Publish Wi-Fi and IP events into the Reflex OS event bus.
 - Deliverables:
 - connected event
@@ -346,7 +346,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: H001, N002
 
 ### N004 Network Shell Commands
-- Status: `todo`
+- Status: `done`
 - Goal: Make network setup visible and controllable from the shell.
 - Deliverables:
 - `wifi status`

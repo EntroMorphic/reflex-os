@@ -7,6 +7,8 @@
 #include "reflex_storage.h"
 #include "reflex_event.h"
 #include "reflex_service.h"
+#include "reflex_led_service.h"
+#include "reflex_wifi.h"
 #include "reflex_ternary.h"
 #include "reflex_shell.h"
 #include "reflex_vm.h"
@@ -26,6 +28,8 @@ void app_main(void)
     
     reflex_vm_task_runtime_init(&system_vm);
     reflex_vm_task_register_service(&system_vm, "system-vm");
+    reflex_led_service_register();
+    reflex_wifi_service_register();
     reflex_service_start_all();
 
     reflex_event_publish(REFLEX_EVENT_BOOT_COMPLETE, NULL, 0);

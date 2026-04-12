@@ -69,6 +69,28 @@ The ternary runtime path from representation through background execution is imp
 - `core/event_bus.c`
 - publish-subscribe mechanism with synchronous dispatch
 
+### H003 LED HAL
+- Status: done
+- Output:
+- `drivers/include/reflex_led.h`
+- `drivers/led.c`
+- GPIO 15 abstraction for Seeed Studio XIAO ESP32C6
+
+### H004 LED Service
+- Status: done
+- Output:
+- `services/include/reflex_led_service.h`
+- `services/led_service.c`
+- Toggles LED on `REFLEX_EVENT_CUSTOM` events
+
+### N002 Wi-Fi Manager Service
+- Status: done
+- Output:
+- `net/include/reflex_wifi.h`
+- `net/wifi.c`
+- NVS-backed station mode with auto-reconnect
+- Publishes connection and IP events to the bus
+
 ## Completed T Tasks
 
 ### T001 Ternary Architecture Note
