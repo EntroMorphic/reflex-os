@@ -258,7 +258,7 @@ Phase 1: Ternary Architecture And Host Foundation
 ## Milestone 3: Hardware And Events
 
 ### H001 Event Bus Core
-- Status: `todo`
+- Status: `done`
 - Goal: Create an internal publish-subscribe event mechanism.
 - Deliverables:
 - event type definitions

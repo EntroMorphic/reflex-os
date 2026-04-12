@@ -62,6 +62,13 @@ The ternary runtime path from representation through background execution is imp
 - Status: done
 - Output: lifecycle management (init, start, stop, status) and shell commands
 
+### H001 Event Bus Core
+- Status: done
+- Output:
+- `core/include/reflex_event.h`
+- `core/event_bus.c`
+- publish-subscribe mechanism with synchronous dispatch
+
 ## Completed T Tasks
 
 ### T001 Ternary Architecture Note

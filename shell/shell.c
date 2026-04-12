@@ -18,6 +18,7 @@
 
 #include "reflex_log.h"
 #include "reflex_config.h"
+#include "reflex_event.h"
 #include "reflex_service.h"
 #include "reflex_ternary.h"
 #include "reflex_vm.h"
@@ -141,7 +142,24 @@ static int reflex_shell_tokenize(char *line, char *argv[REFLEX_SHELL_ARGV_MAX])
 
 static void reflex_shell_help(void)
 {
-    printf("commands: help, reboot, version, uptime, heap, config <get|set>, services, vm info, vm load, vm run [steps], vm step, vm regs, vm task <start|stop|status>\n");
+    printf("commands: help, reboot, version, uptime, heap, config <get|set>, services, event test, vm info, vm load, vm run [steps], vm step, vm regs, vm task <start|stop|status>\n");
+}
+
+static void reflex_shell_event_handler(const reflex_event_t *event, void *ctx)
+{
+    printf("\n[event] type=%d timestamp=%lu\n", (int)event->type, (unsigned long)event->timestamp_ms);
+    reflex_shell_print_prompt();
+}
+
+static void reflex_shell_event_test(void)
+{
+    static bool subscribed = false;
+    if (!subscribed) {
+        reflex_event_subscribe(REFLEX_EVENT_CUSTOM, reflex_shell_event_handler, NULL);
+        subscribed = true;
+    }
+    printf("publishing custom event\n");
+    reflex_event_publish(REFLEX_EVENT_CUSTOM, NULL, 0);
 }
 
 static const char *reflex_shell_service_status_name(reflex_service_status_t status)
@@ -437,6 +455,15 @@ static void reflex_shell_dispatch(int argc, char *argv[REFLEX_SHELL_ARGV_MAX])
 
     if (strcmp(argv[0], "services") == 0) {
         reflex_shell_services();
+        return;
+    }
+
+    if (strcmp(argv[0], "event") == 0) {
+        if (argc < 2 || strcmp(argv[1], "test") != 0) {
+            printf("usage: event test\n");
+            return;
+        }
+        reflex_shell_event_test();
         return;
     }
 
