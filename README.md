@@ -13,6 +13,10 @@ The project currently includes a working ternary VM foundation on hardware:
 - VM shell commands over USB Serial/JTAG
 - host syscall bridge
 - FreeRTOS-backed VM task runtime
+- structured boot banner and version metadata
+- Reflex logging facade for host modules
+- NVS-backed storage initialization
+- typed config store with persisted defaults
 
 ## Hardware
 
@@ -25,8 +29,9 @@ The project currently includes a working ternary VM foundation on hardware:
 - boots and prints Reflex OS bring-up output on hardware
 - runs ternary VM self-checks at startup
 - exposes VM control commands over the serial shell
-- supports host syscalls for log, uptime, and scalar config reads
+- supports host syscalls for log, uptime, and scalar config reads backed by the real config store
 - supports a background VM task runtime
+- initializes NVS and creates persisted config defaults on first boot
 
 ## Docs
 
@@ -72,6 +77,10 @@ idf.py -p /dev/cu.usbmodem1101 flash
 
 The current image has been validated on the XIAO ESP32C6 for:
 
+- structured boot banner and reset-reason reporting
+- host logging facade output
+- NVS storage initialization
+- persisted config default initialization
 - ternary self-check
 - VM self-check
 - VM loader self-check

@@ -6,8 +6,7 @@
 #include "esp_check.h"
 #include "esp_timer.h"
 
-static const char *REFLEX_VM_DEVICE_NAME = "reflex-os";
-static const int32_t REFLEX_VM_DEFAULT_LOG_LEVEL = 2;
+#include "reflex_config.h"
 
 static esp_err_t reflex_vm_default_syscall_handler(reflex_vm_state_t *vm,
                                                    reflex_vm_syscall_t syscall_id,
@@ -34,10 +33,18 @@ static esp_err_t reflex_vm_default_syscall_handler(reflex_vm_state_t *vm,
     case REFLEX_VM_SYSCALL_CONFIG_GET:
         ESP_RETURN_ON_ERROR(reflex_word18_to_int32(src_a, &scalar), "vm_syscall", "config key invalid");
         if (scalar == REFLEX_VM_CONFIG_DEVICE_NAME_LENGTH) {
-            return reflex_word18_from_int32((int32_t)strlen(REFLEX_VM_DEVICE_NAME), out);
+            char device_name[32];
+            ESP_RETURN_ON_ERROR(reflex_config_get_device_name(device_name, sizeof(device_name)),
+                                "vm_syscall",
+                                "device name read failed");
+            return reflex_word18_from_int32((int32_t)strlen(device_name), out);
         }
         if (scalar == REFLEX_VM_CONFIG_LOG_LEVEL) {
-            return reflex_word18_from_int32(REFLEX_VM_DEFAULT_LOG_LEVEL, out);
+            int32_t log_level = 0;
+            ESP_RETURN_ON_ERROR(reflex_config_get_log_level(&log_level),
+                                "vm_syscall",
+                                "log level read failed");
+            return reflex_word18_from_int32(log_level, out);
         }
         return ESP_ERR_NOT_SUPPORTED;
     default:

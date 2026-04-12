@@ -12,6 +12,7 @@
 
 #include "esp_check.h"
 
+#include "reflex_log.h"
 #include "reflex_ternary.h"
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
@@ -334,7 +335,7 @@ void reflex_shell_run(void)
     size_t line_len = 0;
 
     reflex_shell_init_io();
-    printf("shell ready; type 'help'\n");
+    REFLEX_LOGI(REFLEX_SHELL_TAG, "shell ready; type 'help'");
     reflex_shell_print_prompt();
 
     while (true) {

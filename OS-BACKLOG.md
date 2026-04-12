@@ -40,7 +40,7 @@ Phase 1: Ternary Architecture And Host Foundation
 ## Milestone 1: Host Foundation
 
 ### B001 Boot Banner And Version Metadata
-- Status: `todo`
+- Status: `done`
 - Goal: Replace the current single printf with a structured boot banner.
 - Deliverables:
 - print project name
@@ -62,7 +62,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: B001
 
 ### B003 Logging Facade
-- Status: `todo`
+- Status: `done`
 - Goal: Define a Reflex OS logging wrapper over ESP-IDF logging.
 - Deliverables:
 - log macros or wrapper API
@@ -72,7 +72,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Notes: this should be in place before shell and service work spreads logging everywhere.
 
 ### B004 NVS Storage Initialization
-- Status: `todo`
+- Status: `done`
 - Goal: Bring up persistent storage cleanly at boot.
 - Deliverables:
 - NVS init on startup
@@ -81,7 +81,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: B001
 
 ### B005 Config Store Schema
-- Status: `todo`
+- Status: `done`
 - Goal: Create a typed config layer over NVS.
 - Deliverables:
 - config namespace design
@@ -441,16 +441,14 @@ Phase 1: Ternary Architecture And Host Foundation
 
 These are the next recommended tasks to implement in order:
 
-1. B001 Boot banner and version metadata
-2. B003 Logging facade
-3. B004 NVS storage initialization
-4. B005 Config store schema
-5. B006 Serial shell core
-6. B007 Base shell commands
-7. B009 Service registry
-8. H001 Event bus core
-9. H003 LED HAL
-10. H004 LED service
+1. B006 Serial shell core
+2. B007 Base shell commands
+3. B008 Config shell commands
+4. B009 Service registry
+5. B010 Core service manager
+6. H001 Event bus core
+7. H003 LED HAL
+8. H004 LED service
 
 ## Deferred Until Needed
 

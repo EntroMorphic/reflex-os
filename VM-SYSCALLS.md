@@ -28,14 +28,14 @@ For MVP, syscalls remain intentionally small, synchronous, and host-controlled.
 ### `REFLEX_VM_SYSCALL_CONFIG_GET`
 - Input: `SRC_A` interpreted as a scalar config key
 - Effect: none
-- Output: scalar config value as a `word18`
+- Output: scalar config value as a `word18` read from the real config store
 
 ## Initial Config Keys
 
 The first config bridge only exposes scalar values. String values remain deferred.
 
-- `REFLEX_VM_CONFIG_DEVICE_NAME_LENGTH = 0` -> returns the length of `"reflex-os"`
-- `REFLEX_VM_CONFIG_LOG_LEVEL = 1` -> returns the current default log level token
+- `REFLEX_VM_CONFIG_DEVICE_NAME_LENGTH = 0` -> returns the persisted device name length
+- `REFLEX_VM_CONFIG_LOG_LEVEL = 1` -> returns the persisted log level token
 
 ## Design Rules
 

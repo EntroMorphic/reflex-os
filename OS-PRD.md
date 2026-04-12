@@ -473,4 +473,4 @@ Reflex OS MVP is done when:
 
 ## Current Status
 
-The ternary runtime foundation is implemented through `T010` and validated on hardware. The next major phase is the host OS backlog starting with `B001`.
+The ternary runtime foundation is implemented through `T010` and validated on hardware. The first host-foundation tasks `B001`, `B003`, `B004`, and `B005` are also implemented and validated on hardware. The next major phase is the broader host shell and service backlog starting with `B006` and `B007`.

@@ -2,9 +2,40 @@
 
 ## Summary
 
-Reflex OS currently has a working ternary VM foundation running on the XIAO ESP32C6.
+Reflex OS currently has a working ternary VM foundation and the first host-foundation modules running on the XIAO ESP32C6.
 
-The ternary runtime path from representation through background execution is implemented and hardware-validated.
+The ternary runtime path from representation through background execution is implemented and hardware-validated. Boot metadata, host logging, storage initialization, and a real config store are also in place.
+
+## Completed Host Tasks
+
+### B001 Boot Banner And Version Metadata
+- Status: done
+- Output:
+- `core/include/reflex_boot.h`
+- `core/boot.c`
+- structured boot banner with project, version, chip, flash, and reset reason output
+
+### B003 Logging Facade
+- Status: done
+- Output:
+- `core/include/reflex_log.h`
+- `core/log.c`
+- tagged host logging for boot and shell modules
+
+### B004 NVS Storage Initialization
+- Status: done
+- Output:
+- `storage/include/reflex_storage.h`
+- `storage/storage.c`
+- NVS init with erase-and-recover flow for supported recovery errors
+
+### B005 Config Store Schema
+- Status: done
+- Output:
+- `storage/include/reflex_config.h`
+- `storage/config.c`
+- typed config getters/setters with persisted defaults
+- VM config syscall now reads from real config storage
 
 ## Completed T Tasks
 
@@ -84,6 +115,8 @@ The ternary runtime path from representation through background execution is imp
 - `vm log value=9` proves host syscall execution from ternary VM code
 - shell commands execute correctly on hardware
 - background VM task can be started, observed, and stopped from the shell
+- boot metadata is emitted through `reflex.boot` tagged logs
+- storage initializes successfully and persisted config defaults are available at boot
 
 ## Current Shell Surface
 
@@ -97,11 +130,18 @@ The ternary runtime path from representation through background execution is imp
 - `vm task stop`
 - `vm task status`
 
+## Current Stored Defaults
+
+- `device_name = "reflex-os"`
+- `log_level = 2`
+- `wifi_ssid = ""`
+- `wifi_password = ""`
+- `safe_mode = false`
+
 ## Known Limits
 
-- boot and version handling still live in `main/main.c`
+- `main/main.c` still owns startup sequencing even though boot formatting moved into `core/`
 - shell is VM-focused and not yet the broader system shell from the host backlog
-- config store is only stubbed through syscall defaults, not backed by NVS yet
 - no service manager, event bus, or hardware service stack yet
 - no OTA or networking runtime yet
 
@@ -109,8 +149,8 @@ The ternary runtime path from representation through background execution is imp
 
 Recommended next work remains:
 
-1. `B001` boot banner and version subsystem
-2. `B003` logging facade
-3. `B004` NVS storage initialization
-4. `B005` config store
-5. `B006` broader serial shell core beyond VM control
+1. `B006` broader serial shell core beyond VM control
+2. `B007` base shell commands
+3. `B008` config shell commands
+4. `B009` service registry
+5. `B010` core service manager
