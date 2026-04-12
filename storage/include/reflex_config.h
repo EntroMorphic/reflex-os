@@ -28,6 +28,9 @@ esp_err_t reflex_config_set_wifi_password(const char *value);
 esp_err_t reflex_config_get_safe_mode(bool *out);
 esp_err_t reflex_config_set_safe_mode(bool value);
 
+esp_err_t reflex_config_get_boot_count(int32_t *out);
+esp_err_t reflex_config_set_boot_count(int32_t value);
+
 #ifdef __cplusplus
 }
 #endif

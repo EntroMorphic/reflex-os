@@ -320,6 +320,13 @@ static void reflex_shell_config_get(const char *key)
         } else {
             printf("failed to get safe_mode\n");
         }
+    } else if (strcmp(key, "boot_count") == 0) {
+        int32_t count;
+        if (reflex_config_get_boot_count(&count) == ESP_OK) {
+            printf("boot_count=%ld\n", (long)count);
+        } else {
+            printf("failed to get boot_count\n");
+        }
     } else {
         printf("unknown key: %s\n", key);
     }
@@ -346,6 +353,9 @@ static void reflex_shell_config_set(const char *key, const char *value)
     } else if (strcmp(key, "safe_mode") == 0) {
         bool safe = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
         err = reflex_config_set_safe_mode(safe);
+    } else if (strcmp(key, "boot_count") == 0) {
+        int32_t count = atoi(value);
+        err = reflex_config_set_boot_count(count);
     } else {
         printf("unknown key: %s\n", key);
         return;

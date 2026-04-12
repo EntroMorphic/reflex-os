@@ -357,7 +357,7 @@ Phase 1: Ternary Architecture And Host Foundation
 ## Milestone 5: Reliability
 
 ### R001 Boot Counter And Failure Marker
-- Status: `todo`
+- Status: `done`
 - Goal: Persist enough boot-state information to detect unstable startup.
 - Deliverables:
 - boot count
@@ -366,7 +366,7 @@ Phase 1: Ternary Architecture And Host Foundation
 - Dependencies: B005
 
 ### R002 Safe Mode Entry Logic
-- Status: `todo`
+- Status: `done`
 - Goal: Support minimal boot mode for recovery.
 - Deliverables:
 - intentional safe mode trigger

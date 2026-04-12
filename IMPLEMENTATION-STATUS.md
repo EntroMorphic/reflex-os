@@ -91,6 +91,13 @@ The ternary runtime path from representation through background execution is imp
 - NVS-backed station mode with auto-reconnect
 - Publishes connection and IP events to the bus
 
+### R002 Safe Mode Entry Logic
+- Status: done
+- Output:
+- `main/main.c` boot loop detection logic
+- NVS-persisted `boot_count` and `safe_mode` flags
+- Minimal shell fallback on detection
+
 ## Completed T Tasks
 
 ### T001 Ternary Architecture Note

@@ -11,6 +11,7 @@ static const int32_t REFLEX_CONFIG_DEFAULT_LOG_LEVEL = 2;
 static const char *REFLEX_CONFIG_DEFAULT_WIFI_SSID = "";
 static const char *REFLEX_CONFIG_DEFAULT_WIFI_PASSWORD = "";
 static const uint8_t REFLEX_CONFIG_DEFAULT_SAFE_MODE = 0;
+static const int32_t REFLEX_CONFIG_DEFAULT_BOOT_COUNT = 0;
 
 static esp_err_t reflex_config_open(nvs_open_mode_t mode, nvs_handle_t *out_handle)
 {
@@ -116,6 +117,11 @@ esp_err_t reflex_config_init_defaults(void)
         goto fail;
     }
 
+    err = reflex_config_set_default_i32(handle, "boot_count", REFLEX_CONFIG_DEFAULT_BOOT_COUNT);
+    if (err != ESP_OK) {
+        goto fail;
+    }
+
     err = nvs_commit(handle);
     if (err != ESP_OK) {
         goto fail;
@@ -207,6 +213,32 @@ esp_err_t reflex_config_set_safe_mode(bool value)
 
     ESP_RETURN_ON_ERROR(reflex_config_open(NVS_READWRITE, &handle), "reflex.config", "open failed");
     err = nvs_set_u8(handle, "safe_mode", value ? 1 : 0);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err;
+}
+
+esp_err_t reflex_config_get_boot_count(int32_t *out)
+{
+    nvs_handle_t handle;
+    esp_err_t err;
+
+    ESP_RETURN_ON_FALSE(out != NULL, ESP_ERR_INVALID_ARG, "reflex.config", "output is required");
+    ESP_RETURN_ON_ERROR(reflex_config_open(NVS_READONLY, &handle), "reflex.config", "open failed");
+    err = nvs_get_i32(handle, "boot_count", out);
+    nvs_close(handle);
+    return err;
+}
+
+esp_err_t reflex_config_set_boot_count(int32_t value)
+{
+    nvs_handle_t handle;
+    esp_err_t err;
+
+    ESP_RETURN_ON_ERROR(reflex_config_open(NVS_READWRITE, &handle), "reflex.config", "open failed");
+    err = nvs_set_i32(handle, "boot_count", value);
     if (err == ESP_OK) {
         err = nvs_commit(handle);
     }
