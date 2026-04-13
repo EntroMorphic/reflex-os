@@ -1,89 +1,74 @@
 # Reflex OS
 
-Reflex OS is a binary-hosted ternary operating environment for the Seeed Studio XIAO ESP32C6, built on ESP-IDF.
+Reflex OS is a binary-hosted ternary operating environment for the Seeed Studio XIAO ESP32C6, built on ESP-IDF. It extends binary silicon with a software-defined ternary machine that manages physical hardware.
 
-The project currently includes a working ternary VM foundation on hardware:
+The project provides a complete "Soft Silicon" stack:
 
-- balanced ternary data model
-- `word18` execution words and packed trit storage
-- ternary arithmetic helpers
-- MVP soft-opcode ISA
-- register-based interpreter
-- VM image loader
-- VM shell commands over USB Serial/JTAG
-- host syscall bridge
-- FreeRTOS-backed VM task runtime
-- structured boot banner and version metadata
-- Reflex logging facade for host modules
-- NVS-backed storage initialization
-- typed config store with persisted defaults
+- **Ternary Core:** Balanced ternary semantics, 32-bit packed bytecode (v2), and an MMU-backed shared memory model.
+- **Acceleration:** A software-defined L1 Soft-Cache with MESI-lite coherency for high-speed ternary execution.
+- **Coordination:** A high-speed Ternary Message Fabric for 1-to-1 task and service communication.
+- **Supervisor:** A background ternary assembly program that manages physical hardware (LED, Button) via the fabric.
 
 ## Hardware
 
-- Board: Seeed Studio XIAO ESP32C6
-- Flash: 4MB
-- Console: USB Serial/JTAG
+- **Board:** Seeed Studio XIAO ESP32C6
+- **Flash:** 4MB (OTA-ready layout)
+- **Console:** USB Serial/JTAG (Native)
+- **I/O:** Onboard LED and User Button (GPIO 9) integrated into the Ternary Fabric.
 
-## Current Capabilities
+## Developer Tools
 
-- boots and prints Reflex OS bring-up output on hardware
-- runs ternary VM self-checks at startup
-- exposes VM control commands over the serial shell
-- supports host syscalls for log, uptime, and scalar config reads backed by the real config store
-- supports a background VM task runtime
-- initializes NVS and creates persisted config defaults on first boot
+- **TASM:** The Reflex Ternary Assembler (`tasm.py`). Compiles `.tasm` assembly into `.rfxv` binary images with CRC32 integrity.
+- **Hex Loader:** Copy-paste assembled binaries directly into the board via the shell.
 
 ## Docs
 
 - `OS-PRD.md`: product requirements
-- `OS-BACKLOG.md`: implementation backlog and task order
+- `OS-BACKLOG.md`: implementation backlog and status
 - `ARCHITECTURE.md`: project module layout and boundaries
 - `TERNARY-ARCHITECTURE.md`: ternary model decisions
-- `SOFT-OPCODES.md`: MVP ISA
-- `VM-STATE.md`: VM state model
-- `VM-LOADER.md`: VM image and loader contract
-- `VM-SYSCALLS.md`: syscall bridge contract
-- `IMPLEMENTATION-STATUS.md`: current implemented state and validation notes
+- `TASM-SPEC.md`: assembler syntax and opcode mapping
+- `VM-LOADER-V2.md`: packed bytecode specification
+- `VM-CACHE.md`: soft-cache and coherency specification
+- `VM-SYSCALLS.md`: host syscall bridge contract
+- `IMPLEMENTATION-STATUS.md`: current hardware-validated state
 
 ## Shell Commands
 
 Current shell commands:
 
 - `help`
-- `vm info`
-- `vm load`
-- `vm run [steps]`
-- `vm step`
-- `vm regs`
-- `vm task start`
-- `vm task stop`
-- `vm task status`
+- `reboot`
+- `version`
+- `uptime`
+- `heap`
+- `config <get|set>`
+- `wifi <status|connect>`
+- `vm loadhex <HEX>`
+- `vm task <start|stop|status>`
+- `vm info` (shows cache hits/misses)
 
-## Build
+## Build & Flash
 
 ```bash
+# Export ESP-IDF
 source /Users/aaronjosserand-austin/Projects/esp-idf/export.sh
+
+# Build
 idf.py build
-```
 
-## Flash
-
-```bash
-source /Users/aaronjosserand-austin/Projects/esp-idf/export.sh
-idf.py -p /dev/cu.usbmodem1101 flash
+# Flash (Forcing download mode)
+python3 -m esptool --chip esp32c6 --port /dev/cu.usbmodem1101 --before usb_reset write_flash 0x0 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0x10000 build/reflex_os.bin
 ```
 
 ## Hardware Validation Baseline
 
 The current image has been validated on the XIAO ESP32C6 for:
 
-- structured boot banner and reset-reason reporting
-- host logging facade output
-- NVS storage initialization
-- persisted config default initialization
-- ternary self-check
-- VM self-check
-- VM loader self-check
-- VM syscall bridge
-- VM task runtime
-- serial shell command execution
+- Ternary Supervisor background execution
+- Fabric-native Button and LED coordination
+- Soft-Cache performance and coherency
+- Multi-VM Shared Memory (MMU)
+- NVS storage and config persistence
+- Asynchronous Event Bus stability
+- 32-bit Packed Loader with CRC32 verification

@@ -1,0 +1,24 @@
+# Reflex OS Supervisor v1.0
+# The 'brain' of the OS: Manages hardware and coordinating tasks
+
+start:
+    TLDI r0, 1          # Node: LED Service
+    TLDI r1, 1          # Op: Toggle
+    
+wait_for_input:
+    # 1. Check for messages from the Button (Node 2)
+    TRECV r2            # Try to receive a message
+    
+    # TRECV returns the payload. In our Button HAL, it sends Op 1 on press.
+    # If no message, continue polling. 
+    # (In a real OS, we'd use a syscall to block until message)
+    TBRZERO @wait_for_input
+    
+    # 2. If message received, send Toggle to LED
+    TSEND r0, r2, 1     # Send to LED (r0), payload in r2, opcode 1 (Toggle)
+    
+    # 3. Add a small delay to debounce at the logic layer
+    TLDI r3, 200        # 200ms
+    TSYS r4, r3, r3, 3  # Syscall: DELAY (ID 3)
+    
+    TJMP @wait_for_input
