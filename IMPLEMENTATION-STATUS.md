@@ -105,6 +105,36 @@ The ternary runtime path from representation through background execution is imp
 - `main/main.c` 10s stability window for boot recovery
 - `vm/interpreter.c` strict state validation and checked memory access (VMM)
 
+### S001 Ternary Message Fabric
+- Status: done
+- Output:
+- `core/include/reflex_fabric.h`
+- `core/fabric.c`
+- Trit-indexed QoS channels (Critical, System, Telem)
+- `TSEND` and `TRECV` soft opcode implementation
+
+### S002 Ternary Shared Memory (MMU)
+- Status: done
+- Output:
+- `vm/include/reflex_vm_mem.h`
+- `vm/mmu.c`
+- Region-based address translation and boundary checking
+- Support for Private and Shared segments
+
+### H005 Button HAL & Event Mapping
+- Status: done
+- Output:
+- `drivers/button.c`
+- GPIO 9 polling with async event bus integration
+- `REFLEX_EVENT_BUTTON_PRESSED` / `RELEASED`
+
+### T007v2 Packed Bytecode Loader
+- Status: done
+- Output:
+- `VM-LOADER-V2.md` specification
+- `vm/loader.c` 32-bit instruction unpacker
+- Shell support for loading dense binary images
+
 ## Completed T Tasks
 
 ### T001 Ternary Architecture Note
