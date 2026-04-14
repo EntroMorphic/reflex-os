@@ -5,9 +5,28 @@
 TASM files (`.tasm`) are line-oriented text files.
 
 ### Instructions
-`OPCODE [DST], [SRC_A], [SRC_B], [IMM]`
 
-Not all fields are required. Commas are optional.
+The assembler validates operands per opcode. Commas are optional.
+
+- `TLDI DST, IMM`
+- `TMOV DST, SRC`
+- `TLD DST, ADDR_REG`
+- `TST ADDR_REG, SRC`
+- `TADD DST, SRC_A, SRC_B`
+- `TSUB DST, SRC_A, SRC_B`
+- `TCMP DST, SRC_A, SRC_B`
+- `TSEL DST, SEL, ZERO, NEG, POS`
+- `TJMP TARGET`
+- `TBRNEG SRC, TARGET`
+- `TBRZERO SRC, TARGET`
+- `TBRPOS SRC, TARGET`
+- `TSEND DST_REG, SRC, OP`
+- `TRECV DST`
+- `TFLUSH SRC`
+- `TINV SRC`
+- `TSYS DST, SRC_A, SRC_B, ID`
+- `TNOP`
+- `THALT`
 
 ### Registers
 `r0` through `r7`
@@ -36,8 +55,8 @@ init:
     
 loop:
     TRECV r2            ; Wait for message (from button)
-    TBRZERO @loop       ; If no message, loop
-    TSEND r0, r2, r1    ; Send toggle to LED service
+    TBRZERO r2, @loop   ; If no message, loop
+    TSEND r0, r2, 1     ; Send toggle to LED service
     TJMP @loop          ; Repeat
 ```
 

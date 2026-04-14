@@ -1,3 +1,10 @@
 build/
 sdkconfig
 sdkconfig.old
+.cache/
+*.log
+*_log.txt
+*.hex
+*.rfxv
+*.bin
+.DS_Store

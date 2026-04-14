@@ -18,7 +18,7 @@ The project provides a complete "Soft Silicon" stack:
 
 ## Developer Tools
 
-- **TASM:** The Reflex Ternary Assembler (`tasm.py`). Compiles `.tasm` assembly into `.rfxv` binary images with CRC32 integrity.
+- **TASM:** The Reflex Ternary Assembler (`tasm.py`). Compiles `.tasm` assembly into `.rfxv` binary images with CRC32 integrity and opcode-aware validation.
 - **Hex Loader:** Copy-paste assembled binaries directly into the board via the shell.
 
 ## Docs
@@ -32,6 +32,7 @@ The project provides a complete "Soft Silicon" stack:
 - `VM-CACHE.md`: soft-cache and coherency specification
 - `VM-SYSCALLS.md`: host syscall bridge contract
 - `IMPLEMENTATION-STATUS.md`: current hardware-validated state
+- `docs/REMEDIATION-PLAN.md`: audit findings and remediation execution plan
 
 ## Shell Commands
 
@@ -44,8 +45,13 @@ Current shell commands:
 - `heap`
 - `config <get|set>`
 - `wifi <status|connect>`
+- `vm load`
 - `vm loadhex <HEX>`
+- `fabric send <to> <op> <value>`
 - `vm task <start|stop|status>`
+- `vm run [steps]`
+- `vm step`
+- `vm regs`
 - `vm info` (shows cache hits/misses)
 
 ## Build & Flash
@@ -61,9 +67,9 @@ idf.py build
 python3 -m esptool --chip esp32c6 --port /dev/cu.usbmodem1101 --before usb_reset write_flash 0x0 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0x10000 build/reflex_os.bin
 ```
 
-## Hardware Validation Baseline
+## Validation Status
 
-The current image has been validated on the XIAO ESP32C6 for:
+The current remediation pass has been validated on the XIAO ESP32C6 for:
 
 - Ternary Supervisor background execution
 - Fabric-native Button and LED coordination
@@ -72,3 +78,11 @@ The current image has been validated on the XIAO ESP32C6 for:
 - NVS storage and config persistence
 - Asynchronous Event Bus stability
 - 32-bit Packed Loader with CRC32 verification
+
+Red-team checks executed on device:
+
+- truncated binary rejection in `vm loadhex`
+- corrupted CRC32 rejection in `vm loadhex`
+- loaded-image background task start path
+- supervisor-controlled LED toggle via injected fabric message to VM node `7`
+- direct LED toggle via injected fabric message to node `1`

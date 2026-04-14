@@ -471,6 +471,19 @@ Reflex OS MVP is done when:
 - it has a recovery path for boot failure
 - it is structured for future OTA updates
 
+## Milestone 7: Advanced Soft-Silicon Services
+
+### Ternary Message Fabric
+The system should implement a message-native substrate for high-speed coordination between the host and ternary runtime, inspired by the NeoGPU message fabric but adapted for ternary semantics.
+
+Requirements:
+- trit-defined QoS channels
+- lock-free message passing
+- soft opcode integration (TSEND/TRECV)
+
+### Soft-Cache & Coherency
+The system should establish a software-defined cache layer to reduce host RAM access latency during VM execution, managed by a coherency protocol to ensure data integrity across the host/VM boundary.
+
 ## Current Status
 
 The ternary runtime foundation is implemented through `T010` and validated on hardware. The first host-foundation tasks `B001`, `B003`, `B004`, and `B005` are also implemented and validated on hardware. The next major phase is the broader host shell and service backlog starting with `B006` and `B007`.
