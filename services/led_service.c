@@ -8,21 +8,49 @@
 #include "reflex_service.h"
 #include "reflex_event.h"
 #include "reflex_fabric.h"
+#include "goose.h"
+
+static goose_cell_t *led_intent = NULL;
+static goose_cell_t led_physical = { .name = "physical", .state = REFLEX_TRIT_ZERO, .hardware_addr = REFLEX_LED_PIN };
+
+static goose_route_t led_route = {
+    .name = "agency_path",
+    .source = NULL, // Will be linked to led_intent
+    .sink = &led_physical,
+    .orientation = REFLEX_TRIT_POS,
+    .coupling = GOOSE_COUPLING_SOFTWARE
+};
+
+static goose_field_t led_agency_field = {
+    .name = "led_agency",
+    .routes = &led_route,
+    .route_count = 1
+};
 
 static void reflex_led_task(void *arg)
 {
+    // Retrieve the intent cell from the global fabric
+    led_intent = goose_fabric_get_cell("led_intent");
+    led_route.source = led_intent;
+
+    if (!led_intent) {
+        ESP_LOGE("LED_SERVICE", "Failed to find led_intent cell in fabric!");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    reflex_trit_t last_state = led_intent->state;
+
     while (1) {
-        reflex_message_t msg;
-        if (reflex_fabric_recv(REFLEX_NODE_LED, &msg) == ESP_OK) {
-            // Op 1: Toggle, Op 2: On, Op 3: Off
-            if (msg.op == 1) {
-                reflex_led_toggle();
-            } else if (msg.op == 2) {
-                reflex_led_set(true);
-            } else if (msg.op == 3) {
-                reflex_led_set(false);
-            }
+        // Tapestry Processing: Observe the fabric cell
+        if (led_intent->state != last_state) {
+            ESP_LOGD("LED_SERVICE", "Tapestry transition detected: %d -> %d", last_state, led_intent->state);
+            
+            // Process the agency field to propagate intent to hardware
+            goose_process_transitions(&led_agency_field);
+            last_state = led_intent->state;
         }
+        
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
@@ -30,6 +58,7 @@ static void reflex_led_task(void *arg)
 static esp_err_t reflex_led_service_init(void *ctx)
 {
     (void)ctx;
+    // We still call reflex_led_init to ensure the GPIO is configured
     return reflex_led_init();
 }
 

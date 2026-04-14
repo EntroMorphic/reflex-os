@@ -351,9 +351,19 @@ static void reflex_shell_bonsai_runtime_test(void) {
     printf("Runtime test complete.\n");
 }
 
+static void reflex_shell_tapestry_signal(const char *name, int state) {
+    goose_cell_t *c = goose_fabric_get_cell(name);
+    if (!c) {
+        printf("Error: Cell '%s' not found in Tapestry.\n", name);
+        return;
+    }
+    c->state = (reflex_trit_t)state;
+    printf("Signal sent to Tapestry: %s = %d\n", name, state);
+}
+
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1|exp2|exp3a|exp4|exp5> [args], services, config <get|set>, vm info\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime>, tapestry <signal name state>, services, config <get|set>, vm info\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
     else if (strcmp(argv[0], "led") == 0) { if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off"); }
     else if (strcmp(argv[0], "bonsai") == 0) {
@@ -364,6 +374,10 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         else if (strcmp(argv[1], "exp4") == 0) { if (argc >= 3 && strcmp(argv[2], "connect") == 0) reflex_shell_bonsai_exp4_route(1); else if (argc >= 3 && strcmp(argv[2], "invert") == 0) reflex_shell_bonsai_exp4_route(-1); else if (argc >= 3 && strcmp(argv[2], "detach") == 0) reflex_shell_bonsai_exp4_route(0); }
         else if (strcmp(argv[1], "exp5") == 0) { if (argc >= 3 && strcmp(argv[2], "run") == 0) reflex_shell_bonsai_exp5_run(); }
         else if (strcmp(argv[1], "runtime") == 0) { reflex_shell_bonsai_runtime_test(); }
+    } else if (strcmp(argv[0], "tapestry") == 0) {
+        if (argc >= 4 && strcmp(argv[1], "signal") == 0) {
+            reflex_shell_tapestry_signal(argv[2], atoi(argv[3]));
+        }
     } else if (strcmp(argv[0], "services") == 0) {
         size_t c = reflex_service_get_count(); printf("services=%zu\n", c);
         for(size_t i=0; i<c; i++) { const reflex_service_desc_t *s = reflex_service_get_by_index(i); printf("%zu: %s\n", i, s->name); }

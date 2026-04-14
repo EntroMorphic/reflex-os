@@ -7,8 +7,35 @@
 
 static const char *TAG = "GOOSE_RUNTIME";
 
+// The Global Tapestry (The Loom)
+#define GOOSE_FABRIC_MAX_CELLS 16
+static goose_cell_t fabric_cells[GOOSE_FABRIC_MAX_CELLS];
+static size_t fabric_cell_count = 0;
+
 esp_err_t goose_fabric_init(void) {
-    ESP_LOGI(TAG, "Initializing GOOSE Ternary Fabric...");
+    ESP_LOGI(TAG, "Initializing GOOSE Ternary Fabric (The Loom)...");
+    
+    // Scaffolding standard fabric signals
+    snprintf(fabric_cells[0].name, 16, "sys_status");
+    fabric_cells[0].state = REFLEX_TRIT_POS;
+    
+    snprintf(fabric_cells[1].name, 16, "led_intent");
+    fabric_cells[1].state = REFLEX_TRIT_ZERO;
+    
+    fabric_cell_count = 2;
+    return ESP_OK;
+}
+
+goose_cell_t* goose_fabric_get_cell(const char *name) {
+    for (size_t i = 0; i < fabric_cell_count; i++) {
+        if (strcmp(fabric_cells[i].name, name) == 0) return &fabric_cells[i];
+    }
+    return NULL;
+}
+
+esp_err_t goose_fabric_process(void) {
+    // In the future, this would process global system-wide routes
+    // For now, it's a placeholder for the Tapestry evolution
     return ESP_OK;
 }
 

@@ -80,4 +80,8 @@ esp_err_t goose_fabric_init(void);
 esp_err_t goose_apply_route(goose_route_t *route);
 esp_err_t goose_process_transitions(goose_field_t *field);
 
+// Global Fabric API
+goose_cell_t* goose_fabric_get_cell(const char *name);
+esp_err_t goose_fabric_process(void); // Global tapestry processing
+
 #endif

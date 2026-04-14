@@ -90,6 +90,10 @@ void app_main(void)
         reflex_shell_run();
         return;
     }
+
+    if (goose_fabric_init() != ESP_OK) {
+        REFLEX_LOGE(REFLEX_BOOT_TAG, "goose fabric init failed");
+    }
     
     if (reflex_service_manager_init() != ESP_OK) {
         REFLEX_LOGE(REFLEX_BOOT_TAG, "service manager init failed, entering minimal shell");
