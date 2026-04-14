@@ -201,5 +201,12 @@ reflex_tryte9_t goose_make_coord(int8_t field, int8_t region, int8_t cell);
  */
 bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b);
 
+// --- Atlas API ---
+
+/**
+ * @brief Weave the full hardware spectrum of the ESP32-C6 into the Loom.
+ */
+esp_err_t goose_atlas_manifest_weave(void);
+
 #endif
 

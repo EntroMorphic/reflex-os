@@ -112,6 +112,10 @@ void app_main(void)
     if (goose_gateway_init() != ESP_OK) {
         REFLEX_LOGE(REFLEX_BOOT_TAG, "goose gateway init failed");
     }
+
+    if (goose_atlas_manifest_weave() != ESP_OK) {
+        REFLEX_LOGE(REFLEX_BOOT_TAG, "goose atlas weave failed");
+    }
     
     xTaskCreate(goose_supervisor_task, "goose-super", 4096, NULL, 20, NULL);
     
