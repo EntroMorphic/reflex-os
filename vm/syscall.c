@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_check.h"
 #include "esp_timer.h"
 
@@ -47,6 +49,10 @@ static esp_err_t reflex_vm_default_syscall_handler(reflex_vm_state_t *vm,
             return reflex_word18_from_int32(log_level, out);
         }
         return ESP_ERR_NOT_SUPPORTED;
+    case REFLEX_VM_SYSCALL_DELAY:
+        ESP_RETURN_ON_ERROR(reflex_word18_to_int32(src_a, &scalar), "vm_syscall", "delay input invalid");
+        vTaskDelay(pdMS_TO_TICKS(scalar));
+        return reflex_word18_from_int32(0, out);
     default:
         return ESP_ERR_NOT_SUPPORTED;
     }

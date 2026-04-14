@@ -19,10 +19,15 @@ typedef enum {
     REFLEX_VM_OPCODE_TADD,
     REFLEX_VM_OPCODE_TSUB,
     REFLEX_VM_OPCODE_TCMP,
+    REFLEX_VM_OPCODE_TSEL,
     REFLEX_VM_OPCODE_TJMP,
     REFLEX_VM_OPCODE_TBRNEG,
     REFLEX_VM_OPCODE_TBRZERO,
     REFLEX_VM_OPCODE_TBRPOS,
+    REFLEX_VM_OPCODE_TSEND,
+    REFLEX_VM_OPCODE_TRECV,
+    REFLEX_VM_OPCODE_TFLUSH,
+    REFLEX_VM_OPCODE_TINV,
     REFLEX_VM_OPCODE_TSYS,
     REFLEX_VM_OPCODE_THALT,
 } reflex_vm_opcode_t;
@@ -31,6 +36,7 @@ typedef enum {
     REFLEX_VM_SYSCALL_LOG = 0,
     REFLEX_VM_SYSCALL_UPTIME,
     REFLEX_VM_SYSCALL_CONFIG_GET,
+    REFLEX_VM_SYSCALL_DELAY,
 } reflex_vm_syscall_t;
 
 typedef enum {
@@ -43,7 +49,7 @@ typedef struct {
     uint8_t dst;
     uint8_t src_a;
     uint8_t src_b;
-    int16_t imm;
+    int32_t imm;
 } reflex_vm_instruction_t;
 
 /*
