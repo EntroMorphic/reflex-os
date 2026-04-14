@@ -14,6 +14,7 @@ extern "C" {
 #define REFLEX_NODE_SYSTEM  0
 #define REFLEX_NODE_LED     1
 #define REFLEX_NODE_BUTTON  2
+#define REFLEX_NODE_GATEWAY 3
 #define REFLEX_NODE_VM      7
 
 /**

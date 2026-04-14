@@ -194,10 +194,27 @@ esp_err_t goose_process_transitions(goose_field_t *field) {
              */
             r->sink->state = (int8_t)((int)r->source->state * (int)orient);
             
-            // Physical Manifestation: Update GPIO if the sink is mapped to hardware
-            if (r->sink->hardware_addr < GPIO_NUM_MAX) {
+            /**
+             * Physical Manifestation: 
+             * 1. GPIO: If hardware_addr < 64, assume it's a GPIO pin.
+             * 2. MMIO: If hardware_addr >= 0x60000000, assume it's a register.
+             */
+            if (r->sink->hardware_addr > 0 && r->sink->hardware_addr < GPIO_NUM_MAX) {
                 gpio_set_level((gpio_num_t)r->sink->hardware_addr, 
                                r->sink->state == 1 ? 1 : 0);
+            } else if (r->sink->hardware_addr >= 0x60000000) {
+                // MMIO Write: Project state to the 32-bit register
+                // POS (+1) writes the bitmask, NEG (-1) clears it, ZERO (0) holds.
+                volatile uint32_t *reg = (volatile uint32_t *)r->sink->hardware_addr;
+                uint32_t mask = r->sink->bit_mask ? r->sink->bit_mask : 0xFFFFFFFF;
+                
+                if (r->sink->state == 1) {
+                    *reg |= mask;
+                } else if (r->sink->state == -1) {
+                    *reg &= ~mask;
+                }
+                // Note: Binary MMIO doesn't natively support "Zero/Neutral" 
+                // in a single register bit without explicit "Hold" logic.
             }
         }
     }

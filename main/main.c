@@ -108,10 +108,11 @@ void app_main(void)
     if (goose_supervisor_init() != ESP_OK) {
         REFLEX_LOGE(REFLEX_BOOT_TAG, "goose supervisor init failed");
     }
-    
-    // Weave System Manifest Fragment
-    // goose_weave_fragment(GOOSE_FRAGMENT_SYSTEM, "sys", origin_coord, NULL);
 
+    if (goose_gateway_init() != ESP_OK) {
+        REFLEX_LOGE(REFLEX_BOOT_TAG, "goose gateway init failed");
+    }
+    
     xTaskCreate(goose_supervisor_task, "goose-super", 4096, NULL, 20, NULL);
     
     // Signal Loom startup: sys_status = POS

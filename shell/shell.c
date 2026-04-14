@@ -506,9 +506,32 @@ static void reflex_shell_loom_list(void) {
     }
 }
 
+static void reflex_shell_bonsai_project_test(void) {
+    printf("GOOSE Bridge: Projecting MMIO register into Tapestry...\n");
+    
+    // Goal: Project the LED GPIO Output register (Simplified for proof)
+    // Addr: 0x60000000 (Example)
+    // Coord: (1, 1, 9) Agency:GPIO:Lane9
+    
+    reflex_message_t msg = {
+        .to = REFLEX_NODE_GATEWAY,
+        .from = REFLEX_NODE_SYSTEM,
+        .op = 0x10, // OP_PROJECT_CELL
+        .correlation_id = 0x60000000, // Address
+        .payload = { .trits = {1, 0, 0, 1, 0, 0, 0, 0, 1} } // Dummy coordinate
+    };
+    
+    if (reflex_fabric_send(&msg) == ESP_OK) {
+        printf("Success: Projection request sent to Gateway.\n");
+        printf("Type 'loom list' in a moment to see the projected MMIO cell.\n");
+    } else {
+        printf("Error: Failed to send projection message.\n");
+    }
+}
+
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime|heal|gvm|sleep|weave>, loom list, tapestry <signal name state>, services, config <get|set>, vm info\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime|heal|gvm|sleep|weave|project>, loom list, tapestry <signal name state>, services, config <get|set>, vm info\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
     else if (strcmp(argv[0], "led") == 0) { if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off"); }
     else if (strcmp(argv[0], "bonsai") == 0) {
@@ -523,6 +546,7 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         else if (strcmp(argv[1], "gvm") == 0) { reflex_shell_bonsai_gvm_test(); }
         else if (strcmp(argv[1], "sleep") == 0) { reflex_shell_bonsai_deep_sleep(); }
         else if (strcmp(argv[1], "weave") == 0) { reflex_shell_bonsai_weave_test(); }
+        else if (strcmp(argv[1], "project") == 0) { reflex_shell_bonsai_project_test(); }
     } else if (strcmp(argv[0], "loom") == 0) {
         if (argc >= 2 && strcmp(argv[1], "list") == 0) {
             reflex_shell_loom_list();

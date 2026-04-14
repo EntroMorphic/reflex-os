@@ -1,0 +1,50 @@
+#include "reflex_fabric.h"
+#include "goose.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <string.h>
+#include <stdio.h>
+
+static const char *TAG = "GOOSE_GATEWAY";
+
+/**
+ * @brief GOOSE Gateway Task
+ * Bridges legacy messaging to the GOOSE Loom.
+ */
+static void goose_gateway_task(void *arg) {
+    ESP_LOGI(TAG, "Gateway active. Listening for MMIO projections...");
+    
+    while(1) {
+        reflex_message_t msg;
+        if (reflex_fabric_recv(REFLEX_NODE_GATEWAY, &msg) == ESP_OK) {
+            // Op 0x10: Project MMIO Cell
+            if (msg.op == 0x10) {
+                char name[16];
+                snprintf(name, 16, "mmio_%04x", (unsigned int)msg.correlation_id);
+                
+                // Extract coordinate from payload (Tryte 9)
+                reflex_tryte9_t coord;
+                memcpy(coord.trits, msg.payload.trits, 9);
+                
+                // Extract Address from msg context (using correlation_id for addr for proof)
+                uint32_t addr = msg.correlation_id; 
+
+                ESP_LOGI(TAG, "Projecting MMIO: %s @ (F:%d, R:%d, C:%d) -> Addr 0x%lx", 
+                         name, coord.trits[0], coord.trits[3], coord.trits[6], (unsigned long)addr);
+
+                goose_cell_t *c = goose_fabric_alloc_cell(name, coord);
+                if (c) {
+                    c->hardware_addr = addr;
+                    c->type = GOOSE_CELL_HARDWARE_OUT; // Agency
+                }
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+esp_err_t goose_gateway_init(void) {
+    xTaskCreate(goose_gateway_task, "goose_gateway", 4096, NULL, 5, NULL);
+    return ESP_OK;
+}

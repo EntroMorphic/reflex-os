@@ -139,6 +139,11 @@ esp_err_t goose_field_start_pulse(goose_field_t *field);
 // --- Loom API ---
 
 /**
+ * @brief Initialize the GOOSE Gateway (Legacy Message Bridge).
+ */
+esp_err_t goose_gateway_init(void);
+
+/**
  * @brief Find a cell in the Tapestry by its semantic name.
  */
 goose_cell_t* goose_fabric_get_cell(const char *name);
