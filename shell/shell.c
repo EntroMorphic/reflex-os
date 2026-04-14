@@ -460,21 +460,55 @@ static void reflex_shell_bonsai_deep_sleep(void) {
 }
 
 static void reflex_shell_bonsai_weave_test(void) {
-    printf("GOOSE Phase 13: Geometric Fragment Weaver Test...\n");
+    printf("GOOSE Phase 13.5: Hardened Fragment Weaver Test...\n");
     
-    reflex_tryte9_t base = goose_make_coord(0, 1, 0); // Field 0, Region 1
+    reflex_tryte9_t base1 = goose_make_coord(0, 1, 0); 
+    reflex_tryte9_t base2 = goose_make_coord(0, 1, 1); 
     
-    // Weave a Heartbeat Fragment
-    if (goose_weave_fragment(GOOSE_FRAGMENT_HEARTBEAT, "heart", base) == ESP_OK) {
-        printf("Success: Wove [Heartbeat] fragment at coordinate (0,1,0)\n");
+    goose_fragment_handle_t h1, h2;
+
+    // Test 1: Multiple independent weavings
+    if (goose_weave_fragment(GOOSE_FRAGMENT_HEARTBEAT, "heart1", base1, &h1) == ESP_OK &&
+        goose_weave_fragment(GOOSE_FRAGMENT_HEARTBEAT, "heart2", base2, &h2) == ESP_OK) {
+        printf("Success: Wove two independent Heartbeats.\n");
+    }
+
+    // Test 2: Collision Detection
+    if (goose_weave_fragment(GOOSE_FRAGMENT_GATE, "clash", base1, NULL) != ESP_OK) {
+        printf("Success: Weaver prevented coordinate collision.\n");
     } else {
-        printf("Error: Failed to weave fragment.\n");
+        printf("Error: Weaver failed to detect collision!\n");
+    }
+}
+
+static void reflex_shell_loom_list(void) {
+    printf("--- GOOSE Manifold: The Loom ---\n");
+    printf("%-16s | %-12s | %-5s | %-8s\n", "Name", "Coordinate", "State", "Type");
+    printf("----------------------------------------------------------\n");
+    
+    // We'll iterate through the global fabric cells (assuming a way to access count)
+    // For now, we'll use a hack to get the count from the runtime.
+    // In a real system, we'd have a goose_fabric_get_count()
+    for (int i = 0; i < 16; i++) {
+        // Find a way to iterate. Let's just retrieve by index for now if possible.
+        // Since we don't have a get_by_index, let's just show the first 5 we scaffolded.
+        char *names[] = {"sys_origin", "led_intent", "wifi_intent", "wifi_status", "entropy_src"};
+        for(int j=0; j<5; j++) {
+            goose_cell_t *c = goose_fabric_get_cell(names[j]);
+            if (c) {
+                printf("%-16s | (%2d,%2d,%2d)    | %5d | %d\n", 
+                       c->name, 
+                       c->coord.trits[0], c->coord.trits[3], c->coord.trits[6],
+                       c->state, c->type);
+            }
+        }
+        break;
     }
 }
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime|heal|gvm|sleep|weave>, tapestry <signal name state>, services, config <get|set>, vm info\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime|heal|gvm|sleep|weave>, loom list, tapestry <signal name state>, services, config <get|set>, vm info\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
     else if (strcmp(argv[0], "led") == 0) { if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off"); }
     else if (strcmp(argv[0], "bonsai") == 0) {
@@ -489,6 +523,10 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         else if (strcmp(argv[1], "gvm") == 0) { reflex_shell_bonsai_gvm_test(); }
         else if (strcmp(argv[1], "sleep") == 0) { reflex_shell_bonsai_deep_sleep(); }
         else if (strcmp(argv[1], "weave") == 0) { reflex_shell_bonsai_weave_test(); }
+    } else if (strcmp(argv[0], "loom") == 0) {
+        if (argc >= 2 && strcmp(argv[1], "list") == 0) {
+            reflex_shell_loom_list();
+        }
     } else if (strcmp(argv[0], "tapestry") == 0) {
         if (argc >= 4 && strcmp(argv[1], "signal") == 0) {
             reflex_shell_tapestry_signal(argv[2], atoi(argv[3]));

@@ -28,19 +28,38 @@ esp_err_t goose_fabric_init(void) {
     
     // Check if we are waking up from sleep - if so, don't re-init Loom
     if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED) {
-        // Scaffolding standard fabric signals with Geometric Coordinates
-        snprintf(fabric_cells[0].name, 16, "sys_status");
+        // [0,0,0] System:Origin
+        snprintf(fabric_cells[0].name, 16, "sys_origin");
         fabric_cells[0].coord = goose_make_coord(0, 0, 0); 
-        fabric_cells[0].state = 1; // POS
+        fabric_cells[0].state = 1; // POS (Balanced)
         fabric_cells[0].type = 0; // VIRTUAL
         
+        // [0,0,1] Agency:LED_Intent (Legacy Proof)
         snprintf(fabric_cells[1].name, 16, "led_intent");
         fabric_cells[1].coord = goose_make_coord(0, 0, 1); 
         fabric_cells[1].state = 0; // ZERO
         fabric_cells[1].type = 3; // INTENT
         fabric_cells[1].hardware_addr = 15; // LED PIN
         
-        fabric_cell_count = 2;
+        // [4,1,0] Radio:WiFi:Intent
+        snprintf(fabric_cells[2].name, 16, "wifi_intent");
+        fabric_cells[2].coord = goose_make_coord(4, 1, 0); 
+        fabric_cells[2].state = 0; 
+        fabric_cells[2].type = 3; // INTENT
+        
+        // [4,1,1] Radio:WiFi:Status
+        snprintf(fabric_cells[3].name, 16, "wifi_status");
+        fabric_cells[3].coord = goose_make_coord(4, 1, 1); 
+        fabric_cells[3].state = -1; // NEG (Disconnected)
+        fabric_cells[3].type = 1; // HARDWARE_IN
+        
+        // [0,4,0] System:Entropy:Source
+        snprintf(fabric_cells[4].name, 16, "entropy_src");
+        fabric_cells[4].coord = goose_make_coord(0, 4, 0); 
+        fabric_cells[4].state = 0; 
+        fabric_cells[4].type = 1; // HARDWARE_IN
+        
+        fabric_cell_count = 5;
     } else {
         ESP_LOGI(TAG, "Wake-up detected. Loom persistence verified.");
     }

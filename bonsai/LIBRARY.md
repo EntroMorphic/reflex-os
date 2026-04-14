@@ -33,5 +33,19 @@ Persists a transient signal.
 - **Orientation:** `+1`.
 - **Logic:** $Cell = Cell_{current} \times 1$. Requires an external "Reset" route with `0` orientation to break the loop.
 
+## Machine Fragments (Complex)
+
+### 6. WIFI-BRIDGE (Radio Pattern)
+A bridge between geometric intent and the physical 802.11 stack.
+- **Intent Cell:** `(4, 1, 0)`. POS = Connect, NEG = Disconnect, ZERO = Idle.
+- **Status Cell:** `(4, 1, 1)`. POS = Connected, NEG = Fault, ZERO = Searching.
+- **Agency:** A "Shadow Bridge" driver that perceives the Intent Cell and drives the binary WiFi stack.
+
+### 7. ENTROPY-FLOW (Logic Pattern)
+Routes hardware RNG into the system fabric.
+- **Source:** `(0, 4, 0)`.
+- **Behavior:** Updates state every pulse with a true random trit.
+
 ## Usage
 Fragments are "Woven" by the Supervisor or VM using the `goose_weave_fragment()` API.
+
