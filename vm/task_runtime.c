@@ -4,6 +4,7 @@
 
 #include "esp_check.h"
 
+#include "reflex_fabric.h"
 #include "reflex_vm.h"
 
 #define REFLEX_VM_TASK_DEFAULT_STEPS 2
@@ -83,6 +84,7 @@ esp_err_t reflex_vm_task_start(reflex_vm_task_runtime_t *runtime,
     runtime->image = image;
     runtime->config = effective_config;
     runtime->running = true;
+    runtime->vm.node_id = REFLEX_NODE_VM;
     reflex_vm_use_default_syscalls(&runtime->vm);
     ESP_RETURN_ON_ERROR(reflex_vm_load_image(&runtime->vm, image), "vm_task", "image load failed");
 
@@ -94,6 +96,46 @@ esp_err_t reflex_vm_task_start(reflex_vm_task_runtime_t *runtime,
                     &runtime->handle) != pdPASS) {
         runtime->running = false;
         runtime->handle = NULL;
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t reflex_vm_task_start_binary(reflex_vm_task_runtime_t *runtime,
+                                      const uint8_t *buffer,
+                                      size_t len,
+                                      const reflex_vm_task_config_t *config)
+{
+    reflex_vm_task_config_t effective_config;
+
+    ESP_RETURN_ON_FALSE(runtime != NULL, ESP_ERR_INVALID_ARG, "vm_task", "runtime is required");
+    ESP_RETURN_ON_FALSE(buffer != NULL, ESP_ERR_INVALID_ARG, "vm_task", "buffer is required");
+    ESP_RETURN_ON_FALSE(len > 0, ESP_ERR_INVALID_ARG, "vm_task", "buffer length is required");
+    ESP_RETURN_ON_FALSE(!runtime->running, ESP_ERR_INVALID_STATE, "vm_task", "runtime already running");
+
+    memset(&effective_config, 0, sizeof(effective_config));
+    if (config != NULL) {
+        effective_config = *config;
+    }
+    reflex_vm_task_apply_defaults(&effective_config);
+
+    runtime->image = NULL;
+    runtime->config = effective_config;
+    runtime->running = true;
+    runtime->vm.node_id = REFLEX_NODE_VM;
+    reflex_vm_use_default_syscalls(&runtime->vm);
+    ESP_RETURN_ON_ERROR(reflex_vm_load_binary(&runtime->vm, buffer, len), "vm_task", "binary load failed");
+
+    if (xTaskCreate(reflex_vm_task_entry,
+                    effective_config.name,
+                    effective_config.stack_size,
+                    runtime,
+                    effective_config.priority,
+                    &runtime->handle) != pdPASS) {
+        runtime->running = false;
+        runtime->handle = NULL;
+        reflex_vm_unload(&runtime->vm);
         return ESP_FAIL;
     }
 

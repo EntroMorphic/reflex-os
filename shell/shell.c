@@ -22,11 +22,14 @@
 #include "reflex_event.h"
 #include "reflex_service.h"
 #include "reflex_wifi.h"
+#include "reflex_led.h"
+#include "reflex_cache.h"
+#include "reflex_fabric.h"
 #include "reflex_ternary.h"
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
 
-#define REFLEX_SHELL_LINE_MAX 96
+#define REFLEX_SHELL_LINE_MAX 256
 #define REFLEX_SHELL_ARGV_MAX 8
 
 static const reflex_vm_instruction_t reflex_shell_sample_program[] = {
@@ -52,6 +55,8 @@ static reflex_vm_state_t reflex_shell_vm = {0};
 static reflex_vm_task_runtime_t reflex_shell_vm_task = {0};
 static bool reflex_shell_vm_loaded = false;
 static bool reflex_shell_io_ready = false;
+static uint8_t *reflex_shell_vm_binary = NULL;
+static size_t reflex_shell_vm_binary_len = 0;
 
 static void reflex_shell_init_io(void)
 {
@@ -144,7 +149,124 @@ static int reflex_shell_tokenize(char *line, char *argv[REFLEX_SHELL_ARGV_MAX])
 
 static void reflex_shell_help(void)
 {
-    printf("commands: help, reboot, version, uptime, heap, config <get|set>, services, event test, wifi <status|connect>, vm info, vm load, vm run [steps], vm step, vm regs, vm task <start|stop|status>\n");
+    printf("commands: help, reboot, version, uptime, heap, led status, config <get|set>, services, event test, wifi <status|connect>, fabric send <to> <op> <value>, vm info, vm load, vm loadhex <HEX>, vm run [steps], vm step, vm regs, vm task <start|stop|status>\n");
+}
+
+static void reflex_shell_led_status(void)
+{
+    printf("led=%s\n", reflex_led_get() ? "on" : "off");
+}
+
+static void reflex_shell_fabric_send(const char *to_arg, const char *op_arg, const char *value_arg)
+{
+    reflex_message_t msg = {0};
+    reflex_word18_t payload;
+    char *end = NULL;
+    unsigned long to = 0;
+    unsigned long op = 0;
+    long value = 0;
+
+    if (to_arg == NULL || op_arg == NULL || value_arg == NULL) {
+        printf("usage: fabric send <to> <op> <value>\n");
+        return;
+    }
+
+    to = strtoul(to_arg, &end, 10);
+    if (end == NULL || *end != '\0' || to > UINT8_MAX) {
+        printf("invalid destination\n");
+        return;
+    }
+
+    op = strtoul(op_arg, &end, 10);
+    if (end == NULL || *end != '\0' || op > UINT8_MAX) {
+        printf("invalid op\n");
+        return;
+    }
+
+    value = strtol(value_arg, &end, 10);
+    if (end == NULL || *end != '\0') {
+        printf("invalid value\n");
+        return;
+    }
+
+    if (reflex_word18_from_int32((int32_t)value, &payload) != ESP_OK) {
+        printf("value out of range\n");
+        return;
+    }
+
+    msg.to = (uint8_t)to;
+    msg.from = REFLEX_NODE_SYSTEM;
+    msg.op = (uint8_t)op;
+    msg.channel = REFLEX_CHAN_SYSTEM;
+    msg.payload = payload;
+
+    if (reflex_fabric_send(&msg) != ESP_OK) {
+        printf("fabric send failed\n");
+        return;
+    }
+
+    printf("fabric sent to=%u op=%u\n", msg.to, msg.op);
+}
+
+static esp_err_t reflex_shell_set_vm_binary(const uint8_t *buffer, size_t len)
+{
+    uint8_t *owned = NULL;
+
+    ESP_RETURN_ON_FALSE(buffer != NULL, ESP_ERR_INVALID_ARG, REFLEX_SHELL_TAG, "buffer required");
+    ESP_RETURN_ON_FALSE(len > 0, ESP_ERR_INVALID_ARG, REFLEX_SHELL_TAG, "length required");
+
+    owned = malloc(len);
+    ESP_RETURN_ON_FALSE(owned != NULL, ESP_ERR_NO_MEM, REFLEX_SHELL_TAG, "vm binary alloc failed");
+    memcpy(owned, buffer, len);
+
+    free(reflex_shell_vm_binary);
+    reflex_shell_vm_binary = owned;
+    reflex_shell_vm_binary_len = len;
+    return ESP_OK;
+}
+
+static void reflex_shell_vm_loadhex(const char *hex)
+{
+    if (hex == NULL) {
+        printf("usage: vm loadhex <HEX_STRING>\n");
+        return;
+    }
+
+    size_t hex_len = strlen(hex);
+    if (hex_len % 2 != 0) {
+        printf("invalid hex string length\n");
+        return;
+    }
+
+    size_t bin_len = hex_len / 2;
+    uint8_t *bin_buf = malloc(bin_len);
+    if (!bin_buf) {
+        printf("malloc failed\n");
+        return;
+    }
+
+    for (size_t i = 0; i < bin_len; i++) {
+        char pair[3] = {hex[i*2], hex[i*2+1], '\0'};
+        bin_buf[i] = (uint8_t)strtoul(pair, NULL, 16);
+    }
+
+    esp_err_t err = reflex_vm_load_binary(&reflex_shell_vm, bin_buf, bin_len);
+
+    if (err != ESP_OK) {
+        free(bin_buf);
+        printf("vm loadhex failed err=%d\n", err);
+        return;
+    }
+
+    err = reflex_shell_set_vm_binary(bin_buf, bin_len);
+    free(bin_buf);
+    if (err != ESP_OK) {
+        printf("vm loadhex cached binary failed err=%d\n", err);
+        return;
+    }
+
+    reflex_shell_vm_loaded = true;
+    printf("vm loaded from hex: instructions=%lu\n", (unsigned long)reflex_shell_vm.program_length);
 }
 
 static void reflex_shell_wifi_status(void)
@@ -262,6 +384,12 @@ static void reflex_shell_vm_info(void)
            (unsigned long)reflex_shell_vm.ip,
            (unsigned long)reflex_shell_vm.steps_executed,
            (unsigned long)reflex_shell_vm.program_length);
+    
+    if (reflex_shell_vm.cache) {
+        reflex_cache_t *c = (reflex_cache_t*)reflex_shell_vm.cache;
+        printf("vm_cache hits=%lu misses=%lu evicts=%lu\n",
+               (unsigned long)c->hits, (unsigned long)c->misses, (unsigned long)c->evictions);
+    }
 }
 
 static void reflex_shell_vm_regs(void)
@@ -387,13 +515,20 @@ static void reflex_shell_vm_task_start(void)
         return;
     }
 
-    err = reflex_vm_task_start(&reflex_shell_vm_task, &reflex_shell_sample_image, NULL);
+    if (reflex_shell_vm_binary != NULL && reflex_shell_vm_binary_len > 0) {
+        err = reflex_vm_task_start_binary(&reflex_shell_vm_task,
+                                          reflex_shell_vm_binary,
+                                          reflex_shell_vm_binary_len,
+                                          NULL);
+    } else {
+        err = reflex_vm_task_start(&reflex_shell_vm_task, &reflex_shell_sample_image, NULL);
+    }
     if (err != ESP_OK) {
         printf("vm task start failed err=%d\n", err);
         return;
     }
 
-    printf("vm task started\n");
+    printf("vm task started source=%s\n", reflex_shell_vm_binary != NULL ? "loaded" : "sample");
 }
 
 static void reflex_shell_vm_task_stop(void)
@@ -410,15 +545,64 @@ static void reflex_shell_vm_task_stop(void)
 
 static void reflex_shell_vm_load(void)
 {
-    esp_err_t err = reflex_vm_load_image(&reflex_shell_vm, &reflex_shell_sample_image);
+    uint8_t image_buf[16 + (8 * 4)];
+    uint32_t checksum = 0;
+    memset(image_buf, 0, sizeof(image_buf));
+    
+    uint32_t magic = REFLEX_VM_IMAGE_MAGIC;
+    uint16_t ver = 2;
+    uint32_t checksum_placeholder = 0;
+    uint16_t entry = 0;
+    uint16_t instr_count = 8;
+    uint16_t data_count = 0;
+    
+    memcpy(image_buf, &magic, 4);
+    memcpy(image_buf + 4, &ver, 2);
+    memcpy(image_buf + 6, &checksum_placeholder, 4);
+    memcpy(image_buf + 10, &entry, 2);
+    memcpy(image_buf + 12, &instr_count, 2);
+    memcpy(image_buf + 14, &data_count, 2);
+    
+    // Sample Program (Same as v1 but packed)
+    // TLDI r0, 1
+    uint32_t *p = (uint32_t*)(image_buf + 16);
+    p[0] = REFLEX_VM_OPCODE_TLDI | (0 << 6) | (1 << 15);
+    // TLDI r1, -1
+    p[1] = REFLEX_VM_OPCODE_TLDI | (1 << 6) | (0x1FFFF << 15); // -1 signed 17-bit
+    // TADD r2, r0, r0
+    p[2] = REFLEX_VM_OPCODE_TADD | (2 << 6) | (0 << 9) | (0 << 12);
+    // TCMP r3, r2, r0
+    p[3] = REFLEX_VM_OPCODE_TCMP | (3 << 6) | (2 << 9) | (0 << 12);
+    // TBRPOS r3, 6
+    p[4] = REFLEX_VM_OPCODE_TBRPOS | (3 << 9) | (6 << 15);
+    // THALT
+    p[5] = REFLEX_VM_OPCODE_THALT;
+    // TSUB r4, r2, r0
+    p[6] = REFLEX_VM_OPCODE_TSUB | (4 << 6) | (2 << 9) | (0 << 12);
+    // THALT
+    p[7] = REFLEX_VM_OPCODE_THALT;
+
+    if (reflex_vm_crc32(image_buf + 16, sizeof(image_buf) - 16, &checksum) != ESP_OK) {
+        printf("vm load v2 failed err=%d\n", ESP_FAIL);
+        return;
+    }
+    memcpy(image_buf + 6, &checksum, 4);
+
+    esp_err_t err = reflex_vm_load_binary(&reflex_shell_vm, image_buf, sizeof(image_buf));
 
     if (err != ESP_OK) {
-        printf("vm load failed err=%d\n", err);
+        printf("vm load v2 failed err=%d\n", err);
+        return;
+    }
+
+    err = reflex_shell_set_vm_binary(image_buf, sizeof(image_buf));
+    if (err != ESP_OK) {
+        printf("vm load cached binary failed err=%d\n", err);
         return;
     }
 
     reflex_shell_vm_loaded = true;
-    printf("vm loaded sample program instructions=%lu\n", (unsigned long)reflex_shell_vm.program_length);
+    printf("vm loaded packed binary (v2) instructions=%lu\n", (unsigned long)reflex_shell_vm.program_length);
 }
 
 static void reflex_shell_vm_run(const char *steps_arg)
@@ -499,6 +683,16 @@ static void reflex_shell_dispatch(int argc, char *argv[REFLEX_SHELL_ARGV_MAX])
         return;
     }
 
+    if (strcmp(argv[0], "led") == 0) {
+        if (argc < 2 || strcmp(argv[1], "status") != 0) {
+            printf("usage: led status\n");
+            return;
+        }
+
+        reflex_shell_led_status();
+        return;
+    }
+
     if (strcmp(argv[0], "services") == 0) {
         reflex_shell_services();
         return;
@@ -534,6 +728,16 @@ static void reflex_shell_dispatch(int argc, char *argv[REFLEX_SHELL_ARGV_MAX])
         }
 
         printf("unknown wifi command\n");
+        return;
+    }
+
+    if (strcmp(argv[0], "fabric") == 0) {
+        if (argc < 5 || strcmp(argv[1], "send") != 0) {
+            printf("usage: fabric send <to> <op> <value>\n");
+            return;
+        }
+
+        reflex_shell_fabric_send(argv[2], argv[3], argv[4]);
         return;
     }
 
@@ -573,6 +777,14 @@ static void reflex_shell_dispatch(int argc, char *argv[REFLEX_SHELL_ARGV_MAX])
         }
         if (strcmp(argv[1], "load") == 0) {
             reflex_shell_vm_load();
+            return;
+        }
+        if (strcmp(argv[1], "loadhex") == 0) {
+            if (argc < 3) {
+                printf("usage: vm loadhex <HEX>\n");
+                return;
+            }
+            reflex_shell_vm_loadhex(argv[2]);
             return;
         }
         if (strcmp(argv[1], "run") == 0) {
@@ -622,6 +834,8 @@ void reflex_shell_run(void)
     size_t line_len = 0;
 
     reflex_shell_init_io();
+    reflex_shell_vm.node_id = REFLEX_NODE_VM;
+    
     REFLEX_LOGI(REFLEX_SHELL_TAG, "shell ready; type 'help'");
     reflex_shell_print_prompt();
 

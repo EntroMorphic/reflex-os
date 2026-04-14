@@ -12,7 +12,7 @@ wait_for_input:
     # TRECV returns the payload. In our Button HAL, it sends Op 1 on press.
     # If no message, continue polling. 
     # (In a real OS, we'd use a syscall to block until message)
-    TBRZERO @wait_for_input
+    TBRZERO r2, @wait_for_input
     
     # 2. If message received, send Toggle to LED
     TSEND r0, r2, 1     # Send to LED (r0), payload in r2, opcode 1 (Toggle)

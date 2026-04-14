@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 void reflex_vm_reset(reflex_vm_state_t *vm);
+void reflex_vm_unload(reflex_vm_state_t *vm);
 void reflex_vm_set_syscall_handler(reflex_vm_state_t *vm,
                                    reflex_vm_syscall_handler_t handler,
                                    void *context);

@@ -14,6 +14,7 @@ extern "C" {
 esp_err_t reflex_led_init(void);
 esp_err_t reflex_led_set(bool on);
 esp_err_t reflex_led_toggle(void);
+bool reflex_led_get(void);
 
 #ifdef __cplusplus
 }

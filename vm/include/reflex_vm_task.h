@@ -36,6 +36,10 @@ void reflex_vm_task_runtime_init(reflex_vm_task_runtime_t *runtime);
 esp_err_t reflex_vm_task_start(reflex_vm_task_runtime_t *runtime,
                                const reflex_vm_image_t *image,
                                const reflex_vm_task_config_t *config);
+esp_err_t reflex_vm_task_start_binary(reflex_vm_task_runtime_t *runtime,
+                                      const uint8_t *buffer,
+                                      size_t len,
+                                      const reflex_vm_task_config_t *config);
 esp_err_t reflex_vm_task_stop(reflex_vm_task_runtime_t *runtime);
 bool reflex_vm_task_is_running(const reflex_vm_task_runtime_t *runtime);
 

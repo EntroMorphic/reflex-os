@@ -1,0 +1,17 @@
+# Test Program for Reflex OS VM
+# Calculates 1 + 8 (t+0-) and reboots if correct
+
+start:
+    TLDI r0, 1          # Load 1
+    TLDI r1, t+0-       # Load 8
+    TADD r2, r0, r1     # r2 = 9
+    
+    TLDI r3, 9          # Expected value
+    TCMP r4, r2, r3     # Compare r2 and r3
+    
+    TBRZERO r4, @success    # Jump if equal
+    THALT               # Fail
+    
+success:
+    TSYS r0, r0, r0, 0  # Syscall: LOG (placeholder)
+    THALT

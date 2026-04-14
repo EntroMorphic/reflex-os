@@ -1,8 +1,11 @@
 #include "reflex_vm.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_check.h"
+#include "reflex_fabric.h"
+#include "reflex_cache.h"
 
 static void reflex_vm_zero_word(reflex_word18_t *word)
 {
@@ -24,28 +27,22 @@ static esp_err_t reflex_vm_validate_state(const reflex_vm_state_t *vm)
     ESP_RETURN_ON_FALSE(vm->program_length > 0, ESP_ERR_INVALID_STATE, "vm", "program length zero");
     ESP_RETURN_ON_FALSE(vm->ip < vm->program_length, REFLEX_VM_FAULT_PC_OUT_OF_RANGE, "vm", "ip out of range");
     
-    if (vm->memory_length > 0) {
-        ESP_RETURN_ON_FALSE(vm->memory != NULL, ESP_ERR_INVALID_STATE, "vm", "memory pointer null with nonzero length");
-    }
-    
     return ESP_OK;
 }
 
-static esp_err_t reflex_vm_mem_get(const reflex_vm_state_t *vm, uint32_t index, reflex_word18_t *out)
+esp_err_t reflex_vm_mem_get_raw(const reflex_vm_state_t *vm, uint32_t index, reflex_word18_t *out)
 {
-    if (index >= vm->memory_length) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    memcpy(out, &vm->memory[index], sizeof(*out));
+    reflex_word18_t *host_ptr;
+    ESP_RETURN_ON_ERROR(reflex_vm_mmu_translate(&vm->mmu, index, &host_ptr), "vm", "translate get failed");
+    memcpy(out, host_ptr, sizeof(*out));
     return ESP_OK;
 }
 
-static esp_err_t reflex_vm_mem_set(reflex_vm_state_t *vm, uint32_t index, const reflex_word18_t *in)
+esp_err_t reflex_vm_mem_set_raw(reflex_vm_state_t *vm, uint32_t index, const reflex_word18_t *in)
 {
-    if (index >= vm->memory_length) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    memcpy(&vm->memory[index], in, sizeof(*in));
+    reflex_word18_t *host_ptr;
+    ESP_RETURN_ON_ERROR(reflex_vm_mmu_translate(&vm->mmu, index, &host_ptr), "vm", "translate set failed");
+    memcpy(host_ptr, in, sizeof(*host_ptr));
     return ESP_OK;
 }
 
@@ -88,6 +85,7 @@ static esp_err_t reflex_vm_validate_registers(const reflex_vm_state_t *vm,
     case REFLEX_VM_OPCODE_TADD:
     case REFLEX_VM_OPCODE_TSUB:
     case REFLEX_VM_OPCODE_TCMP:
+    case REFLEX_VM_OPCODE_TSEL:
         valid = reflex_vm_register_index_valid(instruction->dst) &&
                 reflex_vm_register_index_valid(instruction->src_a) &&
                 reflex_vm_register_index_valid(instruction->src_b);
@@ -102,15 +100,21 @@ static esp_err_t reflex_vm_validate_registers(const reflex_vm_state_t *vm,
     case REFLEX_VM_OPCODE_TBRNEG:
     case REFLEX_VM_OPCODE_TBRZERO:
     case REFLEX_VM_OPCODE_TBRPOS:
+    case REFLEX_VM_OPCODE_TFLUSH:
+    case REFLEX_VM_OPCODE_TINV:
         valid = reflex_vm_register_index_valid(instruction->src_a);
         break;
     case REFLEX_VM_OPCODE_TLD:
-        valid = reflex_vm_register_index_valid(instruction->dst) &&
-                reflex_vm_register_index_valid(instruction->src_a);
-        break;
     case REFLEX_VM_OPCODE_TST:
         valid = reflex_vm_register_index_valid(instruction->dst) &&
                 reflex_vm_register_index_valid(instruction->src_a);
+        break;
+    case REFLEX_VM_OPCODE_TSEND:
+        valid = reflex_vm_register_index_valid(instruction->dst) &&
+                reflex_vm_register_index_valid(instruction->src_a);
+        break;
+    case REFLEX_VM_OPCODE_TRECV:
+        valid = reflex_vm_register_index_valid(instruction->dst);
         break;
     default:
         return ESP_OK;
@@ -137,6 +141,30 @@ void reflex_vm_reset(reflex_vm_state_t *vm)
     vm->fault = REFLEX_VM_FAULT_NONE;
     vm->ip = 0;
     vm->steps_executed = 0;
+}
+
+void reflex_vm_unload(reflex_vm_state_t *vm)
+{
+    if (vm == NULL) {
+        return;
+    }
+
+    if (vm->owns_program && vm->program != NULL) {
+        free((void*)vm->program);
+    }
+
+    if (vm->owned_private_memory != NULL) {
+        free(vm->owned_private_memory);
+    }
+
+    vm->program = NULL;
+    vm->program_length = 0;
+    vm->owns_program = false;
+    vm->owned_private_memory = NULL;
+    vm->owned_private_memory_count = 0;
+
+    reflex_vm_mmu_init(&vm->mmu);
+    reflex_vm_reset(vm);
 }
 
 esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
@@ -204,6 +232,27 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
         reflex_vm_zero_word(&vm->registers[instruction->dst]);
         vm->registers[instruction->dst].trits[REFLEX_VM_COMPARE_TRIT_INDEX] = compare_result;
         break;
+    case REFLEX_VM_OPCODE_TSEL:
+    {
+        // TSEL DST, SRC_A (SEL), SRC_B (ZERO), IMM (NEG_REG | POS_REG)
+        // IMM high byte = POS register, low byte = NEG register
+        uint8_t neg_reg = (uint8_t)(instruction->imm & 0x07);
+        uint8_t pos_reg = (uint8_t)((instruction->imm >> 3) & 0x07);
+        
+        if (neg_reg >= REFLEX_VM_REGISTER_COUNT || pos_reg >= REFLEX_VM_REGISTER_COUNT) {
+            return reflex_vm_fault(vm, REFLEX_VM_FAULT_INVALID_REGISTER);
+        }
+
+        err = reflex_word18_select(reflex_vm_branch_trit(&vm->registers[instruction->src_a]),
+                                   &vm->registers[neg_reg],
+                                   &vm->registers[instruction->src_b],
+                                   &vm->registers[pos_reg],
+                                   &vm->registers[instruction->dst]);
+        if (err != ESP_OK) {
+            return reflex_vm_fault(vm, REFLEX_VM_FAULT_ARITHMETIC_OVERFLOW);
+        }
+        break;
+    }
     case REFLEX_VM_OPCODE_TJMP:
         return reflex_vm_jump(vm, instruction->imm);
     case REFLEX_VM_OPCODE_TBRNEG:
@@ -221,6 +270,42 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
             return reflex_vm_jump(vm, instruction->imm);
         }
         break;
+    case REFLEX_VM_OPCODE_TSEND:
+    {
+        int32_t target_node = 0;
+
+        ESP_RETURN_ON_ERROR(reflex_word18_to_int32(&vm->registers[instruction->dst], &target_node),
+                            "vm",
+                            "invalid target node");
+        if (target_node < 0 || target_node > UINT8_MAX) {
+            return reflex_vm_fault(vm, REFLEX_VM_FAULT_INVALID_IMMEDIATE);
+        }
+
+        reflex_message_t msg = {
+            .to = (uint8_t)target_node,
+            .from = vm->node_id,
+            .op = (uint8_t)instruction->imm,
+            .channel = REFLEX_CHAN_SYSTEM,
+            .payload = vm->registers[instruction->src_a]
+        };
+        err = reflex_fabric_send(&msg);
+        if (err != ESP_OK) {
+            return reflex_vm_fault(vm, REFLEX_VM_FAULT_INVALID_SYSCALL);
+        }
+        break;
+    }
+    case REFLEX_VM_OPCODE_TRECV:
+    {
+        reflex_message_t msg;
+        err = reflex_fabric_recv(vm->node_id, &msg);
+        if (err == ESP_OK) {
+            vm->registers[instruction->dst] = msg.payload;
+        } else if (err == ESP_ERR_NOT_FOUND) {
+            reflex_vm_zero_word(&vm->registers[instruction->dst]);
+            err = ESP_OK;
+        }
+        break;
+    }
     case REFLEX_VM_OPCODE_TSYS:
         if (vm->syscall_handler == NULL) {
             return reflex_vm_fault(vm, REFLEX_VM_FAULT_INVALID_SYSCALL);
@@ -243,7 +328,13 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
         int32_t addr;
         reflex_word18_t val;
         ESP_RETURN_ON_ERROR(reflex_word18_to_int32(&vm->registers[instruction->src_a], &addr), "vm", "invalid addr");
-        err = reflex_vm_mem_get(vm, (uint32_t)addr, &val);
+        
+        if (vm->cache) {
+            err = reflex_cache_load(vm, (uint32_t)addr, &val);
+        } else {
+            err = reflex_vm_mem_get_raw(vm, (uint32_t)addr, &val);
+        }
+
         if (err != ESP_OK) {
             return reflex_vm_fault(vm, REFLEX_VM_FAULT_INVALID_MEMORY_ACCESS);
         }
@@ -254,9 +345,33 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
     {
         int32_t addr;
         ESP_RETURN_ON_ERROR(reflex_word18_to_int32(&vm->registers[instruction->dst], &addr), "vm", "invalid addr");
-        err = reflex_vm_mem_set(vm, (uint32_t)addr, &vm->registers[instruction->src_a]);
+
+        if (vm->cache) {
+            err = reflex_cache_store(vm, (uint32_t)addr, &vm->registers[instruction->src_a]);
+        } else {
+            err = reflex_vm_mem_set_raw(vm, (uint32_t)addr, &vm->registers[instruction->src_a]);
+        }
+
         if (err != ESP_OK) {
             return reflex_vm_fault(vm, REFLEX_VM_FAULT_INVALID_MEMORY_ACCESS);
+        }
+        break;
+    }
+    case REFLEX_VM_OPCODE_TFLUSH:
+    {
+        int32_t addr;
+        ESP_RETURN_ON_ERROR(reflex_word18_to_int32(&vm->registers[instruction->src_a], &addr), "vm", "invalid addr");
+        if (vm->cache) {
+            reflex_cache_flush(vm, (uint32_t)addr);
+        }
+        break;
+    }
+    case REFLEX_VM_OPCODE_TINV:
+    {
+        int32_t addr;
+        ESP_RETURN_ON_ERROR(reflex_word18_to_int32(&vm->registers[instruction->src_a], &addr), "vm", "invalid addr");
+        if (vm->cache) {
+            reflex_cache_invalidate(vm, (uint32_t)addr);
         }
         break;
     }

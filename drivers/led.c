@@ -30,3 +30,8 @@ esp_err_t reflex_led_toggle(void)
 {
     return reflex_led_set(!s_led_on);
 }
+
+bool reflex_led_get(void)
+{
+    return s_led_on;
+}

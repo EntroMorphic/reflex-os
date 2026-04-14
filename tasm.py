@@ -2,6 +2,7 @@
 import sys
 import struct
 import re
+import zlib
 
 OPCODES = {
     "TNOP": 0,
@@ -78,35 +79,81 @@ def assemble(filename, output_name):
             raise ValueError(f"Line {idx}: Unknown opcode {op_name}")
 
         op_id = OPCODES[op_name]
+        operands = parts[1:]
+
+        def parse_reg(token):
+            if not token.startswith("r"):
+                raise ValueError(f"Line {idx}: Expected register, got {token}")
+            reg = int(token[1:])
+            if reg < 0 or reg > 7:
+                raise ValueError(f"Line {idx}: Register out of range: {token}")
+            return reg
+
         dst = 0
         src_a = 0
         src_b = 0
         imm = 0
 
-        # Simple greedy parser based on operand count
-        operands = parts[1:]
-
-        for i, token in enumerate(operands):
-            if token.startswith("r"):
-                reg = int(token[1:])
-                if i == 0:
-                    dst = reg
-                elif i == 1:
-                    src_a = reg
-                elif i == 2:
-                    src_b = reg
-            else:
-                imm = parse_imm(token, labels)
-
-        # Handle TSEL multi-register packing into IMM
-        if op_name == "TSEL":
-            # Syntax: TSEL DST, SEL_REG, ZERO_REG, NEG_REG, POS_REG
-            # Note: Current greedy parser needs help here.
-            # We'll assume the 4th/5th tokens are the branches.
-            if len(operands) >= 5:
-                neg_reg = int(operands[3][1:])
-                pos_reg = int(operands[4][1:])
-                imm = (neg_reg & 0x07) | ((pos_reg & 0x07) << 3)
+        if op_name in {"TNOP", "THALT"}:
+            if operands:
+                raise ValueError(f"Line {idx}: {op_name} takes no operands")
+        elif op_name == "TLDI":
+            if len(operands) != 2:
+                raise ValueError(f"Line {idx}: TLDI requires DST, IMM")
+            dst = parse_reg(operands[0])
+            imm = parse_imm(operands[1], labels)
+        elif op_name in {"TMOV", "TLD", "TST"}:
+            if len(operands) != 2:
+                raise ValueError(f"Line {idx}: {op_name} requires two registers")
+            dst = parse_reg(operands[0])
+            src_a = parse_reg(operands[1])
+        elif op_name in {"TADD", "TSUB", "TCMP"}:
+            if len(operands) != 3:
+                raise ValueError(f"Line {idx}: {op_name} requires DST, SRC_A, SRC_B")
+            dst = parse_reg(operands[0])
+            src_a = parse_reg(operands[1])
+            src_b = parse_reg(operands[2])
+        elif op_name == "TSEL":
+            if len(operands) != 5:
+                raise ValueError(f"Line {idx}: TSEL requires DST, SEL, ZERO, NEG, POS")
+            dst = parse_reg(operands[0])
+            src_a = parse_reg(operands[1])
+            src_b = parse_reg(operands[2])
+            neg_reg = parse_reg(operands[3])
+            pos_reg = parse_reg(operands[4])
+            imm = (neg_reg & 0x07) | ((pos_reg & 0x07) << 3)
+        elif op_name == "TJMP":
+            if len(operands) != 1:
+                raise ValueError(f"Line {idx}: TJMP requires TARGET")
+            imm = parse_imm(operands[0], labels)
+        elif op_name in {"TBRNEG", "TBRZERO", "TBRPOS"}:
+            if len(operands) != 2:
+                raise ValueError(f"Line {idx}: {op_name} requires SRC, TARGET")
+            src_a = parse_reg(operands[0])
+            imm = parse_imm(operands[1], labels)
+        elif op_name == "TSEND":
+            if len(operands) != 3:
+                raise ValueError(f"Line {idx}: TSEND requires DST, SRC, OP")
+            dst = parse_reg(operands[0])
+            src_a = parse_reg(operands[1])
+            imm = parse_imm(operands[2], labels)
+        elif op_name == "TRECV":
+            if len(operands) != 1:
+                raise ValueError(f"Line {idx}: TRECV requires DST")
+            dst = parse_reg(operands[0])
+        elif op_name in {"TFLUSH", "TINV"}:
+            if len(operands) != 1:
+                raise ValueError(f"Line {idx}: {op_name} requires SRC")
+            src_a = parse_reg(operands[0])
+        elif op_name == "TSYS":
+            if len(operands) != 4:
+                raise ValueError(f"Line {idx}: TSYS requires DST, SRC_A, SRC_B, ID")
+            dst = parse_reg(operands[0])
+            src_a = parse_reg(operands[1])
+            src_b = parse_reg(operands[2])
+            imm = parse_imm(operands[3], labels)
+        else:
+            raise ValueError(f"Line {idx}: Unhandled opcode {op_name}")
 
         # Pack into 32-bit word (v2 format)
         word = op_id & 0x3F
@@ -125,7 +172,7 @@ def assemble(filename, output_name):
     for instr in packed_instrs:
         payload += struct.pack("<I", instr)
 
-    checksum = sum(payload) & 0xFFFFFFFF
+    checksum = zlib.crc32(payload) & 0xFFFFFFFF
 
     # Write Header and Payload
     # Magic(4), Ver(2), Checksum(4), Entry(2), InstrCount(2), DataCount(2) = 16B
