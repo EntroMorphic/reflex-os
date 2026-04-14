@@ -399,9 +399,56 @@ static void reflex_shell_bonsai_heal_test(void) {
     }
 }
 
+static void reflex_shell_bonsai_gvm_test(void) {
+    printf("GOOSE Phase 10: Geometric VM Proof-of-Life...\n");
+    
+    static reflex_vm_state_t gvm;
+    static reflex_word18_t gvm_mem[32];
+    
+    // Program:
+    // 0: TLDI R1, 0    (Addr of "led_intent" in private memory)
+    // 1: TSENSE R2, R1 (R2 = led_intent.state)
+    // 2: THALT
+    
+    static const reflex_vm_instruction_t prog[] = {
+        {.opcode = REFLEX_VM_OPCODE_TLDI, .dst = 1, .imm = 0},
+        {.opcode = REFLEX_VM_OPCODE_TSENSE, .dst = 2, .src_a = 1},
+        {.opcode = REFLEX_VM_OPCODE_THALT}
+    };
+    
+    // Load "led_intent" into private memory
+    const char *name = "led_intent";
+    for(int i=0; name[i]; i++) {
+        reflex_word18_from_int32(name[i], &gvm_mem[i]);
+    }
+    reflex_word18_from_int32(0, &gvm_mem[strlen(name)]);
+
+    reflex_vm_image_t image = {
+        .magic = REFLEX_VM_IMAGE_MAGIC,
+        .version = 1,
+        .entry_ip = 0,
+        .instructions = prog,
+        .instruction_count = 3,
+        .private_memory = gvm_mem,
+        .private_memory_count = 32
+    };
+
+    if (reflex_vm_load_image(&gvm, &image) != ESP_OK) {
+        printf("Error: Failed to load GVM image.\n");
+        return;
+    }
+
+    printf("Running Geometric VM (sensing 'led_intent')...\n");
+    reflex_vm_run(&gvm, 10);
+    
+    int32_t result;
+    reflex_word18_to_int32(&gvm.registers[2], &result);
+    printf("VM Sense Result: %ld (Ternary State)\n", (long)result);
+}
+
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime|heal>, tapestry <signal name state>, services, config <get|set>, vm info\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime|heal|gvm>, tapestry <signal name state>, services, config <get|set>, vm info\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
     else if (strcmp(argv[0], "led") == 0) { if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off"); }
     else if (strcmp(argv[0], "bonsai") == 0) {
@@ -413,6 +460,7 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         else if (strcmp(argv[1], "exp5") == 0) { if (argc >= 3 && strcmp(argv[2], "run") == 0) reflex_shell_bonsai_exp5_run(); }
         else if (strcmp(argv[1], "runtime") == 0) { reflex_shell_bonsai_runtime_test(); }
         else if (strcmp(argv[1], "heal") == 0) { reflex_shell_bonsai_heal_test(); }
+        else if (strcmp(argv[1], "gvm") == 0) { reflex_shell_bonsai_gvm_test(); }
     } else if (strcmp(argv[0], "tapestry") == 0) {
         if (argc >= 4 && strcmp(argv[1], "signal") == 0) {
             reflex_shell_tapestry_signal(argv[2], atoi(argv[3]));

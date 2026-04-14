@@ -8,10 +8,13 @@
 #include "reflex_ternary.h"
 #include "reflex_vm_opcode.h"
 #include "reflex_vm_mem.h"
+#include "goose.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define REFLEX_VM_MAX_ROUTES 4
 
 typedef enum {
     REFLEX_VM_STATUS_READY = 0,
@@ -61,6 +64,10 @@ typedef struct reflex_vm_state {
     reflex_vm_syscall_handler_t syscall_handler;
     void *syscall_context;
     struct reflex_cache *cache;
+
+    // GOOSE Manifest (Phase 10)
+    goose_route_t route_manifest[REFLEX_VM_MAX_ROUTES];
+    size_t route_count;
 } reflex_vm_state_t;
 
 #ifdef __cplusplus

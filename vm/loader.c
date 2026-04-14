@@ -9,7 +9,7 @@
 
 static bool reflex_vm_loader_opcode_valid(reflex_vm_opcode_t opcode)
 {
-    return opcode >= REFLEX_VM_OPCODE_TNOP && opcode <= REFLEX_VM_OPCODE_THALT;
+    return opcode >= REFLEX_VM_OPCODE_TNOP && opcode <= REFLEX_VM_OPCODE_TSENSE;
 }
 
 static bool reflex_vm_loader_register_valid(uint8_t index)
@@ -63,6 +63,16 @@ static bool reflex_vm_loader_instruction_fields_valid(const reflex_vm_instructio
         return reflex_vm_loader_register_valid(instruction->dst);
     case REFLEX_VM_OPCODE_TLD:
     case REFLEX_VM_OPCODE_TST:
+        return reflex_vm_loader_register_valid(instruction->dst) &&
+               reflex_vm_loader_register_valid(instruction->src_a);
+    case REFLEX_VM_OPCODE_TSENSE:
+        return reflex_vm_loader_register_valid(instruction->dst) &&
+               reflex_vm_loader_register_valid(instruction->src_a);
+    case REFLEX_VM_OPCODE_TROUTE:
+        return reflex_vm_loader_register_valid(instruction->dst) &&
+               reflex_vm_loader_register_valid(instruction->src_a) &&
+               reflex_vm_loader_register_valid(instruction->src_b);
+    case REFLEX_VM_OPCODE_TBIAS:
         return reflex_vm_loader_register_valid(instruction->dst) &&
                reflex_vm_loader_register_valid(instruction->src_a);
     default:
