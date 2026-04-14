@@ -255,24 +255,24 @@ static void reflex_shell_bonsai_exp5_run(void) {
     rmt_tx_channel_config_t rcfg = {
         .gpio_num = 4,
         .clk_src = RMT_CLK_SRC_DEFAULT,
-        .resolution_hz = 1000000,
+        .resolution_hz = 1000000, // 1MHz
         .mem_block_symbols = 64,
         .trans_queue_depth = 4,
         .flags.io_loop_back = 1,
     };
     rmt_channel_handle_t rmt_ch = NULL;
-    if (rmt_new_tx_channel(&rcfg, &rmt_ch) != ESP_OK) { pcnt_unit_disable(pcnt); pcnt_unit_stop(pcnt); pcnt_del_unit(pcnt); return; }
+    if (rmt_new_tx_channel(&rcfg, &rmt_ch) != ESP_OK) { pcnt_unit_stop(pcnt); pcnt_unit_disable(pcnt); pcnt_del_unit(pcnt); return; }
     rmt_enable(rmt_ch);
 
     gpio_config_t io = { .pin_bit_mask = (1ULL << 6), .mode = GPIO_MODE_OUTPUT };
     gpio_config(&io);
-    gpio_set_level(6, 1);
+    gpio_set_level(6, 1); // High to enable (keeping it simple)
 
     rmt_symbol_word_t pulses[10];
     for(int i=0; i<10; i++) {
-        pulses[i].duration0 = 100;
+        pulses[i].duration0 = 1000;
         pulses[i].level0 = 1;
-        pulses[i].duration1 = 100;
+        pulses[i].duration1 = 1000;
         pulses[i].level1 = 0;
     }
     rmt_transmit_config_t tcfg = { .loop_count = 0 };
