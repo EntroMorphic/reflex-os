@@ -298,6 +298,32 @@ Coordinates are expressed as a 9-trit (tryte) vector:
 - **Negative Clusters:** Reserved for Input Perception and Observer regions.
 - **Neutral Clusters:** Reserved for Internal Regulation and Tapestry Loom cells.
 
+## 11. Geometric Fragment (The Pattern)
+
+### Definition
+A pre-woven collection of regions, cells, and routes that manifest a specific behavioral primitive (e.g., an Oscillator, a Logic Gate, or a Filter). Fragments are the "Standard Library" of GOOSE, allowing complex behavior to be composed from trusted geometric templates.
+
+### C6 Mapping
+Fragments are stored as immutable data structures in flash or code, and are "Woven" into the Tapestry at runtime.
+
+### Ternary Meaning
+A fragment's behavior is defined by its internal orientations. For example, a **NOT Fragment** is simply a single route with an orientation of `-1`.
+
+## 12. Tiered Rhythms (Multi-Scale Pulse)
+
+### Definition
+The allocation of disparate execution frequencies to different manifolds. Tiered rhythms allow the system to maintain both autonomic persistence (low energy) and reactive agency (high performance) within a single coherent field.
+
+### C6 Mapping
+- **Autonomic (1Hz):** Executed by the LP core.
+- **Harmonic (10Hz):** Executed by the Supervisor Task.
+- **Reactive (100Hz+):** Executed by Regional Pulse Tasks.
+
+## 13. Manifest Weaving (The Boot)
+
+### Definition
+The process of initializing the operating system by weaving a sequence of geometric fragments into the Loom. The system "starts" when the global posture cell reaches equilibrium.
+
 ## Relations Between Terms
 
 The current working relation is:
@@ -309,6 +335,10 @@ The current working relation is:
 - `routes` govern how influence and access move between cells, regions, and fields
 - `regulators` maintain `equilibrium` by exercising `meta-agency` across the `loom`
 - `geometric coordinates` provide the immutable spatial identity for every unit in the `tapestry`
+- `fragments` are reusable geometric patterns that can be woven into the `tapestry`
+- `tiered rhythms` ensure every manifold pulses at its required scale of reality
+
+
 
 
 

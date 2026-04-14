@@ -144,13 +144,64 @@ esp_err_t goose_process_transitions(goose_field_t *field) {
     if (!field) return ESP_ERR_INVALID_ARG;
     uint64_t now = esp_timer_get_time();
 
-    // 1. Process Evolutions (Transitions)
+    /**
+     * Phase 1: Evolution (Autonomous Rhythm)
+     * Evaluate transitions that have reached their rhythmic interval.
+     */
     for (size_t i = 0; i < field->transition_count; i++) {
         goose_transition_t *t = &field->transitions[i];
         if (t->evolution_fn && (now - t->last_run_us) >= (t->interval_ms * 1000)) {
             t->target->state = t->evolution_fn(t->context);
             t->last_run_us = now;
         }
+    }
+
+    /**
+     * Phase 2: Propagation (Geometric Flow)
+     * Distribute state across the Tapestry using the Ternary Product Rule.
+     */
+    for (size_t i = 0; i < field->route_count; i++) {
+        goose_route_t *r = &field->routes[i];
+        
+        if (r->coupling == GOOSE_COUPLING_SOFTWARE) {
+            // Meta-Agency: Orientation is dynamic if a control cell is present
+            reflex_trit_t orient = r->control ? (reflex_trit_t)r->control->state : r->orientation;
+
+            /**
+             * Ternary Product Rule: Sink = Source * Orientation
+             * +1 * +1 = +1 (Admit)
+             * +1 *  0 =  0 (Inhibit/Gate)
+             * +1 * -1 = -1 (Invert)
+             */
+            r->sink->state = (int8_t)((int)r->source->state * (int)orient);
+            
+            // Physical Manifestation: Update GPIO if the sink is mapped to hardware
+            if (r->sink->hardware_addr < GPIO_NUM_MAX) {
+                gpio_set_level((gpio_num_t)r->sink->hardware_addr, 
+                               r->sink->state == 1 ? 1 : 0);
+            }
+        }
+    }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Regional Pulse Task
+ * This high-frequency task executes a single field's transitions at its defined Rhythm.
+ */
+static void goose_regional_pulse_task(void *arg) {
+    goose_field_t *field = (goose_field_t *)arg;
+    uint32_t delay_ms = 1000 / (uint32_t)field->rhythm;
+    if (delay_ms == 0) delay_ms = 1;
+
+    ESP_LOGI(TAG, "Regional Pulse Task started for [%s] at %u Hz", field->name, (uint32_t)field->rhythm);
+
+    while(1) {
+        goose_process_transitions(field);
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+}
     }
 
     // 2. Process Routes (State Propagation)

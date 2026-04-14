@@ -414,7 +414,8 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
     {
         /**
          * TROUTE DST, SRC_A (Src), SRC_B (Sink)
-         * IMM=0: SRC_A/B are memory addresses of string names.
+         * Established a persistent geometric route between two fabric cells.
+         * IMM=0: SRC_A/B are addresses of string names.
          * IMM=1: SRC_A/B are direct 9-trit coordinates.
          */
         goose_cell_t *source = NULL;
@@ -444,7 +445,7 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
             snprintf(r->name, 16, "vm_r%zu", vm->route_count);
             r->source = source;
             r->sink = sink;
-            r->orientation = REFLEX_TRIT_POS;
+            r->orientation = 1; // ADMIT
             r->coupling = GOOSE_COUPLING_SOFTWARE;
             
             goose_apply_route(r);
@@ -458,7 +459,8 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
     {
         /**
          * TBIAS DST, SRC_A (RouteIndex), SRC_B (TritValue)
-         * Tilts the manifold by changing a route's orientation.
+         * Changes the orientation of a route owned by the current VM.
+         * This allows for programmatic Agency/Inhibition.
          */
         int32_t route_idx, bias;
         reflex_word18_to_int32(&vm->registers[instruction->src_a], &route_idx);
@@ -476,8 +478,9 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
     {
         /**
          * TSENSE DST, SRC_A (NameAddr or Coord)
-         * IMM=0: SRC_A is memory address of string name.
-         * IMM=1: SRC_A is direct 9-trit coordinate.
+         * Samples a Tapestry cell's state into a VM register.
+         * IMM=0: SRC_A is address of string name.
+         * IMM=1: SRC_A is 9-trit coordinate.
          */
         goose_cell_t *c = NULL;
         
@@ -490,16 +493,15 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
             }
         } else {
             reflex_tryte9_t coord;
-            // Extract bottom 9 trits from the register as the coordinate
             memcpy(coord.trits, vm->registers[instruction->src_a].trits, sizeof(coord.trits));
             c = goose_fabric_get_cell_by_coord(coord);
         }
 
         reflex_vm_zero_word(&vm->registers[instruction->dst]);
         if (c) {
-            vm->registers[instruction->dst].trits[0] = c->state;
+            vm->registers[instruction->dst].trits[0] = (reflex_trit_t)c->state;
         } else {
-            vm->registers[instruction->dst].trits[0] = REFLEX_TRIT_ZERO;
+            vm->registers[instruction->dst].trits[0] = 0; // Neutral fallback
         }
         break;
     }

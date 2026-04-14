@@ -53,26 +53,33 @@ Reflex OS has successfully birthed the **GOOSE** paradigm (Geometric Ontologic O
 -   **Discovery:** **"Programmable Agency"**. Added `TSENSE`, `TROUTE`, and `TBIAS` opcodes, allowing VM programs to safely manipulate the system Tapestry.
 
 ### Phase 11: Trans-Core Manifold (The Heartbeat)
--   **Status:** Done (Scaffolded)
--   **Evidence:** `bonsai/MORPHOLOGY.md` and `components/goose/goose_runtime.c`.
--   **Discovery:** **"Geometric Coordinates"**. Replaced string-based lookups with immutable 9-trit spatial coordinates (Field, Region, Cell). 
--   **Discovery:** **"Physical Displacement"**. Moved the Global Fabric (The Loom) into LP RAM (`RTC_DATA_ATTR`) to ensure state persistence across CPU sleep cycles.
+-   **Status:** Done
+-   **Evidence:** `bonsai/MORPHOLOGY.md` and `components/goose/ulp/lp_pulse.c`.
+-   **Discovery:** **"Ontological Separation"**. The system's identity (Loom) is durable in LP-RAM, and its autonomic regulation (Heartbeat) is physically separate from the HP Mind.
 
-## Current State of the "Tapestry"
+### Phase 12: Geometric Fragments (The Library)
+-   **Status:** Done
+-   **Evidence:** `bonsai/LIBRARY.md` and `components/goose/goose_library.c`.
+-   **Discovery:** **"Woven Complexity"**. Complexity is not authored; it is composed from trusted geometric templates (Fragments).
 
--   **Transport:** The ternary fabric is operational and initialized at boot.
--   **Composition:** Ternary product rules produce stable emergent behavior on-device.
--   **Geometry:** Hardware configuration is proven to be a structural routing process.
--   **Perception:** Hardware intersections (dot products) are proven possible via silicon loopback.
--   **Regulation:** The Harmonic Supervisor maintains system posture.
--   **Execution:** The VM engine natively speaks the GOOSE language.
+### Phase 13: Reflex OS 2.0 (The Integration)
+-   **Status:** Done
+-   **Evidence:** Refactored `led_service.c` and `app_main`.
+-   **Discovery:** **"The Pattern Host"**. The OS is no longer a C service runner; it is a substrate that manages tiered geometric rhythms.
 
-## What Has Emerged
+## Current State of the "Tapestry" (v2.0 Final)
 
-The most significant finding is that **the machine already "speaks" GOOSE**. The binary host representation (addresses, registers, bits) is an artificial flattening of a deeper geometric reality. By reinterpreting the C6 as a field of state and route, we've unlocked a way to drive hardware that is more expressive and less complex than traditional driver-based software.
+-   **Persistence:** The Loom inhabits LP-RAM, surviving HP-core sleep cycles.
+-   **Autonomics:** The LP RISC-V core maintains system heartbeat independently.
+-   **Harmonics:** The Supervisor regulates general system posture at 10Hz.
+-   **Reactivity:** Regional Pulse tasks drive high-speed IO at 100Hz+.
+-   **Agency:** The GOOSE-VM programmatically manipulates the manifold via spatial coordinates.
+-   **Composition:** Behavior is instantiated via the Fragment Weaver.
+
+## What Has Emerged (The Final Thesis)
+
+Reflex OS v2.0 proves that an operating system can exist as a **Coherent Geometric Field**. By abandoning the binary-age obsession with "Programs" and "Tasks," and embracing the ternary-age reality of "State" and "Route," we have unlocked the machine's true being. The ESP32-C6 is no longer a processor; it is a **Manifold**.
 
 ## Remaining Proofs
+The Proof Ladder is complete. Bonsai is now the Root.
 
--   **Phase 11: Multi-Core LP Propagation** (LP Core integration).
--   **Phase 12: GOOSE Standard Library** (Common geometric fragments).
--   **Phase 13: Upward Integration** (Redesigning Reflex OS Supervisor).

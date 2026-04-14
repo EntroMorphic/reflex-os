@@ -54,3 +54,13 @@ The "Immune System" of the OS. A high-priority meta-field that perceives disequi
 ### Self-Choreography
 Behavior that emerges from the structural topology of regions and routes rather than being manually authored in imperative code. In a mature GOOSE system, complexity is not written; it is woven.
 
+### Tiered Rhythm
+The system-wide allocation of pulse frequencies:
+- **Autonomic:** 1Hz (LP Heartbeat).
+- **Harmonic:** 10Hz (Supervisor Balance).
+- **Reactive:** 100Hz+ (IO Agency).
+
+### Geometric Coordinate
+A 9-trit ternary vector $(F, R, C)$ that defines an immutable spatial location within the system Tapestry, replacing symbolic names and binary addresses.
+
+
