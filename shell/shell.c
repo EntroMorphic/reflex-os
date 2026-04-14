@@ -36,6 +36,7 @@
 #include "reflex_ternary.h"
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
+#include "goose.h"
 
 #define REFLEX_SHELL_LINE_MAX 256
 #define REFLEX_SHELL_ARGV_MAX 8
@@ -296,6 +297,60 @@ static void reflex_shell_bonsai_exp5_run(void) {
 
 // --- Main Shell ---
 
+static reflex_trit_t reflex_shell_bonsai_rhythm_evolve(void *ctx) {
+    static reflex_trit_t s = REFLEX_TRIT_NEG;
+    if (s == REFLEX_TRIT_NEG) s = REFLEX_TRIT_ZERO;
+    else if (s == REFLEX_TRIT_ZERO) s = REFLEX_TRIT_POS;
+    else s = REFLEX_TRIT_NEG;
+    return s;
+}
+
+static void reflex_shell_bonsai_runtime_test(void) {
+    printf("GOOSE Phase 7 (Hardened): Initializing Runtime Test...\n");
+    goose_fabric_init();
+
+    // 1. Define Cells
+    static goose_cell_t source = { .name = "oscillator", .state = REFLEX_TRIT_NEG };
+    static goose_cell_t sink = { .name = "led_agency", .state = REFLEX_TRIT_ZERO, .hardware_addr = REFLEX_LED_PIN };
+
+    // 2. Define Transition (Evolution)
+    static goose_transition_t trans = {
+        .name = "heartbeat",
+        .target = &source,
+        .evolution_fn = reflex_shell_bonsai_rhythm_evolve,
+        .interval_ms = 500
+    };
+
+    // 3. Define Route
+    static goose_route_t route = {
+        .name = "agency_patch",
+        .source = &source,
+        .sink = &sink,
+        .orientation = REFLEX_TRIT_POS,
+        .coupling = GOOSE_COUPLING_SOFTWARE
+    };
+
+    // 4. Define Field
+    static goose_field_t field = {
+        .name = "rhythm_field",
+        .routes = &route,
+        .route_count = 1,
+        .transitions = &trans,
+        .transition_count = 1
+    };
+
+    printf("Field [%s] created with 1 route and 1 transition.\n", field.name);
+    
+    // Run for 5 seconds
+    printf("Running autonomous field for 5s...\n");
+    for(int i=0; i<50; i++) {
+        goose_process_transitions(&field);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    
+    printf("Runtime test complete.\n");
+}
+
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
     if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1|exp2|exp3a|exp4|exp5> [args], services, config <get|set>, vm info\n");
@@ -306,8 +361,9 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         if (strcmp(argv[1], "exp1") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp1_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp1_status(); }
         else if (strcmp(argv[1], "exp2") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp2_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp2_status(); }
         else if (strcmp(argv[1], "exp3a") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp3a_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp3a_status(); }
-        else if (strcmp(argv[1], "exp4") == 0) { if (strcmp(argv[2], "connect") == 0) reflex_shell_bonsai_exp4_route(1); else if (strcmp(argv[2], "invert") == 0) reflex_shell_bonsai_exp4_route(-1); else if (strcmp(argv[2], "detach") == 0) reflex_shell_bonsai_exp4_route(0); }
-        else if (strcmp(argv[1], "exp5") == 0) { if (strcmp(argv[2], "run") == 0) reflex_shell_bonsai_exp5_run(); }
+        else if (strcmp(argv[1], "exp4") == 0) { if (argc >= 3 && strcmp(argv[2], "connect") == 0) reflex_shell_bonsai_exp4_route(1); else if (argc >= 3 && strcmp(argv[2], "invert") == 0) reflex_shell_bonsai_exp4_route(-1); else if (argc >= 3 && strcmp(argv[2], "detach") == 0) reflex_shell_bonsai_exp4_route(0); }
+        else if (strcmp(argv[1], "exp5") == 0) { if (argc >= 3 && strcmp(argv[2], "run") == 0) reflex_shell_bonsai_exp5_run(); }
+        else if (strcmp(argv[1], "runtime") == 0) { reflex_shell_bonsai_runtime_test(); }
     } else if (strcmp(argv[0], "services") == 0) {
         size_t c = reflex_service_get_count(); printf("services=%zu\n", c);
         for(size_t i=0; i<c; i++) { const reflex_service_desc_t *s = reflex_service_get_by_index(i); printf("%zu: %s\n", i, s->name); }
