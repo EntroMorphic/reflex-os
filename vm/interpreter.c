@@ -413,22 +413,31 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
     case REFLEX_VM_OPCODE_TROUTE:
     {
         /**
-         * TROUTE DST, SRC_A (SrcNameAddr), SRC_B (SinkNameAddr)
-         * Establishes a persistent geometric route between two fabric cells.
+         * TROUTE DST, SRC_A (Src), SRC_B (Sink)
+         * IMM=0: SRC_A/B are memory addresses of string names.
+         * IMM=1: SRC_A/B are direct 9-trit coordinates.
          */
-        char src_name[16], sink_name[16];
-        int32_t src_addr, sink_addr;
-        reflex_word18_to_int32(&vm->registers[instruction->src_a], &src_addr);
-        reflex_word18_to_int32(&vm->registers[instruction->src_b], &sink_addr);
-        
-        if (reflex_vm_get_string(vm, (uint32_t)src_addr, src_name, 16) != ESP_OK ||
-            reflex_vm_get_string(vm, (uint32_t)sink_addr, sink_name, 16) != ESP_OK) {
-            reflex_word18_from_int32(-1, &vm->registers[instruction->dst]);
-            break;
-        }
+        goose_cell_t *source = NULL;
+        goose_cell_t *sink = NULL;
 
-        goose_cell_t *source = goose_fabric_get_cell(src_name);
-        goose_cell_t *sink = goose_fabric_get_cell(sink_name);
+        if (instruction->imm == 0) {
+            char src_name[16], sink_name[16];
+            int32_t src_addr, sink_addr;
+            reflex_word18_to_int32(&vm->registers[instruction->src_a], &src_addr);
+            reflex_word18_to_int32(&vm->registers[instruction->src_b], &sink_addr);
+            
+            if (reflex_vm_get_string(vm, (uint32_t)src_addr, src_name, 16) == ESP_OK &&
+                reflex_vm_get_string(vm, (uint32_t)sink_addr, sink_name, 16) == ESP_OK) {
+                source = goose_fabric_get_cell(src_name);
+                sink = goose_fabric_get_cell(sink_name);
+            }
+        } else {
+            reflex_tryte9_t src_coord, sink_coord;
+            memcpy(src_coord.trits, vm->registers[instruction->src_a].trits, sizeof(src_coord.trits));
+            memcpy(sink_coord.trits, vm->registers[instruction->src_b].trits, sizeof(sink_coord.trits));
+            source = goose_fabric_get_cell_by_coord(src_coord);
+            sink = goose_fabric_get_cell_by_coord(sink_coord);
+        }
 
         if (source && sink && vm->route_count < REFLEX_VM_MAX_ROUTES) {
             goose_route_t *r = &vm->route_manifest[vm->route_count++];
@@ -466,23 +475,31 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
     case REFLEX_VM_OPCODE_TSENSE:
     {
         /**
-         * TSENSE DST, SRC_A (CellNameAddr)
-         * Samples the current state of a Tapestry cell into a VM register.
+         * TSENSE DST, SRC_A (NameAddr or Coord)
+         * IMM=0: SRC_A is memory address of string name.
+         * IMM=1: SRC_A is direct 9-trit coordinate.
          */
-        char cell_name[16];
-        int32_t name_addr;
-        reflex_word18_to_int32(&vm->registers[instruction->src_a], &name_addr);
+        goose_cell_t *c = NULL;
         
-        if (reflex_vm_get_string(vm, (uint32_t)name_addr, cell_name, 16) != ESP_OK) {
-            reflex_vm_zero_word(&vm->registers[instruction->dst]);
-            vm->registers[instruction->dst].trits[0] = REFLEX_TRIT_ZERO;
-            break;
+        if (instruction->imm == 0) {
+            char cell_name[16];
+            int32_t name_addr;
+            reflex_word18_to_int32(&vm->registers[instruction->src_a], &name_addr);
+            if (reflex_vm_get_string(vm, (uint32_t)name_addr, cell_name, 16) == ESP_OK) {
+                c = goose_fabric_get_cell(cell_name);
+            }
+        } else {
+            reflex_tryte9_t coord;
+            // Extract bottom 9 trits from the register as the coordinate
+            memcpy(coord.trits, vm->registers[instruction->src_a].trits, sizeof(coord.trits));
+            c = goose_fabric_get_cell_by_coord(coord);
         }
 
-        goose_cell_t *c = goose_fabric_get_cell(cell_name);
         reflex_vm_zero_word(&vm->registers[instruction->dst]);
         if (c) {
             vm->registers[instruction->dst].trits[0] = c->state;
+        } else {
+            vm->registers[instruction->dst].trits[0] = REFLEX_TRIT_ZERO;
         }
         break;
     }

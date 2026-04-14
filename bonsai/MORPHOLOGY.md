@@ -281,6 +281,23 @@ A state of geometric consistency where a region's physical reality (Sink) perfec
 ### Definition
 The common ground where all regions weave their state. It is a shared GOOSE Field that replaces traditional message queues with persistent routed state propagation.
 
+## 10. Geometric Coordinates (The Map)
+
+### Definition
+A fixed-width ternary vector that uniquely identifies any cell in the manifold without relying on symbolic names. Coordinates replace symbolic "Addresses" and "Strings" with a direct geometric position in the system Tapestry.
+
+### C6 Mapping
+Coordinates are expressed as a 9-trit (tryte) vector:
+- **Field Component (3 trits):** Identifies the top-level functional expanses (e.g., Perception, Agency, System).
+- **Region Component (3 trits):** Identifies the functional cluster within the field (e.g., GPIO, PWM, Timer).
+- **Cell Component (3 trits):** Identifies the atomic state unit within the region.
+
+### Ternary Meaning
+- **(0,0,0):** The Origin (The system core balance cell).
+- **Positive Clusters:** Reserved for Output Agency and Actor regions.
+- **Negative Clusters:** Reserved for Input Perception and Observer regions.
+- **Neutral Clusters:** Reserved for Internal Regulation and Tapestry Loom cells.
+
 ## Relations Between Terms
 
 The current working relation is:
@@ -291,6 +308,8 @@ The current working relation is:
 - `states` change by `transitions`
 - `routes` govern how influence and access move between cells, regions, and fields
 - `regulators` maintain `equilibrium` by exercising `meta-agency` across the `loom`
+- `geometric coordinates` provide the immutable spatial identity for every unit in the `tapestry`
+
 
 
 This is the first structural grammar of GOOSE.

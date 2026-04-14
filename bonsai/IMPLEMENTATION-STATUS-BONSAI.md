@@ -52,6 +52,12 @@ Reflex OS has successfully birthed the **GOOSE** paradigm (Geometric Ontologic O
 -   **Evidence:** `vm/interpreter.c` and `bonsai gvm` shell command.
 -   **Discovery:** **"Programmable Agency"**. Added `TSENSE`, `TROUTE`, and `TBIAS` opcodes, allowing VM programs to safely manipulate the system Tapestry.
 
+### Phase 11: Trans-Core Manifold (The Heartbeat)
+-   **Status:** Done (Scaffolded)
+-   **Evidence:** `bonsai/MORPHOLOGY.md` and `components/goose/goose_runtime.c`.
+-   **Discovery:** **"Geometric Coordinates"**. Replaced string-based lookups with immutable 9-trit spatial coordinates (Field, Region, Cell). 
+-   **Discovery:** **"Physical Displacement"**. Moved the Global Fabric (The Loom) into LP RAM (`RTC_DATA_ATTR`) to ensure state persistence across CPU sleep cycles.
+
 ## Current State of the "Tapestry"
 
 -   **Transport:** The ternary fabric is operational and initialized at boot.

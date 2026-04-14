@@ -7,20 +7,28 @@
 
 static const char *TAG = "GOOSE_RUNTIME";
 
-// The Global Tapestry (The Loom)
+/**
+ * The Global Tapestry (The Loom)
+ * Displaced into LP RAM (RTC Memory) to ensure persistence across HP core sleep cycles.
+ * This fulfills the "Physical Displacement" mandate from Phase 12 LMM Synthesis.
+ */
 #define GOOSE_FABRIC_MAX_CELLS 16
-static goose_cell_t fabric_cells[GOOSE_FABRIC_MAX_CELLS];
-static size_t fabric_cell_count = 0;
+static RTC_DATA_ATTR goose_cell_t fabric_cells[GOOSE_FABRIC_MAX_CELLS];
+static RTC_DATA_ATTR size_t fabric_cell_count = 0;
 
 esp_err_t goose_fabric_init(void) {
     ESP_LOGI(TAG, "Initializing GOOSE Ternary Fabric (The Loom)...");
     
-    // Scaffolding standard fabric signals
+    // Scaffolding standard fabric signals with Geometric Coordinates
     snprintf(fabric_cells[0].name, 16, "sys_status");
+    fabric_cells[0].coord = goose_make_coord(0, 0, 0); // Origin
     fabric_cells[0].state = REFLEX_TRIT_POS;
+    fabric_cells[0].type = GOOSE_CELL_VIRTUAL;
     
     snprintf(fabric_cells[1].name, 16, "led_intent");
+    fabric_cells[1].coord = goose_make_coord(0, 0, 1); // System -> Fabric -> Lane 1
     fabric_cells[1].state = REFLEX_TRIT_ZERO;
+    fabric_cells[1].type = GOOSE_CELL_INTENT;
     
     fabric_cell_count = 2;
     return ESP_OK;
@@ -31,6 +39,32 @@ goose_cell_t* goose_fabric_get_cell(const char *name) {
         if (strcmp(fabric_cells[i].name, name) == 0) return &fabric_cells[i];
     }
     return NULL;
+}
+
+goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
+    for (size_t i = 0; i < fabric_cell_count; i++) {
+        if (goose_coord_equal(fabric_cells[i].coord, coord)) return &fabric_cells[i];
+    }
+    return NULL;
+}
+
+reflex_tryte9_t goose_make_coord(int8_t field, int8_t region, int8_t cell) {
+    reflex_tryte9_t t = {0};
+    // Each component fits in 3 trits (base-3 balanced: -13 to +13)
+    // Field: trits[0..2], Region: trits[3..5], Cell: trits[6..8]
+    
+    // Simple mapping: -1 -> -1, 0 -> 0, 1 -> 1 (only using 1 trit per component for now for simplicity)
+    t.trits[0] = (reflex_trit_t)field;
+    t.trits[3] = (reflex_trit_t)region;
+    t.trits[6] = (reflex_trit_t)cell;
+    return t;
+}
+
+bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b) {
+    for (int i = 0; i < 9; i++) {
+        if (a.trits[i] != b.trits[i]) return false;
+    }
+    return true;
 }
 
 esp_err_t goose_fabric_process(void) {

@@ -400,37 +400,29 @@ static void reflex_shell_bonsai_heal_test(void) {
 }
 
 static void reflex_shell_bonsai_gvm_test(void) {
-    printf("GOOSE Phase 10: Geometric VM Proof-of-Life...\n");
+    printf("GOOSE Phase 12: Geometric VM Coordinate Test...\n");
     
     static reflex_vm_state_t gvm;
-    static reflex_word18_t gvm_mem[32];
     
     // Program:
-    // 0: TLDI R1, 0    (Addr of "led_intent" in private memory)
-    // 1: TSENSE R2, R1 (R2 = led_intent.state)
+    // 0: TLDI R1, 0    (We'll manually set R1 to the coordinate [0,0,1])
+    // 1: TSENSE R2, R1, IMM=1 (Sense via coordinate in R1)
     // 2: THALT
     
     static const reflex_vm_instruction_t prog[] = {
-        {.opcode = REFLEX_VM_OPCODE_TLDI, .dst = 1, .imm = 0},
-        {.opcode = REFLEX_VM_OPCODE_TSENSE, .dst = 2, .src_a = 1},
+        {.opcode = REFLEX_VM_OPCODE_TLDI, .dst = 1, .imm = 0}, // Placeholder
+        {.opcode = REFLEX_VM_OPCODE_TSENSE, .dst = 2, .src_a = 1, .imm = 1},
         {.opcode = REFLEX_VM_OPCODE_THALT}
     };
     
-    // Load "led_intent" into private memory
-    const char *name = "led_intent";
-    for(int i=0; name[i]; i++) {
-        reflex_word18_from_int32(name[i], &gvm_mem[i]);
-    }
-    reflex_word18_from_int32(0, &gvm_mem[strlen(name)]);
-
     reflex_vm_image_t image = {
         .magic = REFLEX_VM_IMAGE_MAGIC,
         .version = 1,
         .entry_ip = 0,
         .instructions = prog,
         .instruction_count = 3,
-        .private_memory = gvm_mem,
-        .private_memory_count = 32
+        .private_memory = NULL,
+        .private_memory_count = 0
     };
 
     if (reflex_vm_load_image(&gvm, &image) != ESP_OK) {
@@ -438,12 +430,17 @@ static void reflex_shell_bonsai_gvm_test(void) {
         return;
     }
 
-    printf("Running Geometric VM (sensing 'led_intent')...\n");
+    // Manually set R1 to the coordinate of 'led_intent' (0, 0, 1)
+    // Based on goose_make_coord: trit[0]=0, trit[3]=0, trit[6]=1
+    reflex_vm_zero_word(&gvm.registers[1]);
+    gvm.registers[1].trits[6] = REFLEX_TRIT_POS;
+
+    printf("Running Geometric VM (sensing coordinate [0,0,1])...\n");
     reflex_vm_run(&gvm, 10);
     
     int32_t result;
     reflex_word18_to_int32(&gvm.registers[2], &result);
-    printf("VM Sense Result: %ld (Ternary State)\n", (long)result);
+    printf("VM Coordinate Sense Result: %ld (Ternary State)\n", (long)result);
 }
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {

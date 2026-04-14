@@ -31,6 +31,7 @@ typedef enum {
  */
 typedef struct {
     char name[16];           ///< Semantic name for Tapestry identification
+    reflex_tryte9_t coord;   ///< Geometric Coordinate (Field, Region, Cell)
     reflex_trit_t state;     ///< Current ternary state (-1, 0, +1)
     goose_cell_type_t type;  ///< Role of the cell (Intent, Hardware-In, etc.)
     uintptr_t hardware_addr; ///< Physical mapping (GPIO num or MMIO addr)
@@ -94,7 +95,12 @@ esp_err_t goose_process_transitions(goose_field_t *field);
 
 // Global Fabric API
 goose_cell_t* goose_fabric_get_cell(const char *name);
+goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord);
 esp_err_t goose_fabric_process(void); // Global tapestry processing
+
+// Coordinate Helpers
+reflex_tryte9_t goose_make_coord(int8_t field, int8_t region, int8_t cell);
+bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b);
 
 // Supervisor / Regulator API
 esp_err_t goose_supervisor_init(void);
