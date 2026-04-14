@@ -505,69 +505,6 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
         }
         break;
     }
-        for(int i=0; i<15; i++) {
-            reflex_word18_t w;
-            int32_t v;
-            reflex_vm_mem_get_raw(vm, sink_addr + i, &w);
-            reflex_word18_to_int32(&w, &v);
-            sink_name[i] = (char)v; if (v == 0) break;
-        }
-
-        goose_cell_t *source = goose_fabric_get_cell(src_name);
-        goose_cell_t *sink = goose_fabric_get_cell(sink_name);
-
-        if (source && sink) {
-            // Create a temporary route (this is a bit heavy for an opcode, but this is Phase 10)
-            static goose_route_t vm_route;
-            snprintf(vm_route.name, 16, "vm_route");
-            vm_route.source = source;
-            vm_route.sink = sink;
-            vm_route.orientation = REFLEX_TRIT_POS;
-            vm_route.coupling = GOOSE_COUPLING_SOFTWARE;
-            goose_apply_route(&vm_route);
-            reflex_word18_from_int32(1, &vm->registers[instruction->dst]);
-        } else {
-            reflex_word18_from_int32(-1, &vm->registers[instruction->dst]);
-        }
-        break;
-    }
-    case REFLEX_VM_OPCODE_TBIAS:
-    {
-        char route_name[16];
-        int32_t name_addr;
-        reflex_word18_to_int32(&vm->registers[instruction->src_a], &name_addr);
-        for(int i=0; i<15; i++) {
-            reflex_word18_t w;
-            int32_t v;
-            reflex_vm_mem_get_raw(vm, name_addr + i, &w);
-            reflex_word18_to_int32(&w, &v);
-            route_name[i] = (char)v; if (v == 0) break;
-        }
-        // In this minimal version, we'll just support a global 'bias' signal 
-        // for now or find the route in a registry.
-        // For Phase 10 proof, we'll just set a success trit.
-        reflex_word18_from_int32(1, &vm->registers[instruction->dst]);
-        break;
-    }
-    case REFLEX_VM_OPCODE_TSENSE:
-    {
-        char cell_name[16];
-        int32_t name_addr;
-        reflex_word18_to_int32(&vm->registers[instruction->src_a], &name_addr);
-        for(int i=0; i<15; i++) {
-            reflex_word18_t w;
-            int32_t v;
-            reflex_vm_mem_get_raw(vm, name_addr + i, &w);
-            reflex_word18_to_int32(&w, &v);
-            cell_name[i] = (char)v; if (v == 0) break;
-        }
-        goose_cell_t *c = goose_fabric_get_cell(cell_name);
-        reflex_vm_zero_word(&vm->registers[instruction->dst]);
-        if (c) {
-            vm->registers[instruction->dst].trits[0] = c->state;
-        }
-        break;
-    }
     default:
         return reflex_vm_fault(vm, REFLEX_VM_FAULT_INVALID_OPCODE);
     }

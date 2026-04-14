@@ -31,9 +31,13 @@
 
 static void goose_supervisor_task(void *arg)
 {
+    /**
+     * Harmonic Supervisor Loop
+     * Regulates general system posture at a Harmonic rhythm (10Hz).
+     */
     while (1) {
         goose_supervisor_pulse();
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Regulation cycle every 1s
+        vTaskDelay(pdMS_TO_TICKS(100)); // 10Hz Pulse
     }
 }
 
