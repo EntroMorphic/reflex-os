@@ -30,6 +30,11 @@ typedef enum {
     REFLEX_VM_OPCODE_TINV,
     REFLEX_VM_OPCODE_TSYS,
     REFLEX_VM_OPCODE_THALT,
+    
+    /* GOOSE-Native Geometric Opcodes (Phase 10) */
+    REFLEX_VM_OPCODE_TROUTE, // Establish route between cells (src_a -> src_b)
+    REFLEX_VM_OPCODE_TBIAS,  // Update route orientation (dst = route, src_a = bias)
+    REFLEX_VM_OPCODE_TSENSE, // Sample fabric cell (src_a) into register (dst)
 } reflex_vm_opcode_t;
 
 typedef enum {

@@ -27,12 +27,39 @@ Reflex OS has successfully birthed the **GOOSE** paradigm (Geometric Ontologic O
 -   **Evidence:** `Experiment 005` (Intersection Proof). Used internal loopback between the `RMT` and `PCNT` peripherals to compute a hardware ternary dot product (Intersection) natively.
 -   **Discovery:** The C6 silicon can compute non-binary relationships autonomously if the regions are correctly routed.
 
+### Phase 6: Executable Notation (The Grammar)
+-   **Status:** Done
+-   **Evidence:** `bonsai/NOTATION.md`. Defined the `.goose` syntax for describing the machine's geometric ontology.
+-   **Discovery:** Hardened the grammar with `coupling` and `mapping` to ensure isomorphic hardware representation.
+
+### Phase 7: Minimal GOOSE Runtime (The Engine)
+-   **Status:** Done
+-   **Evidence:** `components/goose/goose_runtime.c`. Implemented the ternary state engine on the C6.
+-   **Discovery:** **"Ternary Product Rule"**. State propagation is a geometric calculation ($Source \times Orientation = Sink$).
+
+### Phase 8: The Tapestry (The Fabric)
+-   **Status:** Done
+-   **Evidence:** `bonsai/TAPESTRY.md` and refactored `led_service.c`.
+-   **Discovery:** **"Messaging is an Illusion"**. Retired legacy binary queues in favor of persistent routed state propagation across a Global Fabric.
+
+### Phase 9: Harmonic Supervisor (The Immune System)
+-   **Status:** Done
+-   **Evidence:** `components/goose/goose_supervisor.c`. Implemented a 10Hz regulation pulse.
+-   **Discovery:** **"Self-Healing Geometry"**. The supervisor can perceive manifold tilt (disequilibrium) and re-level the system by re-orienting blocked routes.
+
+### Phase 10: GOOSE-Native VM (The Brain)
+-   **Status:** Done
+-   **Evidence:** `vm/interpreter.c` and `bonsai gvm` shell command.
+-   **Discovery:** **"Programmable Agency"**. Added `TSENSE`, `TROUTE`, and `TBIAS` opcodes, allowing VM programs to safely manipulate the system Tapestry.
+
 ## Current State of the "Tapestry"
 
 -   **Transport:** The ternary fabric is operational and initialized at boot.
 -   **Composition:** Ternary product rules produce stable emergent behavior on-device.
 -   **Geometry:** Hardware configuration is proven to be a structural routing process.
 -   **Perception:** Hardware intersections (dot products) are proven possible via silicon loopback.
+-   **Regulation:** The Harmonic Supervisor maintains system posture.
+-   **Execution:** The VM engine natively speaks the GOOSE language.
 
 ## What Has Emerged
 
@@ -40,6 +67,6 @@ The most significant finding is that **the machine already "speaks" GOOSE**. The
 
 ## Remaining Proofs
 
--   **Phase 6: Executable Notation** (Formalizing the cell-transition-route model).
--   **Phase 7: Minimal GOOSE Runtime** (Executing GOOSE-native descriptions directly).
--   **Phase 8: Upward Integration** (Redesigning the Reflex OS supervisor around GOOSE).
+-   **Phase 11: Multi-Core LP Propagation** (LP Core integration).
+-   **Phase 12: GOOSE Standard Library** (Common geometric fragments).
+-   **Phase 13: Upward Integration** (Redesigning Reflex OS Supervisor).

@@ -412,19 +412,80 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm)
     }
     case REFLEX_VM_OPCODE_TROUTE:
     {
+        /**
+         * TROUTE DST, SRC_A (SrcNameAddr), SRC_B (SinkNameAddr)
+         * Establishes a persistent geometric route between two fabric cells.
+         */
         char src_name[16], sink_name[16];
         int32_t src_addr, sink_addr;
         reflex_word18_to_int32(&vm->registers[instruction->src_a], &src_addr);
         reflex_word18_to_int32(&vm->registers[instruction->src_b], &sink_addr);
         
-        // Simplified: Assume names are in VM memory as words
-        for(int i=0; i<15; i++) {
-            reflex_word18_t w;
-            int32_t v;
-            reflex_vm_mem_get_raw(vm, src_addr + i, &w);
-            reflex_word18_to_int32(&w, &v);
-            src_name[i] = (char)v; if (v == 0) break;
+        if (reflex_vm_get_string(vm, (uint32_t)src_addr, src_name, 16) != ESP_OK ||
+            reflex_vm_get_string(vm, (uint32_t)sink_addr, sink_name, 16) != ESP_OK) {
+            reflex_word18_from_int32(-1, &vm->registers[instruction->dst]);
+            break;
         }
+
+        goose_cell_t *source = goose_fabric_get_cell(src_name);
+        goose_cell_t *sink = goose_fabric_get_cell(sink_name);
+
+        if (source && sink && vm->route_count < REFLEX_VM_MAX_ROUTES) {
+            goose_route_t *r = &vm->route_manifest[vm->route_count++];
+            snprintf(r->name, 16, "vm_r%zu", vm->route_count);
+            r->source = source;
+            r->sink = sink;
+            r->orientation = REFLEX_TRIT_POS;
+            r->coupling = GOOSE_COUPLING_SOFTWARE;
+            
+            goose_apply_route(r);
+            reflex_word18_from_int32(1, &vm->registers[instruction->dst]);
+        } else {
+            reflex_word18_from_int32(-1, &vm->registers[instruction->dst]);
+        }
+        break;
+    }
+    case REFLEX_VM_OPCODE_TBIAS:
+    {
+        /**
+         * TBIAS DST, SRC_A (RouteIndex), SRC_B (TritValue)
+         * Tilts the manifold by changing a route's orientation.
+         */
+        int32_t route_idx, bias;
+        reflex_word18_to_int32(&vm->registers[instruction->src_a], &route_idx);
+        reflex_word18_to_int32(&vm->registers[instruction->src_b], &bias);
+        
+        if (route_idx >= 0 && (size_t)route_idx < vm->route_count) {
+            vm->route_manifest[route_idx].orientation = (reflex_trit_t)bias;
+            reflex_word18_from_int32(1, &vm->registers[instruction->dst]);
+        } else {
+            reflex_word18_from_int32(-1, &vm->registers[instruction->dst]);
+        }
+        break;
+    }
+    case REFLEX_VM_OPCODE_TSENSE:
+    {
+        /**
+         * TSENSE DST, SRC_A (CellNameAddr)
+         * Samples the current state of a Tapestry cell into a VM register.
+         */
+        char cell_name[16];
+        int32_t name_addr;
+        reflex_word18_to_int32(&vm->registers[instruction->src_a], &name_addr);
+        
+        if (reflex_vm_get_string(vm, (uint32_t)name_addr, cell_name, 16) != ESP_OK) {
+            reflex_vm_zero_word(&vm->registers[instruction->dst]);
+            vm->registers[instruction->dst].trits[0] = REFLEX_TRIT_ZERO;
+            break;
+        }
+
+        goose_cell_t *c = goose_fabric_get_cell(cell_name);
+        reflex_vm_zero_word(&vm->registers[instruction->dst]);
+        if (c) {
+            vm->registers[instruction->dst].trits[0] = c->state;
+        }
+        break;
+    }
         for(int i=0; i<15; i++) {
             reflex_word18_t w;
             int32_t v;

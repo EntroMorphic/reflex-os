@@ -40,7 +40,17 @@ A condition where a structural hardware route (Phase 4) physically masks softwar
 The internal peripheral-to-peripheral loopback on the ESP32-C6 (e.g., RMT to PCNT) that allows native hardware compute of intersections.
 
 ### Tapestry
-A system ontology where messaging is the universal medium of meaning, encoding relation, pattern, timing, and capability rather than just transport.
+A global GOOSE Field (The Loom) that replaces traditional message queues with persistent routed state propagation. It allows system services to weave their internal logic into a shared geometric expanse.
+
+### Meta-Agency
+The ability to treat a route's orientation as a cell state. This allows for hierarchical regulation, where one field can "tilt" the manifold to enable, disable, or invert the connections between other fields.
+
+### Equilibrium
+A state of geometric consistency where physical reality (Sink) aligns with the intended manifold slope (Source * Orientation). The Harmonic Supervisor maintains equilibrium by re-balancing the system posture.
+
+### Harmonic Supervisor
+The "Immune System" of the OS. A high-priority meta-field that perceives disequilibrium across the Tapestry and exercises meta-agency to restore system posture.
 
 ### Self-Choreography
-Behavior that emerges from the structural topology of regions and routes rather than being manually authored in imperative code.
+Behavior that emerges from the structural topology of regions and routes rather than being manually authored in imperative code. In a mature GOOSE system, complexity is not written; it is woven.
+

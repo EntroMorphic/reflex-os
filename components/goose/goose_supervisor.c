@@ -54,14 +54,21 @@ esp_err_t goose_supervisor_check_equilibrium(goose_field_t *field) {
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
         
-        // Skip equilibrium check for input-driven routes (we don't control the environment)
+        /**
+         * Equilibrium Grounding
+         * We skip input-driven routes (HARDWARE_IN) because physical reality is a 
+         * "Higher Truth" than our geometry. The Supervisor cannot re-level the external world.
+         */
         if (r->source->type == GOOSE_CELL_HARDWARE_IN) continue;
 
-        // Equilibrium Check: Does Sink == Source * Orientation?
+        // Geometric Expectation: Sink == Source * EffectiveOrientation
         reflex_trit_t expected = (reflex_trit_t)((int)r->source->state * (int)(r->control ? r->control->state : r->orientation));
         
         if (r->sink->state != expected) {
-            // Disequilibrium is only a "Fault" if the sink is an output actor
+            /**
+             * Fault Attribution
+             * Disequilibrium is only a "Fault" if the sink is an output actor we control.
+             */
             if (r->sink->type == GOOSE_CELL_HARDWARE_OUT) {
                 ESP_LOGW(TAG, "Manifold tilt detected in route [%s]: expected %d, got %d", 
                          r->name, expected, r->sink->state);
@@ -76,6 +83,11 @@ esp_err_t goose_supervisor_check_equilibrium(goose_field_t *field) {
 }
 
 esp_err_t goose_supervisor_rebalance(goose_field_t *field) {
+    /**
+     * Oscillation Protection
+     * A "Geometric Storm" occurs when re-balancing creates a feedback loop.
+     * We limit attempts per pulse to ensure system stability.
+     */
     static int rebalance_limit = 0;
     if (rebalance_limit++ > 5) {
         ESP_LOGE(TAG, "Geometric Oscillation detected! Halting rebalance to prevent storm.");
@@ -88,7 +100,11 @@ esp_err_t goose_supervisor_rebalance(goose_field_t *field) {
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
         
-        // Healing Rule: If an intent is blocked (+1 -> 0), restore it
+        /**
+         * Healing Policy: Agency Restoration
+         * If a route connecting INTENT to HARDWARE_OUT is inhibited (0), 
+         * we assume it's a blockage and force it back to ADMIT (+1).
+         */
         if (r->source->type == GOOSE_CELL_INTENT && 
             r->sink->type == GOOSE_CELL_HARDWARE_OUT &&
             r->orientation == REFLEX_TRIT_ZERO) {

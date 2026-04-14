@@ -104,66 +104,76 @@ Key result:
 - proved the C6 silicon can compute native "Geometric Intersections" (dot products) without CPU intervention.
 - verified that hardware configuration is a form of structural routing.
 
+### 7. Executable Notation
+
+Established in:
+
+- `bonsai/NOTATION.md`
+
+Key result:
+- formalized the `.goose` grammar for describing Fields, Regions, Cells, and Routes.
+- introduced `coupling` and `mapping` to bridge the gap between geometric theory and silicon reality.
+
+### 8. Minimal GOOSE Runtime
+
+Established in:
+
+- `components/goose/goose_runtime.c`
+- `bonsai/journal/phase7_plan.md`
+
+Key result:
+- built a functional C-based execution substrate on the ESP32-C6.
+- implemented the **Ternary Product Rule** ($Source \times Orientation = Sink$) for geometric state propagation.
+- enabled **Shadow Agency** by patching the GPIO Matrix directly from route objects.
+
+### 9. The Tapestry (Legit Fabric)
+
+Established in:
+
+- `bonsai/TAPESTRY.md`
+
+Key result:
+- retired legacy binary messaging in favor of **Routed State Propagation**.
+- implemented the **Global Fabric (The Loom)** where services weave their internal cells into a shared state expanse.
+
+### 10. Harmonic Supervisor
+
+Established in:
+
+- `bonsai/SUPERVISOR.md`
+- `components/goose/goose_supervisor.c`
+
+Key result:
+- implemented a high-priority "Immune System" that maintains system posture at 10Hz.
+- enabled **Self-Healing** through automated re-balancing of the system manifold.
+
+### 11. GOOSE-Native VM
+
+Established in:
+- `vm/interpreter.c`
+- `bonsai/journal/redteam_phase10.md`
+
+Key result:
+- refactored the Ternary VM into a **Geometric Execution Engine**.
+- introduced `TSENSE`, `TROUTE`, and `TBIAS` opcodes for programmable agency over the Tapestry.
+
 ## Next Phases
 
-### Phase 6: Executable Notation
+### Phase 12: Multi-Core LP Propagation
 
 Goal:
+- weave the ESP32-C6 Low Power (LP) core into the Tapestry.
+- enable the LP core to perceive and regulate fields while the HP core is in deep sleep.
 
-- show that transitions in one region can route into lawful consequences in another region
-
-Examples:
-
-- timer region influencing GPIO agency
-- interrupt-attention region influencing modulation behavior
-- low-power region influencing visible rhythm behavior
-
-Success looks like:
-
-- route becomes demonstrably more fundamental than imperative glue code
-
-### Phase 6: Executable Notation
+### Phase 13: GOOSE Standard Library
 
 Goal:
+- define a set of reusable geometric fragments (Loom patterns) for common hardware behaviors.
 
-- define the smallest formal expression system for GOOSE
-
-This may not be an ISA initially.
-
-It may be closer to:
-
-- a cell-transition-route notation
-- a graph grammar
-- a small calculus of state propagation
-
-Success looks like:
-
-- one can describe a proven experiment in a compact formal way
-- the notation clarifies rather than obscures hardware truth
-
-### Phase 7: Minimal GOOSE Runtime
+### Phase 14: Upward Integration (Reflex OS 2.0)
 
 Goal:
-
-- build the smallest execution substrate that can interpret the notation on real hardware
-
-Success looks like:
-
-- direct execution of GOOSE-native descriptions
-- no unnecessary inheritance from conventional VM assumptions
-
-### Phase 8: Upward Integration
-
-Goal:
-
-- feed validated discoveries back into Reflex OS only after the substrate is sound
-
-Possible outcomes:
-
-- routed primitives
-- richer ternary service semantics
-- tapestry-style messaging evolution
-- supervisor redesign around GOOSE-native control patterns
+- fully redesign the Reflex OS supervisor and service manager around the GOOSE-native substrate.
 
 ## Guardrails
 

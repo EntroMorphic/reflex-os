@@ -27,19 +27,19 @@ typedef enum {
 
 /**
  * @brief GOOSE Cell
- * The atomic unit of state.
+ * The atomic unit of state in the machine.
  */
 typedef struct {
-    char name[16];
-    reflex_trit_t state;
-    goose_cell_type_t type;
-    uintptr_t hardware_addr; // MMIO address or GPIO number
-    uint32_t bit_mask;       // For multi-bit mappings
+    char name[16];           ///< Semantic name for Tapestry identification
+    reflex_trit_t state;     ///< Current ternary state (-1, 0, +1)
+    goose_cell_type_t type;  ///< Role of the cell (Intent, Hardware-In, etc.)
+    uintptr_t hardware_addr; ///< Physical mapping (GPIO num or MMIO addr)
+    uint32_t bit_mask;       ///< Mask for multi-bit register mappings
 } goose_cell_t;
 
 /**
  * @brief GOOSE Region
- * A collection of related cells.
+ * A collection of related cells forming a functional unit.
  */
 typedef struct {
     char name[16];
@@ -55,14 +55,14 @@ typedef struct {
     char name[16];
     goose_cell_t *source;
     goose_cell_t *sink;
-    reflex_trit_t orientation;  // Static fallback
-    goose_cell_t *control;     // Meta-Agency: If set, its state overrides orientation
-    goose_coupling_t coupling;
+    reflex_trit_t orientation;  ///< Static orientation (Pass, Block, Invert)
+    goose_cell_t *control;      ///< Meta-Agency: If non-null, its state overrides orientation
+    goose_coupling_t coupling;  ///< Manifestation mode (Hardware/Software)
 } goose_route_t;
 
 /**
  * @brief GOOSE Transition
- * Defines a rule for state evolution.
+ * Defines a rule for state evolution over time.
  */
 typedef struct {
     char name[16];
@@ -75,7 +75,7 @@ typedef struct {
 
 /**
  * @brief GOOSE Field
- * A top-level container for regions and their interactions.
+ * A top-level manifold containing regions, routes, and transitions.
  */
 typedef struct {
     char name[16];

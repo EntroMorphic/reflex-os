@@ -258,6 +258,29 @@ or:
 - not only a pointer or address
 - not merely symbolic naming of a destination
 
+## 7. Meta-Agency (The Tilt)
+
+### Definition
+The ability to treat a `route`'s orientation as a `cell`. This allows one region to regulate the connection between two other regions.
+
+### Ternary Meaning
+A meta-cell state of `0` inhibits a route, `+1` admits it, and `-1` inverts it.
+
+## 8. Equilibrium (Posture)
+
+### Definition
+A state of geometric consistency where a region's physical reality (Sink) perfectly matches its intended configuration (Source * Orientation).
+
+### Ternary Meaning
+- **-1 (Faulted):** Irreconcilable disequilibrium (Geometric Storm).
+- **0 (Degraded):** Transient disequilibrium being corrected.
+- **+1 (Balanced):** Total geometric alignment.
+
+## 9. The Loom (Global Fabric)
+
+### Definition
+The common ground where all regions weave their state. It is a shared GOOSE Field that replaces traditional message queues with persistent routed state propagation.
+
 ## Relations Between Terms
 
 The current working relation is:
@@ -267,6 +290,8 @@ The current working relation is:
 - a `cell` inhabits `states`
 - `states` change by `transitions`
 - `routes` govern how influence and access move between cells, regions, and fields
+- `regulators` maintain `equilibrium` by exercising `meta-agency` across the `loom`
+
 
 This is the first structural grammar of GOOSE.
 
