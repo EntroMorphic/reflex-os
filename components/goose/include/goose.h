@@ -25,6 +25,7 @@ typedef enum {
     GOOSE_CELL_INTENT        // Logical Goal (User/Service controlled)
 } goose_cell_type_t;
 
+#pragma pack(push, 1)
 /**
  * @brief GOOSE Cell
  * The atomic unit of state in the machine.
@@ -32,11 +33,12 @@ typedef enum {
 typedef struct {
     char name[16];           ///< Semantic name for Tapestry identification
     reflex_tryte9_t coord;   ///< Geometric Coordinate (Field, Region, Cell)
-    reflex_trit_t state;     ///< Current ternary state (-1, 0, +1)
-    goose_cell_type_t type;  ///< Role of the cell (Intent, Hardware-In, etc.)
-    uintptr_t hardware_addr; ///< Physical mapping (GPIO num or MMIO addr)
+    int8_t state;            ///< Current ternary state (-1, 0, +1)
+    int8_t type;             ///< Role of the cell (Intent, Hardware-In, etc.)
+    uint32_t hardware_addr;  ///< Physical mapping (GPIO num or MMIO addr)
     uint32_t bit_mask;       ///< Mask for multi-bit register mappings
 } goose_cell_t;
+#pragma pack(pop)
 
 /**
  * @brief GOOSE Region
@@ -102,11 +104,14 @@ esp_err_t goose_fabric_process(void); // Global tapestry processing
 reflex_tryte9_t goose_make_coord(int8_t field, int8_t region, int8_t cell);
 bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b);
 
-// Supervisor / Regulator API
-esp_err_t goose_supervisor_init(void);
-esp_err_t goose_supervisor_register_field(goose_field_t *field);
-esp_err_t goose_supervisor_check_equilibrium(goose_field_t *field);
-esp_err_t goose_supervisor_rebalance(goose_field_t *field);
-esp_err_t goose_supervisor_pulse(void); // Run one regulation cycle
+// Fragment Weaver API
+typedef enum {
+    GOOSE_FRAGMENT_HEARTBEAT,
+    GOOSE_FRAGMENT_NOT,
+    GOOSE_FRAGMENT_GATE,
+    GOOSE_FRAGMENT_PRODUCT
+} goose_fragment_type_t;
+
+esp_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, reflex_tryte9_t base_coord);
 
 #endif

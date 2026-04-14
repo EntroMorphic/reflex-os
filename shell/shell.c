@@ -443,9 +443,38 @@ static void reflex_shell_bonsai_gvm_test(void) {
     printf("VM Coordinate Sense Result: %ld (Ternary State)\n", (long)result);
 }
 
+static void reflex_shell_bonsai_deep_sleep(void) {
+    printf("GOOSE Phase 12: Entering Deep Reflection (Light Sleep)...\n");
+    printf("The HP Mind will sleep. The LP Heart will maintain the LED heartbeat.\n");
+    printf("Wake-up via JTAG/Serial in 10 seconds.\n");
+    
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    
+    // Configure wake up timer
+    esp_sleep_enable_timer_wakeup(10 * 1000000);
+    
+    // Enter light sleep
+    esp_light_sleep_start();
+    
+    printf("HP Mind has returned to the manifold.\n");
+}
+
+static void reflex_shell_bonsai_weave_test(void) {
+    printf("GOOSE Phase 13: Geometric Fragment Weaver Test...\n");
+    
+    reflex_tryte9_t base = goose_make_coord(0, 1, 0); // Field 0, Region 1
+    
+    // Weave a Heartbeat Fragment
+    if (goose_weave_fragment(GOOSE_FRAGMENT_HEARTBEAT, "heart", base) == ESP_OK) {
+        printf("Success: Wove [Heartbeat] fragment at coordinate (0,1,0)\n");
+    } else {
+        printf("Error: Failed to weave fragment.\n");
+    }
+}
+
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime|heal|gvm>, tapestry <signal name state>, services, config <get|set>, vm info\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime|heal|gvm|sleep|weave>, tapestry <signal name state>, services, config <get|set>, vm info\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
     else if (strcmp(argv[0], "led") == 0) { if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off"); }
     else if (strcmp(argv[0], "bonsai") == 0) {
@@ -458,6 +487,8 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         else if (strcmp(argv[1], "runtime") == 0) { reflex_shell_bonsai_runtime_test(); }
         else if (strcmp(argv[1], "heal") == 0) { reflex_shell_bonsai_heal_test(); }
         else if (strcmp(argv[1], "gvm") == 0) { reflex_shell_bonsai_gvm_test(); }
+        else if (strcmp(argv[1], "sleep") == 0) { reflex_shell_bonsai_deep_sleep(); }
+        else if (strcmp(argv[1], "weave") == 0) { reflex_shell_bonsai_weave_test(); }
     } else if (strcmp(argv[0], "tapestry") == 0) {
         if (argc >= 4 && strcmp(argv[1], "signal") == 0) {
             reflex_shell_tapestry_signal(argv[2], atoi(argv[3]));
