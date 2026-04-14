@@ -31,7 +31,8 @@ typedef enum {
     GOOSE_CELL_VIRTUAL,      ///< Pure manifold state
     GOOSE_CELL_HARDWARE_IN,  ///< Perception: Physical Input (Observer)
     GOOSE_CELL_HARDWARE_OUT, ///< Agency: Physical Output (Actor)
-    GOOSE_CELL_INTENT        ///< Direction: Logical Goal (User/Service controlled)
+    GOOSE_CELL_INTENT,       ///< Direction: Logical Goal (User/Service controlled)
+    GOOSE_CELL_SYSTEM_ONLY   ///< Protected: Only the Supervisor/System can access
 } goose_cell_type_t;
 
 /**

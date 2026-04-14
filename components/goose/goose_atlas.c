@@ -50,14 +50,24 @@ esp_err_t goose_atlas_manifest_weave(void) {
     for (size_t i = 0; i < count; i++) {
         const atlas_entry_t *entry = &c6_full_map[i];
         
-        reflex_tryte9_t coord = goose_make_coord(entry->field, entry->region, 0);
-        
-        goose_cell_t *c = goose_fabric_alloc_cell(entry->name, coord);
-        if (c) {
-            c->hardware_addr = entry->base_addr;
-            c->type = (entry->field == -1) ? GOOSE_CELL_HARDWARE_IN : GOOSE_CELL_HARDWARE_OUT;
-            ESP_LOGD(TAG, "Mapped: %s @ (%d,%d,0) -> 0x%lx", 
-                     entry->name, entry->field, entry->region, (unsigned long)entry->base_addr);
+        // Expansion Rule: Project the 4 core registers of each peripheral
+        const char *suffixes[] = {"ctrl", "stat", "data", "conf"};
+        for (int j = 0; j < 4; j++) {
+            char name[16];
+            snprintf(name, 16, "%s_%s", entry->name, suffixes[j]);
+            
+            reflex_tryte9_t coord = goose_make_coord(entry->field, entry->region, (int8_t)j);
+            
+            goose_cell_t *c = goose_fabric_alloc_cell(name, coord);
+            if (c) {
+                c->hardware_addr = entry->base_addr + (j * 4); // Standard 32-bit offsets
+                c->type = (entry->field == -1) ? GOOSE_CELL_HARDWARE_IN : GOOSE_CELL_HARDWARE_OUT;
+                
+                // Safety: Mark Logic and Power regions as System-Only
+                if (entry->field == 0 || entry->field == 3) {
+                    c->type = GOOSE_CELL_SYSTEM_ONLY;
+                }
+            }
         }
     }
     

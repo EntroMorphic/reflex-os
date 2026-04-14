@@ -19,7 +19,7 @@ static const char *TAG = "GOOSE_RUNTIME";
  * The Global Tapestry (The Loom)
  * Displaced into LP RAM (RTC Memory) to ensure persistence across HP core sleep cycles.
  */
-#define GOOSE_FABRIC_MAX_CELLS 64
+#define GOOSE_FABRIC_MAX_CELLS 128
 static RTC_DATA_ATTR goose_cell_t fabric_cells[GOOSE_FABRIC_MAX_CELLS];
 static RTC_DATA_ATTR uint32_t fabric_cell_count = 0;
 

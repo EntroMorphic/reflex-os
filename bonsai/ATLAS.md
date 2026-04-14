@@ -75,3 +75,16 @@ A coordinate $(F, R, C)$ is a vector of three 3-trit components.
 | 1 | **WIFI_6** | 0x600B0000 | 802.11ax High-bandwidth. |
 | 2 | **BLE_5** | 0x600B1000 | Bluetooth Low Energy sync. |
 | 3 | **802.15.4** | 0x600B2000 | Thread/Zigbee mesh fabric. |
+
+---
+
+## Usage for Newcomers
+1. **Locate:** Find the subsystem and register suffix in the Atlas.
+   - `_ctrl`: Configuration and control.
+   - `_stat`: Read-only status flags.
+   - `_data`: Main data FIFO/register.
+   - `_conf`: Secondary configuration.
+2. **Weave:** Use `bonsai weave` or a VM `TROUTE` to connect a Perception coordinate to an Agency coordinate.
+3. **Regulate:** Let the Supervisor maintain the connection posture.
+4. **Safety:** System-level registers (Field 0 and 3) are protected; the Gateway will reject manual routes to these regions from unprivileged intent sources.
+
