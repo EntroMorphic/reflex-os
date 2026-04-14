@@ -83,7 +83,7 @@ void app_main(void)
         return;
     }
 
-    // 3. Normal Startup
+    // 3. Normal Startup (Reflex OS 2.0: Manifest Weaving)
     // Increment boot count immediately
     reflex_config_set_boot_count(boot_count + 1);
     
@@ -100,6 +100,7 @@ void app_main(void)
         return;
     }
 
+    // Phase 14: GOOSE Loom Manifestation
     if (goose_fabric_init() != ESP_OK) {
         REFLEX_LOGE(REFLEX_BOOT_TAG, "goose fabric init failed");
     }
@@ -108,8 +109,15 @@ void app_main(void)
         REFLEX_LOGE(REFLEX_BOOT_TAG, "goose supervisor init failed");
     }
     
+    // Weave System Manifest Fragment
+    // goose_weave_fragment(GOOSE_FRAGMENT_SYSTEM, "sys", origin_coord, NULL);
+
     xTaskCreate(goose_supervisor_task, "goose-super", 4096, NULL, 20, NULL);
     
+    // Signal Loom startup: sys_status = POS
+    goose_cell_t *sys_status = goose_fabric_get_cell("sys_status");
+    if (sys_status) sys_status->state = 1;
+
     if (reflex_service_manager_init() != ESP_OK) {
         REFLEX_LOGE(REFLEX_BOOT_TAG, "service manager init failed, entering minimal shell");
         reflex_shell_run();

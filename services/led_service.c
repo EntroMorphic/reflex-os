@@ -29,7 +29,8 @@ static goose_route_t led_route = {
 static goose_field_t led_agency_field = {
     .name = "led_agency",
     .routes = &led_route,
-    .route_count = 1
+    .route_count = 1,
+    .rhythm = GOOSE_RHYTHM_REACTIVE // 100Hz high-speed IO
 };
 
 static void reflex_led_task(void *arg)
@@ -44,23 +45,14 @@ static void reflex_led_task(void *arg)
         return;
     }
 
-    // Register field for global regulation
+    // Register field for global regulation (10Hz)
     goose_supervisor_register_field(&led_agency_field);
 
-    reflex_trit_t last_state = led_intent->state;
+    // Start regional high-speed pulse (100Hz)
+    // This replaces the manual loop and ensures low-latency propagation.
+    goose_field_start_pulse(&led_agency_field);
 
-    while (1) {
-        // Tapestry Processing: Observe the fabric cell
-        if (led_intent->state != last_state) {
-            ESP_LOGD("LED_SERVICE", "Tapestry transition detected: %d -> %d", last_state, led_intent->state);
-            
-            // Process the agency field to propagate intent to hardware
-            goose_process_transitions(&led_agency_field);
-            last_state = led_intent->state;
-        }
-        
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
+    vTaskDelete(NULL); // This task's job is done; the Pulse Task takes over.
 }
 
 static esp_err_t reflex_led_service_init(void *ctx)
