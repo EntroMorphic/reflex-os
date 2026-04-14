@@ -16,12 +16,23 @@ typedef enum {
 } goose_coupling_t;
 
 /**
+ * @brief GOOSE Cell Type
+ */
+typedef enum {
+    GOOSE_CELL_VIRTUAL,      // Pure software state
+    GOOSE_CELL_HARDWARE_IN,  // Physical Input (Observer)
+    GOOSE_CELL_HARDWARE_OUT, // Physical Output (Actor)
+    GOOSE_CELL_INTENT        // Logical Goal (User/Service controlled)
+} goose_cell_type_t;
+
+/**
  * @brief GOOSE Cell
  * The atomic unit of state.
  */
 typedef struct {
     char name[16];
     reflex_trit_t state;
+    goose_cell_type_t type;
     uintptr_t hardware_addr; // MMIO address or GPIO number
     uint32_t bit_mask;       // For multi-bit mappings
 } goose_cell_t;
@@ -44,7 +55,8 @@ typedef struct {
     char name[16];
     goose_cell_t *source;
     goose_cell_t *sink;
-    reflex_trit_t orientation; // +1: Pass, 0: Block, -1: Invert
+    reflex_trit_t orientation;  // Static fallback
+    goose_cell_t *control;     // Meta-Agency: If set, its state overrides orientation
     goose_coupling_t coupling;
 } goose_route_t;
 
@@ -83,5 +95,12 @@ esp_err_t goose_process_transitions(goose_field_t *field);
 // Global Fabric API
 goose_cell_t* goose_fabric_get_cell(const char *name);
 esp_err_t goose_fabric_process(void); // Global tapestry processing
+
+// Supervisor / Regulator API
+esp_err_t goose_supervisor_init(void);
+esp_err_t goose_supervisor_register_field(goose_field_t *field);
+esp_err_t goose_supervisor_check_equilibrium(goose_field_t *field);
+esp_err_t goose_supervisor_rebalance(goose_field_t *field);
+esp_err_t goose_supervisor_pulse(void); // Run one regulation cycle
 
 #endif

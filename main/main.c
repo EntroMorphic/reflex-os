@@ -24,9 +24,18 @@
 #include "reflex_vm.h"
 #include "reflex_vm_task.h"
 #include "reflex_vm_loader.h"
+#include "goose.h"
 
 #define REFLEX_BOOT_LOOP_THRESHOLD 3
 #define REFLEX_STABILITY_MS 10000
+
+static void goose_supervisor_task(void *arg)
+{
+    while (1) {
+        goose_supervisor_pulse();
+        vTaskDelay(pdMS_TO_TICKS(1000)); // Regulation cycle every 1s
+    }
+}
 
 static void reflex_stability_task(void *arg)
 {
@@ -94,6 +103,12 @@ void app_main(void)
     if (goose_fabric_init() != ESP_OK) {
         REFLEX_LOGE(REFLEX_BOOT_TAG, "goose fabric init failed");
     }
+
+    if (goose_supervisor_init() != ESP_OK) {
+        REFLEX_LOGE(REFLEX_BOOT_TAG, "goose supervisor init failed");
+    }
+    
+    xTaskCreate(goose_supervisor_task, "goose-super", 4096, NULL, 20, NULL);
     
     if (reflex_service_manager_init() != ESP_OK) {
         REFLEX_LOGE(REFLEX_BOOT_TAG, "service manager init failed, entering minimal shell");

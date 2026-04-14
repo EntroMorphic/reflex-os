@@ -361,9 +361,47 @@ static void reflex_shell_tapestry_signal(const char *name, int state) {
     printf("Signal sent to Tapestry: %s = %d\n", name, state);
 }
 
+static void reflex_shell_bonsai_heal_test(void) {
+    printf("GOOSE Phase 9: Harmonic Supervisor Proof-of-Life...\n");
+    
+    // 1. Setup a "Broken" Field
+    static goose_cell_t source = { .name = "signal", .state = REFLEX_TRIT_POS, .type = GOOSE_CELL_INTENT };
+    static goose_cell_t sink = { .name = "agency", .state = REFLEX_TRIT_NEG, .type = GOOSE_CELL_HARDWARE_OUT, .hardware_addr = REFLEX_LED_PIN };
+    
+    // Route is intentionally INHIBITED (0)
+    static goose_route_t route = {
+        .name = "unbalanced_path",
+        .source = &source,
+        .sink = &sink,
+        .orientation = REFLEX_TRIT_ZERO,
+        .coupling = GOOSE_COUPLING_SOFTWARE
+    };
+    
+    static goose_field_t field = {
+        .name = "healing_field",
+        .routes = &route,
+        .route_count = 1
+    };
+
+    printf("Created field [%s]. Signal=POS, Route=INHIBIT, Sink=NEG. (Disequilibrium)\n", field.name);
+    
+    // 2. Perception: Supervisor checks equilibrium
+    if (goose_supervisor_check_equilibrium(&field) != ESP_OK) {
+        printf("Supervisor detected Disequilibrium! Initiating Rebalance...\n");
+        
+        // 3. Agency: Supervisor re-levels the manifold
+        goose_supervisor_rebalance(&field);
+        
+        printf("Rebalance complete. Route orientation is now: %d\n", route.orientation);
+        printf("Sink state is now: %d (LED should be ON)\n", sink.state);
+    } else {
+        printf("Error: Supervisor failed to detect disequilibrium.\n");
+    }
+}
+
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime>, tapestry <signal name state>, services, config <get|set>, vm info\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime|heal>, tapestry <signal name state>, services, config <get|set>, vm info\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
     else if (strcmp(argv[0], "led") == 0) { if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off"); }
     else if (strcmp(argv[0], "bonsai") == 0) {
@@ -374,6 +412,7 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         else if (strcmp(argv[1], "exp4") == 0) { if (argc >= 3 && strcmp(argv[2], "connect") == 0) reflex_shell_bonsai_exp4_route(1); else if (argc >= 3 && strcmp(argv[2], "invert") == 0) reflex_shell_bonsai_exp4_route(-1); else if (argc >= 3 && strcmp(argv[2], "detach") == 0) reflex_shell_bonsai_exp4_route(0); }
         else if (strcmp(argv[1], "exp5") == 0) { if (argc >= 3 && strcmp(argv[2], "run") == 0) reflex_shell_bonsai_exp5_run(); }
         else if (strcmp(argv[1], "runtime") == 0) { reflex_shell_bonsai_runtime_test(); }
+        else if (strcmp(argv[1], "heal") == 0) { reflex_shell_bonsai_heal_test(); }
     } else if (strcmp(argv[0], "tapestry") == 0) {
         if (argc >= 4 && strcmp(argv[1], "signal") == 0) {
             reflex_shell_tapestry_signal(argv[2], atoi(argv[3]));

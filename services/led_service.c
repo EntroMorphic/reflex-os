@@ -11,7 +11,12 @@
 #include "goose.h"
 
 static goose_cell_t *led_intent = NULL;
-static goose_cell_t led_physical = { .name = "physical", .state = REFLEX_TRIT_ZERO, .hardware_addr = REFLEX_LED_PIN };
+static goose_cell_t led_physical = { 
+    .name = "physical", 
+    .state = REFLEX_TRIT_ZERO, 
+    .type = GOOSE_CELL_HARDWARE_OUT, 
+    .hardware_addr = REFLEX_LED_PIN 
+};
 
 static goose_route_t led_route = {
     .name = "agency_path",
@@ -38,6 +43,9 @@ static void reflex_led_task(void *arg)
         vTaskDelete(NULL);
         return;
     }
+
+    // Register field for global regulation
+    goose_supervisor_register_field(&led_agency_field);
 
     reflex_trit_t last_state = led_intent->state;
 

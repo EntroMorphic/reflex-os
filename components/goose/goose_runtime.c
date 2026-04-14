@@ -80,14 +80,19 @@ esp_err_t goose_process_transitions(goose_field_t *field) {
         goose_route_t *r = &field->routes[i];
         
         if (r->coupling == GOOSE_COUPLING_SOFTWARE) {
+            // Meta-Agency: Orientation is either dynamic (control cell) or static
+            reflex_trit_t orient = r->control ? r->control->state : r->orientation;
+
             // Apply ternary product rule: Sink = Source * Orientation
-            r->sink->state = (reflex_trit_t)((int)r->source->state * (int)r->orientation);
+            r->sink->state = (reflex_trit_t)((int)r->source->state * (int)orient);
             
             // Update hardware if mapped to a physical GPIO
             if (r->sink->hardware_addr < GPIO_NUM_MAX) {
                 gpio_set_level((gpio_num_t)r->sink->hardware_addr, 
                                r->sink->state == REFLEX_TRIT_POS ? 1 : 0);
             }
+        }
+    }
         }
     }
 
