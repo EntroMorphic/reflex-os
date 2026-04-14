@@ -5,6 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "driver/gpio.h"
+#include "driver/ledc.h"
+#include "driver/pulse_cnt.h"
+#include "driver/rmt_tx.h"
+#include "driver/rmt_encoder.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
 #include "freertos/FreeRTOS.h"
@@ -16,12 +21,15 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_netif.h"
+#include "esp_rom_gpio.h"
+#include "soc/gpio_sig_map.h"
 
 #include "reflex_log.h"
 #include "reflex_config.h"
 #include "reflex_event.h"
 #include "reflex_service.h"
 #include "reflex_wifi.h"
+#include "reflex_button.h"
 #include "reflex_led.h"
 #include "reflex_cache.h"
 #include "reflex_fabric.h"
@@ -32,842 +40,304 @@
 #define REFLEX_SHELL_LINE_MAX 256
 #define REFLEX_SHELL_ARGV_MAX 8
 
-static const reflex_vm_instruction_t reflex_shell_sample_program[] = {
-    {.opcode = REFLEX_VM_OPCODE_TLDI, .dst = 0, .imm = 1},
-    {.opcode = REFLEX_VM_OPCODE_TLDI, .dst = 1, .imm = -1},
-    {.opcode = REFLEX_VM_OPCODE_TADD, .dst = 2, .src_a = 0, .src_b = 0},
-    {.opcode = REFLEX_VM_OPCODE_TCMP, .dst = 3, .src_a = 2, .src_b = 0},
-    {.opcode = REFLEX_VM_OPCODE_TBRPOS, .src_a = 3, .imm = 6},
-    {.opcode = REFLEX_VM_OPCODE_THALT},
-    {.opcode = REFLEX_VM_OPCODE_TSUB, .dst = 4, .src_a = 2, .src_b = 0},
-    {.opcode = REFLEX_VM_OPCODE_THALT},
-};
+// --- Types ---
 
-static const reflex_vm_image_t reflex_shell_sample_image = {
-    .magic = REFLEX_VM_IMAGE_MAGIC,
-    .version = REFLEX_VM_IMAGE_VERSION,
-    .entry_ip = 0,
-    .instructions = reflex_shell_sample_program,
-    .instruction_count = sizeof(reflex_shell_sample_program) / sizeof(reflex_shell_sample_program[0]),
-};
+typedef enum {
+    REFLEX_BONSAI_EDGE_NEG = -1,
+    REFLEX_BONSAI_EDGE_ZERO = 0,
+    REFLEX_BONSAI_EDGE_POS = 1,
+} reflex_bonsai_edge_t;
+
+typedef struct {
+    TaskHandle_t handle;
+    bool running;
+    int last_level;
+    int current_level;
+    reflex_bonsai_edge_t last_edge;
+    uint32_t rising_edges;
+    uint32_t falling_edges;
+    uint32_t stable_samples;
+} reflex_bonsai_exp1_state_t;
+
+typedef struct {
+    TaskHandle_t handle;
+    bool running;
+    reflex_bonsai_edge_t phase;
+    uint32_t phase_steps;
+    uint64_t last_tick_us;
+} reflex_bonsai_exp2_state_t;
+
+typedef struct {
+    TaskHandle_t handle;
+    bool running;
+    reflex_bonsai_edge_t field_a;
+    reflex_bonsai_edge_t field_b;
+    reflex_bonsai_edge_t output;
+    uint32_t steps_a;
+    uint32_t steps_b;
+    uint32_t comp_steps;
+} reflex_bonsai_exp3a_state_t;
+
+typedef struct {
+    reflex_bonsai_edge_t route;
+    bool ledc_initialized;
+} reflex_bonsai_exp4_state_t;
+
+// --- State ---
 
 static reflex_vm_state_t reflex_shell_vm = {0};
-static reflex_vm_task_runtime_t reflex_shell_vm_task = {0};
 static bool reflex_shell_vm_loaded = false;
-static bool reflex_shell_io_ready = false;
-static uint8_t *reflex_shell_vm_binary = NULL;
-static size_t reflex_shell_vm_binary_len = 0;
 
-static void reflex_shell_init_io(void)
+static reflex_bonsai_exp1_state_t reflex_shell_bonsai_exp1 = {
+    .last_level = 1, .current_level = 1, .last_edge = REFLEX_BONSAI_EDGE_ZERO
+};
+static reflex_bonsai_exp2_state_t reflex_shell_bonsai_exp2 = { .phase = REFLEX_BONSAI_EDGE_NEG };
+static reflex_bonsai_exp3a_state_t reflex_shell_bonsai_exp3a = {0};
+static reflex_bonsai_exp4_state_t reflex_shell_bonsai_exp4 = { .route = REFLEX_BONSAI_EDGE_ZERO };
+
+// --- Helpers ---
+
+static const char *reflex_shell_bonsai_edge_name(reflex_bonsai_edge_t edge)
 {
-    if (reflex_shell_io_ready) {
-        return;
-    }
+    if (edge == REFLEX_BONSAI_EDGE_NEG) return "falling";
+    if (edge == REFLEX_BONSAI_EDGE_POS) return "rising";
+    return "unchanged";
+}
 
-    if (!usb_serial_jtag_is_driver_installed()) {
-        usb_serial_jtag_driver_config_t config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
-        ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&config));
-    }
-
-    usb_serial_jtag_vfs_use_driver();
-    usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF);
-    usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
-    reflex_shell_io_ready = true;
+static reflex_bonsai_edge_t reflex_shell_bonsai_next_phase(reflex_bonsai_edge_t phase)
+{
+    if (phase == REFLEX_BONSAI_EDGE_NEG) return REFLEX_BONSAI_EDGE_ZERO;
+    if (phase == REFLEX_BONSAI_EDGE_ZERO) return REFLEX_BONSAI_EDGE_POS;
+    return REFLEX_BONSAI_EDGE_NEG;
 }
 
 static const char *reflex_shell_vm_status_name(reflex_vm_status_t status)
 {
     switch (status) {
-    case REFLEX_VM_STATUS_READY:
-        return "ready";
-    case REFLEX_VM_STATUS_RUNNING:
-        return "running";
-    case REFLEX_VM_STATUS_HALTED:
-        return "halted";
-    case REFLEX_VM_STATUS_FAULTED:
-        return "faulted";
-    default:
-        return "unknown";
-    }
-}
-
-static const char *reflex_shell_vm_fault_name(reflex_vm_fault_t fault)
-{
-    switch (fault) {
-    case REFLEX_VM_FAULT_NONE:
-        return "none";
-    case REFLEX_VM_FAULT_INVALID_OPCODE:
-        return "invalid_opcode";
-    case REFLEX_VM_FAULT_INVALID_REGISTER:
-        return "invalid_register";
-    case REFLEX_VM_FAULT_INVALID_IMMEDIATE:
-        return "invalid_immediate";
-    case REFLEX_VM_FAULT_PC_OUT_OF_RANGE:
-        return "pc_out_of_range";
-    case REFLEX_VM_FAULT_ARITHMETIC_OVERFLOW:
-        return "arithmetic_overflow";
-    case REFLEX_VM_FAULT_INVALID_SYSCALL:
-        return "invalid_syscall";
-    case REFLEX_VM_FAULT_INVALID_MEMORY_ACCESS:
-        return "invalid_memory_access";
-    default:
-        return "unknown";
-    }
-}
-
-static void reflex_shell_print_word18(const reflex_word18_t *word)
-{
-    for (int i = REFLEX_WORD18_TRITS - 1; i >= 0; --i) {
-        char digit = '0';
-        if (word->trits[i] == REFLEX_TRIT_NEG) {
-            digit = '-';
-        } else if (word->trits[i] == REFLEX_TRIT_POS) {
-            digit = '+';
-        }
-        putchar(digit);
-    }
-}
-
-static void reflex_shell_print_prompt(void)
-{
-    printf("reflex> ");
-    fflush(stdout);
-}
-
-static int reflex_shell_tokenize(char *line, char *argv[REFLEX_SHELL_ARGV_MAX])
-{
-    int argc = 0;
-    char *token = strtok(line, " \t\r\n");
-
-    while (token != NULL && argc < REFLEX_SHELL_ARGV_MAX) {
-        argv[argc++] = token;
-        token = strtok(NULL, " \t\r\n");
-    }
-
-    return argc;
-}
-
-static void reflex_shell_help(void)
-{
-    printf("commands: help, reboot, version, uptime, heap, led status, config <get|set>, services, event test, wifi <status|connect>, fabric send <to> <op> <value>, vm info, vm load, vm loadhex <HEX>, vm run [steps], vm step, vm regs, vm task <start|stop|status>\n");
-}
-
-static void reflex_shell_led_status(void)
-{
-    printf("led=%s\n", reflex_led_get() ? "on" : "off");
-}
-
-static void reflex_shell_fabric_send(const char *to_arg, const char *op_arg, const char *value_arg)
-{
-    reflex_message_t msg = {0};
-    reflex_word18_t payload;
-    char *end = NULL;
-    unsigned long to = 0;
-    unsigned long op = 0;
-    long value = 0;
-
-    if (to_arg == NULL || op_arg == NULL || value_arg == NULL) {
-        printf("usage: fabric send <to> <op> <value>\n");
-        return;
-    }
-
-    to = strtoul(to_arg, &end, 10);
-    if (end == NULL || *end != '\0' || to > UINT8_MAX) {
-        printf("invalid destination\n");
-        return;
-    }
-
-    op = strtoul(op_arg, &end, 10);
-    if (end == NULL || *end != '\0' || op > UINT8_MAX) {
-        printf("invalid op\n");
-        return;
-    }
-
-    value = strtol(value_arg, &end, 10);
-    if (end == NULL || *end != '\0') {
-        printf("invalid value\n");
-        return;
-    }
-
-    if (reflex_word18_from_int32((int32_t)value, &payload) != ESP_OK) {
-        printf("value out of range\n");
-        return;
-    }
-
-    msg.to = (uint8_t)to;
-    msg.from = REFLEX_NODE_SYSTEM;
-    msg.op = (uint8_t)op;
-    msg.channel = REFLEX_CHAN_SYSTEM;
-    msg.payload = payload;
-
-    if (reflex_fabric_send(&msg) != ESP_OK) {
-        printf("fabric send failed\n");
-        return;
-    }
-
-    printf("fabric sent to=%u op=%u\n", msg.to, msg.op);
-}
-
-static esp_err_t reflex_shell_set_vm_binary(const uint8_t *buffer, size_t len)
-{
-    uint8_t *owned = NULL;
-
-    ESP_RETURN_ON_FALSE(buffer != NULL, ESP_ERR_INVALID_ARG, REFLEX_SHELL_TAG, "buffer required");
-    ESP_RETURN_ON_FALSE(len > 0, ESP_ERR_INVALID_ARG, REFLEX_SHELL_TAG, "length required");
-
-    owned = malloc(len);
-    ESP_RETURN_ON_FALSE(owned != NULL, ESP_ERR_NO_MEM, REFLEX_SHELL_TAG, "vm binary alloc failed");
-    memcpy(owned, buffer, len);
-
-    free(reflex_shell_vm_binary);
-    reflex_shell_vm_binary = owned;
-    reflex_shell_vm_binary_len = len;
-    return ESP_OK;
-}
-
-static void reflex_shell_vm_loadhex(const char *hex)
-{
-    if (hex == NULL) {
-        printf("usage: vm loadhex <HEX_STRING>\n");
-        return;
-    }
-
-    size_t hex_len = strlen(hex);
-    if (hex_len % 2 != 0) {
-        printf("invalid hex string length\n");
-        return;
-    }
-
-    size_t bin_len = hex_len / 2;
-    uint8_t *bin_buf = malloc(bin_len);
-    if (!bin_buf) {
-        printf("malloc failed\n");
-        return;
-    }
-
-    for (size_t i = 0; i < bin_len; i++) {
-        char pair[3] = {hex[i*2], hex[i*2+1], '\0'};
-        bin_buf[i] = (uint8_t)strtoul(pair, NULL, 16);
-    }
-
-    esp_err_t err = reflex_vm_load_binary(&reflex_shell_vm, bin_buf, bin_len);
-
-    if (err != ESP_OK) {
-        free(bin_buf);
-        printf("vm loadhex failed err=%d\n", err);
-        return;
-    }
-
-    err = reflex_shell_set_vm_binary(bin_buf, bin_len);
-    free(bin_buf);
-    if (err != ESP_OK) {
-        printf("vm loadhex cached binary failed err=%d\n", err);
-        return;
-    }
-
-    reflex_shell_vm_loaded = true;
-    printf("vm loaded from hex: instructions=%lu\n", (unsigned long)reflex_shell_vm.program_length);
-}
-
-static void reflex_shell_wifi_status(void)
-{
-    char ssid[33] = {0};
-    esp_netif_ip_info_t ip_info;
-    
-    if (reflex_config_get_wifi_ssid(ssid, sizeof(ssid)) == ESP_OK && strlen(ssid) > 0) {
-        printf("configured_ssid=%s\n", ssid);
-    } else {
-        printf("wifi not configured\n");
-        return;
-    }
-
-    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
-        printf("ip=" IPSTR "\n", IP2STR(&ip_info.ip));
-        printf("gw=" IPSTR "\n", IP2STR(&ip_info.gw));
-        printf("mask=" IPSTR "\n", IP2STR(&ip_info.netmask));
-    } else {
-        printf("ip=disconnected\n");
-    }
-}
-
-static void reflex_shell_wifi_connect(const char *ssid, const char *pass)
-{
-    if (ssid == NULL || pass == NULL) {
-        printf("usage: wifi connect <ssid> <password>\n");
-        return;
-    }
-
-    reflex_config_set_wifi_ssid(ssid);
-    reflex_config_set_wifi_password(pass);
-    printf("wifi credentials updated, reboot to connect\n");
-}
-
-static void reflex_shell_event_handler(const reflex_event_t *event, void *ctx)
-{
-    printf("\n[event] type=%d timestamp=%lu\n", (int)event->type, (unsigned long)event->timestamp_ms);
-    reflex_shell_print_prompt();
-}
-
-static void reflex_shell_event_test(void)
-{
-    static bool subscribed = false;
-    if (!subscribed) {
-        reflex_event_subscribe(REFLEX_EVENT_CUSTOM, reflex_shell_event_handler, NULL);
-        subscribed = true;
-    }
-    printf("publishing custom event\n");
-    reflex_event_publish(REFLEX_EVENT_CUSTOM, NULL, 0);
-}
-
-static const char *reflex_shell_service_status_name(reflex_service_status_t status)
-{
-    switch (status) {
-    case REFLEX_SERVICE_STATUS_STOPPED:
-        return "stopped";
-    case REFLEX_SERVICE_STATUS_STARTED:
-        return "started";
-    case REFLEX_SERVICE_STATUS_FAULTED:
-        return "faulted";
-    default:
-        return "unknown";
-    }
-}
-
-static void reflex_shell_services(void)
-{
-    size_t count = reflex_service_get_count();
-    printf("services=%zu\n", count);
-    for (size_t i = 0; i < count; ++i) {
-        const reflex_service_desc_t *svc = reflex_service_get_by_index(i);
-        reflex_service_status_t status = REFLEX_SERVICE_STATUS_STOPPED;
-        if (svc->status != NULL) {
-            status = svc->status(svc->context);
-        }
-        printf("%zu: name=%s status=%s\n", i, svc->name, reflex_shell_service_status_name(status));
-    }
-}
-
-static void reflex_shell_version(void)
-{
-    const esp_app_desc_t *app_desc = esp_app_get_description();
-
-    printf("project=%s version=%s idf=%s\n",
-           app_desc->project_name,
-           app_desc->version,
-           app_desc->idf_ver);
-}
-
-static void reflex_shell_uptime(void)
-{
-    printf("uptime_ms=%lu\n", (unsigned long)(esp_timer_get_time() / 1000));
-}
-
-static void reflex_shell_heap(void)
-{
-    printf("heap_free=%lu\n", (unsigned long)esp_get_free_heap_size());
-}
-
-static void reflex_shell_reboot(void)
-{
-    printf("rebooting\n");
-    fflush(stdout);
-    esp_restart();
-}
-
-static void reflex_shell_vm_info(void)
-{
-    printf("vm loaded=%s status=%s fault=%s ip=%lu steps=%lu program=%lu\n",
-           reflex_shell_vm_loaded ? "yes" : "no",
-           reflex_shell_vm_status_name(reflex_shell_vm.status),
-           reflex_shell_vm_fault_name(reflex_shell_vm.fault),
-           (unsigned long)reflex_shell_vm.ip,
-           (unsigned long)reflex_shell_vm.steps_executed,
-           (unsigned long)reflex_shell_vm.program_length);
-    
-    if (reflex_shell_vm.cache) {
-        reflex_cache_t *c = (reflex_cache_t*)reflex_shell_vm.cache;
-        printf("vm_cache hits=%lu misses=%lu evicts=%lu\n",
-               (unsigned long)c->hits, (unsigned long)c->misses, (unsigned long)c->evictions);
-    }
-}
-
-static void reflex_shell_vm_regs(void)
-{
-    if (!reflex_shell_vm_loaded) {
-        printf("vm not loaded\n");
-        return;
-    }
-
-    for (size_t i = 0; i < REFLEX_VM_REGISTER_COUNT; ++i) {
-        printf("r%u=", (unsigned)i);
-        reflex_shell_print_word18(&reflex_shell_vm.registers[i]);
-        printf("\n");
+    case REFLEX_VM_STATUS_READY: return "ready";
+    case REFLEX_VM_STATUS_RUNNING: return "running";
+    case REFLEX_VM_STATUS_HALTED: return "halted";
+    case REFLEX_VM_STATUS_FAULTED: return "faulted";
+    default: return "unknown";
     }
 }
 
 static void reflex_shell_config_get(const char *key)
 {
-    if (key == NULL) {
-        printf("usage: config get <key>\n");
-        return;
-    }
-
     if (strcmp(key, "device_name") == 0) {
         char name[32];
-        if (reflex_config_get_device_name(name, sizeof(name)) == ESP_OK) {
-            printf("device_name=%s\n", name);
-        } else {
-            printf("failed to get device_name\n");
-        }
+        if (reflex_config_get_device_name(name, sizeof(name)) == ESP_OK) printf("device_name=%s\n", name);
     } else if (strcmp(key, "log_level") == 0) {
         int32_t level;
-        if (reflex_config_get_log_level(&level) == ESP_OK) {
-            printf("log_level=%ld\n", (long)level);
-        } else {
-            printf("failed to get log_level\n");
-        }
-    } else if (strcmp(key, "wifi_ssid") == 0) {
-        char ssid[33];
-        if (reflex_config_get_wifi_ssid(ssid, sizeof(ssid)) == ESP_OK) {
-            printf("wifi_ssid=%s\n", ssid);
-        } else {
-            printf("failed to get wifi_ssid\n");
-        }
-    } else if (strcmp(key, "wifi_password") == 0) {
-        char pass[65];
-        if (reflex_config_get_wifi_password(pass, sizeof(pass)) == ESP_OK) {
-            printf("wifi_password=***\n");
-        } else {
-            printf("failed to get wifi_password\n");
-        }
-    } else if (strcmp(key, "safe_mode") == 0) {
-        bool safe;
-        if (reflex_config_get_safe_mode(&safe) == ESP_OK) {
-            printf("safe_mode=%s\n", safe ? "true" : "false");
-        } else {
-            printf("failed to get safe_mode\n");
-        }
+        if (reflex_config_get_log_level(&level) == ESP_OK) printf("log_level=%ld\n", (long)level);
     } else if (strcmp(key, "boot_count") == 0) {
         int32_t count;
-        if (reflex_config_get_boot_count(&count) == ESP_OK) {
-            printf("boot_count=%ld\n", (long)count);
-        } else {
-            printf("failed to get boot_count\n");
-        }
-    } else {
-        printf("unknown key: %s\n", key);
-    }
+        if (reflex_config_get_boot_count(&count) == ESP_OK) printf("boot_count=%ld\n", (long)count);
+    } else printf("unknown key: %s\n", key);
 }
 
 static void reflex_shell_config_set(const char *key, const char *value)
 {
-    if (key == NULL || value == NULL) {
-        printf("usage: config set <key> <value>\n");
-        return;
-    }
-
-    esp_err_t err = ESP_OK;
-
-    if (strcmp(key, "device_name") == 0) {
-        err = reflex_config_set_device_name(value);
-    } else if (strcmp(key, "log_level") == 0) {
-        int32_t level = atoi(value);
-        err = reflex_config_set_log_level(level);
-    } else if (strcmp(key, "wifi_ssid") == 0) {
-        err = reflex_config_set_wifi_ssid(value);
-    } else if (strcmp(key, "wifi_password") == 0) {
-        err = reflex_config_set_wifi_password(value);
-    } else if (strcmp(key, "safe_mode") == 0) {
-        bool safe = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
-        err = reflex_config_set_safe_mode(safe);
-    } else if (strcmp(key, "boot_count") == 0) {
-        int32_t count = atoi(value);
-        err = reflex_config_set_boot_count(count);
-    } else {
-        printf("unknown key: %s\n", key);
-        return;
-    }
-
-    if (err == ESP_OK) {
-        printf("config set %s ok\n", key);
-    } else {
-        printf("config set %s failed err=%d\n", key, err);
-    }
-}
-
-static void reflex_shell_vm_task_status(void)
-{
-    printf("vm task running=%s status=%s fault=%s ip=%lu steps=%lu\n",
-           reflex_vm_task_is_running(&reflex_shell_vm_task) ? "yes" : "no",
-           reflex_shell_vm_status_name(reflex_shell_vm_task.vm.status),
-           reflex_shell_vm_fault_name(reflex_shell_vm_task.vm.fault),
-           (unsigned long)reflex_shell_vm_task.vm.ip,
-           (unsigned long)reflex_shell_vm_task.vm.steps_executed);
-}
-
-static void reflex_shell_vm_task_start(void)
-{
-    esp_err_t err;
-
-    if (reflex_vm_task_is_running(&reflex_shell_vm_task)) {
-        printf("vm task already running\n");
-        return;
-    }
-
-    if (reflex_shell_vm_binary != NULL && reflex_shell_vm_binary_len > 0) {
-        err = reflex_vm_task_start_binary(&reflex_shell_vm_task,
-                                          reflex_shell_vm_binary,
-                                          reflex_shell_vm_binary_len,
-                                          NULL);
-    } else {
-        err = reflex_vm_task_start(&reflex_shell_vm_task, &reflex_shell_sample_image, NULL);
-    }
-    if (err != ESP_OK) {
-        printf("vm task start failed err=%d\n", err);
-        return;
-    }
-
-    printf("vm task started source=%s\n", reflex_shell_vm_binary != NULL ? "loaded" : "sample");
-}
-
-static void reflex_shell_vm_task_stop(void)
-{
-    esp_err_t err = reflex_vm_task_stop(&reflex_shell_vm_task);
-
-    if (err != ESP_OK) {
-        printf("vm task stop failed err=%d\n", err);
-        return;
-    }
-
-    printf("vm task stopped\n");
-}
-
-static void reflex_shell_vm_load(void)
-{
-    uint8_t image_buf[16 + (8 * 4)];
-    uint32_t checksum = 0;
-    memset(image_buf, 0, sizeof(image_buf));
+    esp_err_t err = ESP_FAIL;
+    if (strcmp(key, "device_name") == 0) err = reflex_config_set_device_name(value);
+    else if (strcmp(key, "log_level") == 0) err = reflex_config_set_log_level(atoi(value));
+    else if (strcmp(key, "boot_count") == 0) err = reflex_config_set_boot_count(atoi(value));
     
-    uint32_t magic = REFLEX_VM_IMAGE_MAGIC;
-    uint16_t ver = 2;
-    uint32_t checksum_placeholder = 0;
-    uint16_t entry = 0;
-    uint16_t instr_count = 8;
-    uint16_t data_count = 0;
+    if (err == ESP_OK) printf("config set %s ok\n", key);
+    else printf("config set %s failed\n", key);
+}
+
+// --- Experiment Logic ---
+
+static void reflex_shell_bonsai_exp1_task(void *arg) {
+    reflex_bonsai_exp1_state_t *s = (reflex_bonsai_exp1_state_t *)arg;
+    while (s->running) {
+        int l = gpio_get_level(REFLEX_BUTTON_PIN);
+        if (l > s->last_level) { s->last_edge = REFLEX_BONSAI_EDGE_POS; s->rising_edges++; reflex_led_set(true); }
+        else if (l < s->last_level) { s->last_edge = REFLEX_BONSAI_EDGE_NEG; s->falling_edges++; reflex_led_set(false); }
+        else { s->last_edge = REFLEX_BONSAI_EDGE_ZERO; s->stable_samples++; }
+        s->last_level = l; s->current_level = l;
+        vTaskDelay(pdMS_TO_TICKS(25));
+    }
+    s->handle = NULL; vTaskDelete(NULL);
+}
+
+static void reflex_shell_bonsai_exp2_task(void *arg) {
+    reflex_bonsai_exp2_state_t *s = (reflex_bonsai_exp2_state_t *)arg;
+    while (s->running) {
+        s->last_tick_us = esp_timer_get_time();
+        s->phase = reflex_shell_bonsai_next_phase(s->phase);
+        s->phase_steps++;
+        if (s->phase == REFLEX_BONSAI_EDGE_NEG) reflex_led_set(false);
+        else if (s->phase == REFLEX_BONSAI_EDGE_POS) reflex_led_set(true);
+        vTaskDelay(pdMS_TO_TICKS(400));
+    }
+    s->handle = NULL; vTaskDelete(NULL);
+}
+
+static void reflex_shell_bonsai_exp3a_task(void *arg) {
+    reflex_bonsai_exp3a_state_t *s = (reflex_bonsai_exp3a_state_t *)arg;
+    uint32_t t = 0;
+    while (s->running) {
+        t++;
+        if (t % 2 == 0) { s->field_b = reflex_shell_bonsai_next_phase(s->field_b); s->steps_b++; }
+        if (t % 8 == 0) { s->field_a = reflex_shell_bonsai_next_phase(s->field_a); s->steps_a++; }
+        s->output = (reflex_bonsai_edge_t)((int)s->field_a * (int)s->field_b);
+        s->comp_steps++;
+        if (s->output == REFLEX_BONSAI_EDGE_POS) reflex_led_set(true);
+        else if (s->output == REFLEX_BONSAI_EDGE_NEG) { static bool b; b = !b; reflex_led_set(b); }
+        else reflex_led_set(false);
+        vTaskDelay(pdMS_TO_TICKS(250));
+    }
+    s->handle = NULL; vTaskDelete(NULL);
+}
+
+// --- Start/Status Logic ---
+
+static void reflex_shell_bonsai_exp1_start(void) {
+    if (reflex_shell_bonsai_exp1.running) return;
+    reflex_shell_bonsai_exp1.running = true;
+    xTaskCreate(reflex_shell_bonsai_exp1_task, "bonsai-exp1", 2048, &reflex_shell_bonsai_exp1, 6, &reflex_shell_bonsai_exp1.handle);
+}
+static void reflex_shell_bonsai_exp1_status(void) {
+    reflex_bonsai_exp1_state_t *s = &reflex_shell_bonsai_exp1;
+    printf("bonsai exp1 running=%s level=%d edge=%s rises=%lu falls=%lu led=%s\n", s->running?"yes":"no", s->current_level, reflex_shell_bonsai_edge_name(s->last_edge), (unsigned long)s->rising_edges, (unsigned long)s->falling_edges, reflex_led_get()?"on":"off");
+}
+
+static void reflex_shell_bonsai_exp2_start(void) {
+    if (reflex_shell_bonsai_exp2.running) return;
+    reflex_shell_bonsai_exp2.running = true;
+    xTaskCreate(reflex_shell_bonsai_exp2_task, "bonsai-exp2", 2048, &reflex_shell_bonsai_exp2, 6, &reflex_shell_bonsai_exp2.handle);
+}
+static void reflex_shell_bonsai_exp2_status(void) {
+    reflex_bonsai_exp2_state_t *s = &reflex_shell_bonsai_exp2;
+    printf("bonsai exp2 running=%s phase=%s steps=%lu led=%s\n", s->running?"yes":"no", reflex_shell_bonsai_edge_name(s->phase), (unsigned long)s->phase_steps, reflex_led_get()?"on":"off");
+}
+
+static void reflex_shell_bonsai_exp3a_start(void) {
+    if (reflex_shell_bonsai_exp3a.running) return;
+    reflex_shell_bonsai_exp3a.running = true;
+    xTaskCreate(reflex_shell_bonsai_exp3a_task, "bonsai-exp3a", 2048, &reflex_shell_bonsai_exp3a, 6, &reflex_shell_bonsai_exp3a.handle);
+}
+static void reflex_shell_bonsai_exp3a_status(void) {
+    reflex_bonsai_exp3a_state_t *s = &reflex_shell_bonsai_exp3a;
+    printf("bonsai exp3a running=%s field_a=%s field_b=%s output=%s led=%s\n", s->running?"yes":"no", reflex_shell_bonsai_edge_name(s->field_a), reflex_shell_bonsai_edge_name(s->field_b), reflex_shell_bonsai_edge_name(s->output), reflex_led_get()?"on":"off");
+}
+
+static void reflex_shell_bonsai_exp4_route(int orient) {
+    if (!reflex_shell_bonsai_exp4.ledc_initialized) {
+        ledc_timer_config_t t = { .speed_mode=LEDC_LOW_SPEED_MODE, .timer_num=LEDC_TIMER_0, .duty_resolution=LEDC_TIMER_8_BIT, .freq_hz=1000, .clk_cfg=LEDC_AUTO_CLK };
+        ledc_timer_config(&t);
+        ledc_channel_config_t c = { .speed_mode=LEDC_LOW_SPEED_MODE, .channel=LEDC_CHANNEL_0, .timer_sel=LEDC_TIMER_0, .intr_type=LEDC_INTR_DISABLE, .gpio_num=-1, .duty=128, .hpoint=0 };
+        ledc_channel_config(&c);
+        reflex_shell_bonsai_exp4.ledc_initialized = true;
+    }
+    if (orient == 1) { esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, LEDC_LS_SIG_OUT0_IDX, false, false); reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_POS; }
+    else if (orient == -1) { esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, LEDC_LS_SIG_OUT0_IDX, true, false); reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_NEG; }
+    else { esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, 128, false, false); reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_ZERO; }
+    printf("bonsai exp4 route orient=%s\n", reflex_shell_bonsai_edge_name(reflex_shell_bonsai_exp4.route));
+}
+
+// --- Exp 5: Silicon Loop (GIE) ---
+
+static void reflex_shell_bonsai_exp5_run(void) {
+    pcnt_unit_config_t ucfg = { .low_limit = -1000, .high_limit = 1000 };
+    pcnt_unit_handle_t pcnt = NULL;
+    if (pcnt_new_unit(&ucfg, &pcnt) != ESP_OK) return;
     
-    memcpy(image_buf, &magic, 4);
-    memcpy(image_buf + 4, &ver, 2);
-    memcpy(image_buf + 6, &checksum_placeholder, 4);
-    memcpy(image_buf + 10, &entry, 2);
-    memcpy(image_buf + 12, &instr_count, 2);
-    memcpy(image_buf + 14, &data_count, 2);
-    
-    // Sample Program (Same as v1 but packed)
-    // TLDI r0, 1
-    uint32_t *p = (uint32_t*)(image_buf + 16);
-    p[0] = REFLEX_VM_OPCODE_TLDI | (0 << 6) | (1 << 15);
-    // TLDI r1, -1
-    p[1] = REFLEX_VM_OPCODE_TLDI | (1 << 6) | (0x1FFFF << 15); // -1 signed 17-bit
-    // TADD r2, r0, r0
-    p[2] = REFLEX_VM_OPCODE_TADD | (2 << 6) | (0 << 9) | (0 << 12);
-    // TCMP r3, r2, r0
-    p[3] = REFLEX_VM_OPCODE_TCMP | (3 << 6) | (2 << 9) | (0 << 12);
-    // TBRPOS r3, 6
-    p[4] = REFLEX_VM_OPCODE_TBRPOS | (3 << 9) | (6 << 15);
-    // THALT
-    p[5] = REFLEX_VM_OPCODE_THALT;
-    // TSUB r4, r2, r0
-    p[6] = REFLEX_VM_OPCODE_TSUB | (4 << 6) | (2 << 9) | (0 << 12);
-    // THALT
-    p[7] = REFLEX_VM_OPCODE_THALT;
+    pcnt_chan_config_t ch = { .edge_gpio_num = 4, .level_gpio_num = 6 };
+    pcnt_channel_handle_t p_ch;
+    if (pcnt_new_channel(pcnt, &ch, &p_ch) != ESP_OK) { pcnt_del_unit(pcnt); return; }
+    pcnt_channel_set_edge_action(p_ch, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_HOLD);
+    pcnt_unit_enable(pcnt);
+    pcnt_unit_start(pcnt);
 
-    if (reflex_vm_crc32(image_buf + 16, sizeof(image_buf) - 16, &checksum) != ESP_OK) {
-        printf("vm load v2 failed err=%d\n", ESP_FAIL);
-        return;
+    rmt_tx_channel_config_t rcfg = {
+        .gpio_num = 4,
+        .clk_src = RMT_CLK_SRC_DEFAULT,
+        .resolution_hz = 1000000,
+        .mem_block_symbols = 64,
+        .trans_queue_depth = 4,
+        .flags.io_loop_back = 1,
+    };
+    rmt_channel_handle_t rmt_ch = NULL;
+    if (rmt_new_tx_channel(&rcfg, &rmt_ch) != ESP_OK) { pcnt_unit_disable(pcnt); pcnt_unit_stop(pcnt); pcnt_del_unit(pcnt); return; }
+    rmt_enable(rmt_ch);
+
+    gpio_config_t io = { .pin_bit_mask = (1ULL << 6), .mode = GPIO_MODE_OUTPUT };
+    gpio_config(&io);
+    gpio_set_level(6, 1);
+
+    rmt_symbol_word_t pulses[10];
+    for(int i=0; i<10; i++) {
+        pulses[i].duration0 = 100;
+        pulses[i].level0 = 1;
+        pulses[i].duration1 = 100;
+        pulses[i].level1 = 0;
     }
-    memcpy(image_buf + 6, &checksum, 4);
+    rmt_transmit_config_t tcfg = { .loop_count = 0 };
+    rmt_copy_encoder_config_t ecfg = {};
+    rmt_encoder_handle_t encoder = NULL;
+    rmt_new_copy_encoder(&ecfg, &encoder);
+    rmt_transmit(rmt_ch, encoder, pulses, 10, &tcfg);
 
-    esp_err_t err = reflex_vm_load_binary(&reflex_shell_vm, image_buf, sizeof(image_buf));
+    vTaskDelay(pdMS_TO_TICKS(100));
 
-    if (err != ESP_OK) {
-        printf("vm load v2 failed err=%d\n", err);
-        return;
-    }
+    int count = 0;
+    pcnt_unit_get_count(pcnt, &count);
+    printf("bonsai exp5 intersect overlap=%d (expected 10)\n", count);
 
-    err = reflex_shell_set_vm_binary(image_buf, sizeof(image_buf));
-    if (err != ESP_OK) {
-        printf("vm load cached binary failed err=%d\n", err);
-        return;
-    }
-
-    reflex_shell_vm_loaded = true;
-    printf("vm loaded packed binary (v2) instructions=%lu\n", (unsigned long)reflex_shell_vm.program_length);
+    rmt_disable(rmt_ch);
+    rmt_del_channel(rmt_ch);
+    pcnt_unit_stop(pcnt);
+    pcnt_unit_disable(pcnt);
+    pcnt_del_unit(pcnt);
 }
 
-static void reflex_shell_vm_run(const char *steps_arg)
-{
-    char *end = NULL;
-    uint32_t steps = 16;
-    esp_err_t err;
+// --- Main Shell ---
 
-    if (!reflex_shell_vm_loaded) {
-        printf("vm not loaded\n");
-        return;
-    }
-
-    if (steps_arg != NULL) {
-        unsigned long parsed = strtoul(steps_arg, &end, 10);
-        if (end == NULL || *end != '\0' || parsed == 0 || parsed > UINT32_MAX) {
-            printf("invalid step count\n");
-            return;
+static void reflex_shell_dispatch(int argc, char *argv[]) {
+    if (argc == 0) return;
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1|exp2|exp3a|exp4|exp5> [args], services, config <get|set>, vm info\n");
+    else if (strcmp(argv[0], "reboot") == 0) esp_restart();
+    else if (strcmp(argv[0], "led") == 0) { if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off"); }
+    else if (strcmp(argv[0], "bonsai") == 0) {
+        if (argc < 3) return;
+        if (strcmp(argv[1], "exp1") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp1_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp1_status(); }
+        else if (strcmp(argv[1], "exp2") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp2_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp2_status(); }
+        else if (strcmp(argv[1], "exp3a") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp3a_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp3a_status(); }
+        else if (strcmp(argv[1], "exp4") == 0) { if (strcmp(argv[2], "connect") == 0) reflex_shell_bonsai_exp4_route(1); else if (strcmp(argv[2], "invert") == 0) reflex_shell_bonsai_exp4_route(-1); else if (strcmp(argv[2], "detach") == 0) reflex_shell_bonsai_exp4_route(0); }
+        else if (strcmp(argv[1], "exp5") == 0) { if (strcmp(argv[2], "run") == 0) reflex_shell_bonsai_exp5_run(); }
+    } else if (strcmp(argv[0], "services") == 0) {
+        size_t c = reflex_service_get_count(); printf("services=%zu\n", c);
+        for(size_t i=0; i<c; i++) { const reflex_service_desc_t *s = reflex_service_get_by_index(i); printf("%zu: %s\n", i, s->name); }
+    } else if (strcmp(argv[0], "config") == 0) {
+        if (argc >= 3 && strcmp(argv[1], "get") == 0) reflex_shell_config_get(argv[2]);
+        else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
+    } else if (strcmp(argv[0], "vm") == 0) {
+        if (argc >= 2 && strcmp(argv[1], "info") == 0) printf("vm status=%s fault=%s ip=%lu steps=%lu\n", reflex_shell_vm_status_name(reflex_shell_vm.status), "none", (unsigned long)0, (unsigned long)0);
+        else if (argc >= 3 && strcmp(argv[1], "loadhex") == 0) {
+            size_t blen = strlen(argv[2]) / 2; uint8_t *b = malloc(blen);
+            for(size_t i=0; i<blen; i++) { char p[3]={argv[2][i*2], argv[2][i*2+1], 0}; b[i]=(uint8_t)strtoul(p,NULL,16); }
+            if(reflex_vm_load_binary(&reflex_shell_vm, b, blen)==ESP_OK) { reflex_shell_vm_loaded=true; printf("vm loaded\n"); } else printf("vm load failed\n");
+            free(b);
         }
-        steps = (uint32_t)parsed;
     }
-
-    err = reflex_vm_run(&reflex_shell_vm, steps);
-    printf("vm run err=%d status=%s fault=%s ip=%lu steps=%lu\n",
-           err,
-           reflex_shell_vm_status_name(reflex_shell_vm.status),
-           reflex_shell_vm_fault_name(reflex_shell_vm.fault),
-           (unsigned long)reflex_shell_vm.ip,
-           (unsigned long)reflex_shell_vm.steps_executed);
 }
 
-static void reflex_shell_vm_step(void)
-{
-    esp_err_t err;
-
-    if (!reflex_shell_vm_loaded) {
-        printf("vm not loaded\n");
-        return;
-    }
-
-    err = reflex_vm_step(&reflex_shell_vm);
-    printf("vm step err=%d status=%s fault=%s ip=%lu steps=%lu\n",
-           err,
-           reflex_shell_vm_status_name(reflex_shell_vm.status),
-           reflex_shell_vm_fault_name(reflex_shell_vm.fault),
-           (unsigned long)reflex_shell_vm.ip,
-           (unsigned long)reflex_shell_vm.steps_executed);
-}
-
-static void reflex_shell_dispatch(int argc, char *argv[REFLEX_SHELL_ARGV_MAX])
-{
-    if (argc == 0) {
-        return;
-    }
-
-    if (strcmp(argv[0], "help") == 0) {
-        reflex_shell_help();
-        return;
-    }
-
-    if (strcmp(argv[0], "reboot") == 0) {
-        reflex_shell_reboot();
-        return;
-    }
-
-    if (strcmp(argv[0], "version") == 0) {
-        reflex_shell_version();
-        return;
-    }
-
-    if (strcmp(argv[0], "uptime") == 0) {
-        reflex_shell_uptime();
-        return;
-    }
-
-    if (strcmp(argv[0], "heap") == 0) {
-        reflex_shell_heap();
-        return;
-    }
-
-    if (strcmp(argv[0], "led") == 0) {
-        if (argc < 2 || strcmp(argv[1], "status") != 0) {
-            printf("usage: led status\n");
-            return;
-        }
-
-        reflex_shell_led_status();
-        return;
-    }
-
-    if (strcmp(argv[0], "services") == 0) {
-        reflex_shell_services();
-        return;
-    }
-
-    if (strcmp(argv[0], "event") == 0) {
-        if (argc < 2 || strcmp(argv[1], "test") != 0) {
-            printf("usage: event test\n");
-            return;
-        }
-        reflex_shell_event_test();
-        return;
-    }
-
-    if (strcmp(argv[0], "wifi") == 0) {
-        if (argc < 2) {
-            printf("usage: wifi <status|connect>\n");
-            return;
-        }
-
-        if (strcmp(argv[1], "status") == 0) {
-            reflex_shell_wifi_status();
-            return;
-        }
-
-        if (strcmp(argv[1], "connect") == 0) {
-            if (argc < 4) {
-                printf("usage: wifi connect <ssid> <password>\n");
-                return;
-            }
-            reflex_shell_wifi_connect(argv[2], argv[3]);
-            return;
-        }
-
-        printf("unknown wifi command\n");
-        return;
-    }
-
-    if (strcmp(argv[0], "fabric") == 0) {
-        if (argc < 5 || strcmp(argv[1], "send") != 0) {
-            printf("usage: fabric send <to> <op> <value>\n");
-            return;
-        }
-
-        reflex_shell_fabric_send(argv[2], argv[3], argv[4]);
-        return;
-    }
-
-    if (strcmp(argv[0], "config") == 0) {
-        if (argc < 3) {
-            printf("usage: config <get|set> <key> [value]\n");
-            return;
-        }
-
-        if (strcmp(argv[1], "get") == 0) {
-            reflex_shell_config_get(argv[2]);
-            return;
-        }
-
-        if (strcmp(argv[1], "set") == 0) {
-            if (argc < 4) {
-                printf("usage: config set <key> <value>\n");
-                return;
-            }
-            reflex_shell_config_set(argv[2], argv[3]);
-            return;
-        }
-
-        printf("unknown config command\n");
-        return;
-    }
-
-    if (strcmp(argv[0], "vm") == 0) {
-        if (argc < 2) {
-            printf("usage: vm <info|load|run|step|regs>\n");
-            return;
-        }
-
-        if (strcmp(argv[1], "info") == 0) {
-            reflex_shell_vm_info();
-            return;
-        }
-        if (strcmp(argv[1], "load") == 0) {
-            reflex_shell_vm_load();
-            return;
-        }
-        if (strcmp(argv[1], "loadhex") == 0) {
-            if (argc < 3) {
-                printf("usage: vm loadhex <HEX>\n");
-                return;
-            }
-            reflex_shell_vm_loadhex(argv[2]);
-            return;
-        }
-        if (strcmp(argv[1], "run") == 0) {
-            reflex_shell_vm_run(argc >= 3 ? argv[2] : NULL);
-            return;
-        }
-        if (strcmp(argv[1], "step") == 0) {
-            reflex_shell_vm_step();
-            return;
-        }
-        if (strcmp(argv[1], "regs") == 0) {
-            reflex_shell_vm_regs();
-            return;
-        }
-        if (strcmp(argv[1], "task") == 0) {
-            if (argc < 3) {
-                printf("usage: vm task <start|stop|status>\n");
-                return;
-            }
-            if (strcmp(argv[2], "start") == 0) {
-                reflex_shell_vm_task_start();
-                return;
-            }
-            if (strcmp(argv[2], "stop") == 0) {
-                reflex_shell_vm_task_stop();
-                return;
-            }
-            if (strcmp(argv[2], "status") == 0) {
-                reflex_shell_vm_task_status();
-                return;
-            }
-            printf("unknown vm task command\n");
-            return;
-        }
-
-        printf("unknown vm command\n");
-        return;
-    }
-
-    printf("unknown command\n");
-}
-
-void reflex_shell_run(void)
-{
-    char line[REFLEX_SHELL_LINE_MAX];
-    char *argv[REFLEX_SHELL_ARGV_MAX];
-    size_t line_len = 0;
-
-    reflex_shell_init_io();
-    reflex_shell_vm.node_id = REFLEX_NODE_VM;
-    
-    REFLEX_LOGI(REFLEX_SHELL_TAG, "shell ready; type 'help'");
-    reflex_shell_print_prompt();
-
-    while (true) {
-        uint8_t ch = 0;
-        int read = usb_serial_jtag_read_bytes(&ch, 1, pdMS_TO_TICKS(50));
-
-        if (read <= 0) {
-            vTaskDelay(pdMS_TO_TICKS(50));
-            continue;
-        }
-
-        if (ch == '\r') {
-            continue;
-        }
-
+void reflex_shell_run(void) {
+    char line[REFLEX_SHELL_LINE_MAX]; size_t len = 0;
+    if (!usb_serial_jtag_is_driver_installed()) { usb_serial_jtag_driver_config_t c = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT(); usb_serial_jtag_driver_install(&c); }
+    usb_serial_jtag_vfs_use_driver(); usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF); usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
+    printf("reflex> "); fflush(stdout);
+    while (1) {
+        uint8_t ch; int r = usb_serial_jtag_read_bytes(&ch, 1, pdMS_TO_TICKS(50));
+        if (r <= 0) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }
         if (ch == '\n') {
-            line[line_len] = '\0';
-            int argc = reflex_shell_tokenize(line, argv);
-
+            line[len] = 0; char *argv[8]; int argc = 0;
+            char *t = strtok(line, " "); while(t && argc < 8) { argv[argc++] = t; t = strtok(NULL, " "); }
             reflex_shell_dispatch(argc, argv);
-            line_len = 0;
-            reflex_shell_print_prompt();
-            continue;
-        }
-
-        if (line_len < sizeof(line) - 1) {
-            line[line_len++] = (char)ch;
-        } else {
-            line_len = 0;
-            printf("line too long\n");
-            reflex_shell_print_prompt();
-        }
+            len = 0; printf("\nreflex> "); fflush(stdout);
+        } else if (ch != '\r' && len < 255) { line[len++] = ch; putchar(ch); fflush(stdout); }
     }
 }
