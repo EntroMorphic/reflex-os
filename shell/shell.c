@@ -507,26 +507,33 @@ static void reflex_shell_loom_list(void) {
 }
 
 static void reflex_shell_bonsai_project_test(void) {
-    printf("GOOSE Bridge: Projecting MMIO register into Tapestry...\n");
+    printf("GOOSE Bridge: Hardened MMIO Projection Test...\n");
     
-    // Goal: Project the LED GPIO Output register (Simplified for proof)
-    // Addr: 0x60000000 (Example)
-    // Coord: (1, 1, 9) Agency:GPIO:Lane9
-    
-    reflex_message_t msg = {
+    // Test 1: Valid Peripheral Projection
+    reflex_message_t msg_valid = {
         .to = REFLEX_NODE_GATEWAY,
         .from = REFLEX_NODE_SYSTEM,
-        .op = 0x10, // OP_PROJECT_CELL
-        .correlation_id = 0x60000000, // Address
-        .payload = { .trits = {1, 0, 0, 1, 0, 0, 0, 0, 1} } // Dummy coordinate
+        .op = 0x10,
+        .correlation_id = 0x60000000, 
+        .payload = { .trits = {1, 0, 0, 1, 0, 0, 0, 0, 1} } 
     };
     
-    if (reflex_fabric_send(&msg) == ESP_OK) {
-        printf("Success: Projection request sent to Gateway.\n");
-        printf("Type 'loom list' in a moment to see the projected MMIO cell.\n");
-    } else {
-        printf("Error: Failed to send projection message.\n");
-    }
+    // Test 2: Unaligned Address (Security/Stability check)
+    reflex_message_t msg_invalid_align = {
+        .to = REFLEX_NODE_GATEWAY,
+        .from = REFLEX_NODE_SYSTEM,
+        .op = 0x10,
+        .correlation_id = 0x60000001, 
+        .payload = { .trits = {1, 0, 0, 1, 0, 0, 0, 0, 2} } 
+    };
+
+    printf("Sending valid projection (0x60000000)...\n");
+    reflex_fabric_send(&msg_valid);
+    
+    printf("Sending invalid projection (0x60000001)...\n");
+    reflex_fabric_send(&msg_invalid_align);
+
+    printf("Check logs to see the Gateway's security rejection for the invalid address.\n");
 }
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {

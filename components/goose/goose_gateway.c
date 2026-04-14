@@ -27,8 +27,23 @@ static void goose_gateway_task(void *arg) {
                 reflex_tryte9_t coord;
                 memcpy(coord.trits, msg.payload.trits, 9);
                 
-                // Extract Address from msg context (using correlation_id for addr for proof)
+                // Extract Address from msg context (using correlation_id for addr)
                 uint32_t addr = msg.correlation_id; 
+
+                /**
+                 * Security & Safety Guard
+                 * 1. 32-bit Alignment (Avoid Load/Store exceptions)
+                 * 2. Range Validation (Restricted to Peripheral MMIO space)
+                 */
+                if ((addr % 4) != 0) {
+                    ESP_LOGE(TAG, "Projection rejected: Addr 0x%lx is not 32-bit aligned!", (unsigned long)addr);
+                    continue;
+                }
+
+                if (addr < 0x60000000 || addr > 0x600F0000) { // C6 Peripheral Space
+                    ESP_LOGE(TAG, "Projection rejected: Addr 0x%lx is out of safe peripheral range!", (unsigned long)addr);
+                    continue;
+                }
 
                 ESP_LOGI(TAG, "Projecting MMIO: %s @ (F:%d, R:%d, C:%d) -> Addr 0x%lx", 
                          name, coord.trits[0], coord.trits[3], coord.trits[6], (unsigned long)addr);

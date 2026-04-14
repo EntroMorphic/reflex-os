@@ -19,7 +19,7 @@ static const char *TAG = "GOOSE_RUNTIME";
  * The Global Tapestry (The Loom)
  * Displaced into LP RAM (RTC Memory) to ensure persistence across HP core sleep cycles.
  */
-#define GOOSE_FABRIC_MAX_CELLS 16
+#define GOOSE_FABRIC_MAX_CELLS 64
 static RTC_DATA_ATTR goose_cell_t fabric_cells[GOOSE_FABRIC_MAX_CELLS];
 static RTC_DATA_ATTR uint32_t fabric_cell_count = 0;
 
@@ -203,18 +203,22 @@ esp_err_t goose_process_transitions(goose_field_t *field) {
                 gpio_set_level((gpio_num_t)r->sink->hardware_addr, 
                                r->sink->state == 1 ? 1 : 0);
             } else if (r->sink->hardware_addr >= 0x60000000) {
-                // MMIO Write: Project state to the 32-bit register
-                // POS (+1) writes the bitmask, NEG (-1) clears it, ZERO (0) holds.
+                /**
+                 * Atomic MMIO Projection
+                 * Uses critical sections to ensure bitmask updates are not interrupted
+                 * by other concurrent manifold pulses.
+                 */
+                static portMUX_TYPE mmio_mux = portMUX_INITIALIZER_UNLOCKED;
                 volatile uint32_t *reg = (volatile uint32_t *)r->sink->hardware_addr;
                 uint32_t mask = r->sink->bit_mask ? r->sink->bit_mask : 0xFFFFFFFF;
                 
+                taskENTER_CRITICAL(&mmio_mux);
                 if (r->sink->state == 1) {
                     *reg |= mask;
                 } else if (r->sink->state == -1) {
                     *reg &= ~mask;
                 }
-                // Note: Binary MMIO doesn't natively support "Zero/Neutral" 
-                // in a single register bit without explicit "Hold" logic.
+                taskEXIT_CRITICAL(&mmio_mux);
             }
         }
     }
