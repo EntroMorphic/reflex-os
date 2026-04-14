@@ -33,6 +33,15 @@ The project provides a complete "Soft Silicon" stack:
 - `VM-SYSCALLS.md`: host syscall bridge contract
 - `IMPLEMENTATION-STATUS.md`: current hardware-validated state
 - `docs/REMEDIATION-PLAN.md`: audit findings and remediation execution plan
+- `bonsai/`: incubation space for the GOOSE paradigm (Geometric Ontologic Operating System Execution)
+
+## Bonsai (GOOSE Paradigm)
+
+Bonsai is the research space where the deeper geometric execution model is being proven on the C6 silicon.
+
+- **Ontology:** Reinterpreting hardware as a "State Ecology" (`bonsai/GOOSE.md`).
+- **Proof Ladder:** 5 phases of hardware-validated proofs, from atomic cells to native silicon loop intersections (`bonsai/ROADMAP.md`).
+- **Notation:** First-class routing and orientation rules for self-choreographing hardware (`bonsai/NOTATION.md`).
 
 ## Shell Commands
 
@@ -40,19 +49,19 @@ Current shell commands:
 
 - `help`
 - `reboot`
-- `version`
-- `uptime`
-- `heap`
+- `led status`: Query the physical LED state.
+- `bonsai exp1 <start|stop|status>`: Edge-attention cell proof (physical button).
+- `bonsai exp2 <start|stop|status>`: Autonomous rhythm field proof (blinking).
+- `bonsai exp3a <start|stop|status>`: Multi-field composition ($A \times B$ multiplication).
+- `bonsai exp4 <connect|invert|detach>`: Regional geometry (GPIO Matrix patch).
+- `bonsai exp5 run`: Silicon Loop intersection (Native Ternary Hardware Compute).
+- `version`, `uptime`, `heap`
 - `config <get|set>`
 - `wifi <status|connect>`
-- `vm load`
 - `vm loadhex <HEX>`
 - `fabric send <to> <op> <value>`
 - `vm task <start|stop|status>`
-- `vm run [steps]`
-- `vm step`
-- `vm regs`
-- `vm info` (shows cache hits/misses)
+- `vm info`
 
 ## Build & Flash
 
