@@ -369,5 +369,10 @@ esp_err_t goose_atmosphere_query(const char *name);
  */
 esp_err_t goose_atmosphere_emit_posture(int8_t state, uint8_t weight);
 
+/**
+ * @brief Provision the Aura HMAC key into NVS. 16-byte key.
+ */
+esp_err_t goose_atmosphere_set_key(const uint8_t key[16]);
+
 #endif
 

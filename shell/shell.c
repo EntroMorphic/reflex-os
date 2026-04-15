@@ -542,7 +542,7 @@ static void reflex_shell_loom_bloat_test(void) {
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <..>, goonies <ls|find name>, services, config <get|set>, vm info\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <..>, goonies <ls|find name>, services, config <get|set>, vm info, aura setkey <hex>\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
     else if (strcmp(argv[0], "goonies") == 0) {
         if (argc >= 2 && strcmp(argv[1], "ls") == 0) reflex_shell_loom_list();
@@ -578,6 +578,20 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
     } else if (strcmp(argv[0], "config") == 0) {
         if (argc >= 3 && strcmp(argv[1], "get") == 0) reflex_shell_config_get(argv[2]);
         else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
+    } else if (strcmp(argv[0], "aura") == 0) {
+        if (argc >= 3 && strcmp(argv[1], "setkey") == 0) {
+            const char *hex = argv[2];
+            if (strlen(hex) != 32) { printf("aura: expect 32 hex chars (16 bytes)\n"); return; }
+            uint8_t key[16];
+            for (int i = 0; i < 16; i++) {
+                char p[3] = {hex[i*2], hex[i*2+1], 0};
+                key[i] = (uint8_t)strtoul(p, NULL, 16);
+            }
+            if (goose_atmosphere_set_key(key) == ESP_OK) printf("aura: key provisioned\n");
+            else printf("aura: provisioning failed\n");
+        } else {
+            printf("aura setkey <32 hex chars>\n");
+        }
     } else if (strcmp(argv[0], "vm") == 0) {
         if (argc >= 2 && strcmp(argv[1], "info") == 0) printf("vm status=%s fault=%s ip=%lu steps=%lu\n", reflex_shell_vm_status_name(reflex_shell_vm.status), "none", (unsigned long)0, (unsigned long)0);
         else if (argc >= 3 && strcmp(argv[1], "loadhex") == 0) {
