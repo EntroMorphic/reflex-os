@@ -1,0 +1,31 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ESP-IDF 5.5 build (esp32c6)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5
+          target: esp32c6
+          path: .
+
+      - name: Report binary size
+        run: |
+          if [ -f build/reflex_os.bin ]; then
+            ls -l build/reflex_os.bin
+            printf 'Firmware size: '
+            wc -c < build/reflex_os.bin
+          fi
