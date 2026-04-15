@@ -1,11 +1,33 @@
+# Archive — local-only scratch and superseded artifacts
+archive/
+
+# ESP-IDF build output
 build/
+dependencies.lock
+*.elf
+*.map
+
+# Generated configuration (derived from sdkconfig.defaults)
 sdkconfig
 sdkconfig.old
+
+# Python / tooling caches
 .cache/
+.ruff_cache/
+.venv*/
+__pycache__/
+*.pyc
+
+# Local logs and session scratch
 *.log
 *_log.txt
+session-ses_*.md
+
+# Binary payloads and compiled VM images
 *.hex
 *.rfxv
 *.bin
+
+# OS metadata
 .DS_Store
-session-ses_*.md
+Thumbs.db
