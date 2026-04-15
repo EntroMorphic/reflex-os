@@ -138,17 +138,21 @@ esp_err_t goose_fabric_init(void) {
         fabric_version = 0;
         loom_authority = 0;
         for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
-        /* is_system_weaving=true already pins these cells; redundant type sets
-         * here would deref NULL because lattice_stable is still false. */
-        goose_fabric_alloc_cell("sys.origin", goose_make_coord(0, 0, 0), true);
-        goose_fabric_alloc_cell("agency.led.intent", goose_make_coord(0, 0, 1), true);
         fabric_version = 1;
         fabric_magic = GOOSE_FABRIC_MAGIC;
     } else {
         for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
         for (uint32_t i = 0; i < fabric_cell_count; i++) { lattice_index[goose_lattice_hash(fabric_cells[i].coord)] = i; }
     }
-    lattice_stable = true; return ESP_OK;
+    lattice_stable = true;
+
+    /* Seed cells: run on both cold and warm boot paths. On cold boot these
+     * are fresh allocations; on warm boot the coord is already present in
+     * RTC and alloc_cell short-circuits but still re-registers the name
+     * into the (zeroed) goonies_registry via the post-Item-2 fix. */
+    goose_fabric_alloc_cell("sys.origin", goose_make_coord(0, 0, 0), true);
+    goose_fabric_alloc_cell("agency.led.intent", goose_make_coord(0, 0, 1), true);
+    return ESP_OK;
 }
 
 goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
@@ -168,7 +172,16 @@ static uint32_t last_eviction_idx = 0;
 
 goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
     taskENTER_CRITICAL(&fabric_mux);
-    if (goose_fabric_get_cell_by_coord(coord) != NULL) { taskEXIT_CRITICAL(&fabric_mux); return NULL; }
+    if (goose_fabric_get_cell_by_coord(coord) != NULL) {
+        taskEXIT_CRITICAL(&fabric_mux);
+        /* Coord is already occupied. On warm boot (wake from deep sleep),
+         * fabric_cells[] persists in RTC but goonies_registry is regular
+         * BSS and gets zeroed. The atlas re-weave would then leave these
+         * cells nameless. Re-register the name outside the critical
+         * section so resolution still works post-wake. */
+        if (name) goonies_register(name, coord, is_system_weaving);
+        return NULL;
+    }
     uint32_t idx = 0;
     if (fabric_cell_count < GOOSE_FABRIC_MAX_CELLS) { idx = fabric_cell_count++; }
     else {

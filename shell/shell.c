@@ -544,6 +544,14 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
     if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <..>, goonies <ls|find name>, services, config <get|set>, vm info, aura setkey <hex>, heartbeat\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
+    else if (strcmp(argv[0], "sleep") == 0) {
+        int secs = (argc >= 2) ? atoi(argv[1]) : 3;
+        if (secs < 1) secs = 1;
+        printf("entering deep sleep for %d seconds\n", secs);
+        fflush(stdout);
+        esp_sleep_enable_timer_wakeup((uint64_t)secs * 1000000ULL);
+        esp_deep_sleep_start();
+    }
     else if (strcmp(argv[0], "goonies") == 0) {
         if (argc >= 2 && strcmp(argv[1], "ls") == 0) reflex_shell_loom_list();
         else if (argc >= 3 && strcmp(argv[1], "find") == 0) reflex_shell_goonies_find(argv[2]);
