@@ -168,6 +168,29 @@ esp_err_t goose_supervisor_pulse(void) {
 
     // Mirror HP intent into LP coprocessor for Coherent Heartbeat.
     goose_lp_heartbeat_sync();
+
+    /* LP core liveness monitor. If lp_pulse_count stops advancing for
+     * LP_STALL_THRESHOLD_US while HP is otherwise healthy, log once per
+     * stall so the stall is visible in the serial log. Observation only;
+     * no auto-restart. */
+    #define LP_STALL_THRESHOLD_US (5 * 1000 * 1000ULL)
+    static uint32_t lp_last_count = 0;
+    static uint64_t lp_last_advance_us = 0;
+    static bool lp_stall_warned = false;
+    uint32_t cur = goose_lp_heartbeat_count();
+    uint64_t now_us = esp_timer_get_time();
+    if (cur != lp_last_count) {
+        lp_last_count = cur;
+        lp_last_advance_us = now_us;
+        lp_stall_warned = false;
+    } else if (cur > 0 && lp_last_advance_us > 0 &&
+               (now_us - lp_last_advance_us) > LP_STALL_THRESHOLD_US &&
+               !lp_stall_warned) {
+        ESP_LOGW(TAG, "LP_HEARTBEAT_STALLED count=%lu stalled_us=%llu",
+                 (unsigned long)cur,
+                 (unsigned long long)(now_us - lp_last_advance_us));
+        lp_stall_warned = true;
+    }
     
     // Autonomic Fabrication pass at 1Hz (offset by 2)
     static int weave_div = 0;
