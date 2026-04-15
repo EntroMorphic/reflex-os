@@ -111,6 +111,12 @@ esp_err_t goose_supervisor_learn_sync(void) {
     bool pained   = (pain_cell && pain_cell->state == -1);
     if (!rewarded && !pained) return ESP_OK;
 
+    /* Serialize against pulse readers. We're mutating route->hebbian_counter
+     * and route->learned_orientation, both of which the pulse path reads.
+     * Loom try_lock is non-blocking with a timeout; if contended, we skip
+     * this plasticity pass and the next supervisor tick will retry. */
+    if (!goose_loom_try_lock(NULL)) return ESP_OK;
+
     for (size_t f = 0; f < supervised_field_count; f++) {
         goose_field_t *field = supervised_fields[f];
         for (size_t r = 0; r < field->route_count; r++) {
@@ -145,6 +151,7 @@ esp_err_t goose_supervisor_learn_sync(void) {
     }
 
     if (rewarded) reward_cell->state = 0;
+    goose_loom_unlock();
     return ESP_OK;
 }
 

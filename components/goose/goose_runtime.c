@@ -111,7 +111,7 @@ static bool is_sanctuary_address(uint32_t addr) {
     return true; 
 }
 
-static bool goose_loom_try_lock(goose_field_t *field) {
+bool goose_loom_try_lock(goose_field_t *field) {
     uint32_t start = esp_cpu_get_cycle_count();
     while (__atomic_test_and_set(&loom_authority, __ATOMIC_ACQUIRE)) {
         if ((esp_cpu_get_cycle_count() - start) > LOOM_LOCK_TIMEOUT_CYCLES) {
@@ -127,7 +127,7 @@ static bool goose_loom_try_lock(goose_field_t *field) {
     return true;
 }
 
-static void goose_loom_unlock(void) { __atomic_clear(&loom_authority, __ATOMIC_RELEASE); }
+void goose_loom_unlock(void) { __atomic_clear(&loom_authority, __ATOMIC_RELEASE); }
 
 esp_err_t goose_fabric_init(void) {
     lattice_stable = false; goonies_count = 0;
@@ -187,13 +187,15 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
     taskENTER_CRITICAL(&fabric_mux);
     if (goose_fabric_get_cell_by_coord(coord) != NULL) {
         taskEXIT_CRITICAL(&fabric_mux);
-        goose_loom_unlock();
         /* Coord is already occupied. On warm boot (wake from deep sleep),
          * fabric_cells[] persists in RTC but goonies_registry is regular
          * BSS and gets zeroed. The atlas re-weave would then leave these
-         * cells nameless. Re-register the name outside the critical
-         * section so resolution still works post-wake. */
+         * cells nameless. Re-register the name while still holding
+         * loom_authority so two concurrent short-circuit paths can't
+         * corrupt the registry. fabric_mux is released first because
+         * goonies_register doesn't touch fabric_cells[]. */
         if (name) goonies_register(name, coord, is_system_weaving);
+        goose_loom_unlock();
         return NULL;
     }
     uint32_t idx = 0;
@@ -298,7 +300,16 @@ esp_err_t goose_supervisor_weave_sync(void) {
         goose_cell_t *cap = goonies_resolve_by_capability(suffix);
         if (!cap) continue;
 
-        if (autonomy_field->route_count >= MAX_FABRICATED_ROUTES) break;
+        /* Serialize against the autonomy_field's own pulse task.
+         * Without this lock, the pulse reader in internal_process_transitions
+         * could observe the incremented route_count before the new route_t
+         * is fully populated, reading a half-constructed route. */
+        if (!goose_loom_try_lock(NULL)) continue;
+
+        if (autonomy_field->route_count >= MAX_FABRICATED_ROUTES) {
+            goose_loom_unlock();
+            break;
+        }
         bool exists = false;
         for (size_t ridx = 0; ridx < autonomy_field->route_count; ridx++) {
             if (goose_coord_equal(autonomy_field->routes[ridx].source_coord, need->coord) &&
@@ -306,14 +317,26 @@ esp_err_t goose_supervisor_weave_sync(void) {
                 exists = true; break;
             }
         }
-        if (exists) continue;
-        goose_route_t *r = &autonomy_field->routes[autonomy_field->route_count++];
+        if (exists) {
+            goose_loom_unlock();
+            continue;
+        }
+        /* Populate the route fully before publishing via route_count.
+         * The __atomic_store_n with RELEASE semantics pairs with any
+         * future acquire-load on the reader side; for now the pulse
+         * reads route_count under the same loom_authority, so the
+         * store ordering is doubly guaranteed. */
+        size_t new_idx = autonomy_field->route_count;
+        goose_route_t *r = &autonomy_field->routes[new_idx];
+        memset(r, 0, sizeof(*r));
         snprintf(r->name, 16, "auto_%lu", (unsigned long)i);
         r->source_coord = need->coord;
         r->sink_coord = cap->coord;
         r->orientation = REFLEX_TRIT_POS;
         r->coupling = GOOSE_COUPLING_SOFTWARE;
+        __atomic_store_n(&autonomy_field->route_count, new_idx + 1, __ATOMIC_RELEASE);
         goose_apply_route(r);
+        goose_loom_unlock();
     }
     return ESP_OK;
 }

@@ -416,5 +416,18 @@ void goose_lp_heartbeat_sync(void);
  */
 uint32_t goose_lp_heartbeat_count(void);
 
+/**
+ * @brief Try to acquire the loom_authority spinlock with a cycle-accurate
+ * timeout. Returns true if acquired, false if contended past the timeout.
+ * Pass NULL as field if there is no owning field for stats accounting.
+ * NOT recursive — do not call from a context that already holds the lock.
+ */
+bool goose_loom_try_lock(goose_field_t *field);
+
+/**
+ * @brief Release loom_authority. Must be paired with a successful try_lock.
+ */
+void goose_loom_unlock(void);
+
 #endif
 
