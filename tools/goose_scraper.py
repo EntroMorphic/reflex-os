@@ -96,12 +96,15 @@ def scrape_svd(svd_path, zones_path, output_path):
             "/**\n * @brief THE ALL-SEEING ATLAS v2.0 (Automated Shadow Manifest)\n */\n\n"
         )
 
-        # Self-contained struct definition to resolve build issues
+        # Self-contained struct definition to resolve build issues.
+        # c is int16_t: peripheral cell indices exceed int8_t range
+        # (max observed ~400). Encoded via goose_make_shadow_coord below.
         f.write("typedef struct {\n")
         f.write("    const char *name;\n")
         f.write("    uint32_t addr;\n")
         f.write("    uint32_t bit_mask;\n")
-        f.write("    int8_t f, r, c;\n")
+        f.write("    int8_t f, r;\n")
+        f.write("    int16_t c;\n")
         f.write("    goose_cell_type_t type;\n")
         f.write("} shadow_node_t;\n\n")
 
@@ -124,7 +127,7 @@ def scrape_svd(svd_path, zones_path, output_path):
         f.write("            *out_addr = shadow_map[mid].addr;\n")
         f.write("            *out_mask = shadow_map[mid].bit_mask;\n")
         f.write(
-            "            *out_coord = goose_make_coord(shadow_map[mid].f, shadow_map[mid].r, shadow_map[mid].c);\n"
+            "            *out_coord = goose_make_shadow_coord(shadow_map[mid].f, shadow_map[mid].r, shadow_map[mid].c);\n"
         )
         f.write("            *out_type = shadow_map[mid].type;\n")
         f.write("            return ESP_OK;\n")

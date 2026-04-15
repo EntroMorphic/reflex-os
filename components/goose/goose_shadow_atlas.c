@@ -9,7 +9,8 @@ typedef struct {
     const char *name;
     uint32_t addr;
     uint32_t bit_mask;
-    int8_t f, r, c;
+    int8_t f, r;
+    int16_t c;
     goose_cell_type_t type;
 } shadow_node_t;
 
@@ -9553,7 +9554,7 @@ esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, uint32_t *o
         if (res == 0) {
             *out_addr = shadow_map[mid].addr;
             *out_mask = shadow_map[mid].bit_mask;
-            *out_coord = goose_make_coord(shadow_map[mid].f, shadow_map[mid].r, shadow_map[mid].c);
+            *out_coord = goose_make_shadow_coord(shadow_map[mid].f, shadow_map[mid].r, shadow_map[mid].c);
             *out_type = shadow_map[mid].type;
             return ESP_OK;
         }

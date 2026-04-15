@@ -300,9 +300,22 @@ esp_err_t goose_weave_loom(const uint8_t *buffer, size_t size);
 // --- Coordinate Helpers ---
 
 /**
- * @brief Generate a 9-trit spatial coordinate.
+ * @brief Generate a 9-trit spatial coordinate. Accepts the small signed
+ * range only; for shadow atlas entries whose cell index exceeds int8_t,
+ * use goose_make_shadow_coord which encodes the wider value across two
+ * trit positions.
  */
 reflex_tryte9_t goose_make_coord(int8_t field, int8_t region, int8_t cell);
+
+/**
+ * @brief Generate an opaque shadow atlas coordinate. The scraper emits
+ * cell indices that exceed int8_t range (up to ~400 today, bounded by
+ * the 9527-node SVD manifest). This helper stores the low byte of the
+ * cell index in trits[6] and the high byte in trits[7], giving a unique
+ * 16-bit ID encoded as two trit slots. goose_coord_equal still works
+ * byte-wise, so these values behave as opaque keys in the lattice.
+ */
+reflex_tryte9_t goose_make_shadow_coord(int8_t field, int8_t region, int16_t cell);
 
 /**
  * @brief Compare two geometric spatial vectors.

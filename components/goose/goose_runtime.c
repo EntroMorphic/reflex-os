@@ -305,6 +305,15 @@ reflex_tryte9_t goose_make_coord(int8_t field, int8_t region, int8_t cell) {
     return t;
 }
 
+reflex_tryte9_t goose_make_shadow_coord(int8_t field, int8_t region, int16_t cell) {
+    reflex_tryte9_t t = {{0}};
+    t.trits[0] = (reflex_trit_t)field;
+    t.trits[3] = (reflex_trit_t)region;
+    t.trits[6] = (reflex_trit_t)(cell & 0xFF);
+    t.trits[7] = (reflex_trit_t)((cell >> 8) & 0xFF);
+    return t;
+}
+
 bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b) { for (int i = 0; i < 9; i++) { if (a.trits[i] != b.trits[i]) return false; } return true; }
 
 #ifdef CONFIG_ULP_COPROC_ENABLED
