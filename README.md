@@ -1,54 +1,69 @@
-# Reflex OS v2.5.1 (The Apex Mesh)
+# Reflex OS
 
-Reflex OS is a binary-hosted ternary operating environment for the Seeed Studio XIAO ESP32C6. It reinterprets physical hardware as a coherent **Geometric Tapestry**, replacing traditional binary software abstractions with a software-defined ternary execution substrate known as **GOOSE** (Geometric Ontologic Operating System Execution).
+[![Build](https://github.com/EntroMorphic/reflex-os/actions/workflows/build.yml/badge.svg)](https://github.com/EntroMorphic/reflex-os/actions/workflows/build.yml)
 
-## The Distributed Silicon Stack
+Reflex OS is a binary-hosted ternary operating environment for the Seeed Studio XIAO ESP32-C6. It reinterprets physical hardware as a coherent **Geometric Tapestry**, replacing traditional binary software abstractions with a software-defined ternary execution substrate known as **GOOSE** — the **G**eometric **O**ntologic **O**perating **S**ystem **E**xecution.
 
-- **Global G.O.O.N.I.E.S.:** Hardware is addressable by name across physical devices. Peer resources (e.g., `peer.worker.agency.led`) are paged into the local Loom via secure Atmospheric Discovery.
-- **Recursive Holons:** Hierarchical manifolds allow complex systems to be treated as single ternary cells, enabling recursive regulation without losing real-time determinism.
-- **Postural Swarms:** Multi-node coordination via a "Geometric Hive Mind." Swarms reach consensus using ternary summation with per-peer weight caps and inertial hysteresis.
-- **The All-Seeing Atlas:** A 9,531-node shadow catalog of the ESP32-C6 MMIO surface, with 104 high-priority nodes pre-woven at boot and the remainder paged on demand into a 256-slot active Loom via **Shadow Paging** and round-robin **Loom Eviction**.
-- **The Sanctuary Guard:** Substrate-level security including MMIO isolation, Authority Sentries, HMAC-SHA256 **Aura** packets with replay cache, and NVS-provisioned keys for secure inter-system arcing.
+## Highlights
+
+- **Global G.O.O.N.I.E.S.** — Hardware is addressable by name across physical devices. Peer resources (e.g. `peer.worker.agency.led`) are paged into the local Loom via secure atmospheric discovery.
+- **Recursive Holons** — Hierarchical manifolds let complex subsystems be treated as single ternary cells for recursive regulation without losing real-time determinism.
+- **Postural Swarms** — Multi-node coordination via a geometric hive mind. Swarms reach consensus using ternary summation with per-peer weight caps and inertial hysteresis.
+- **The All-Seeing Atlas** — A 9,531-node shadow catalog of the ESP32-C6 MMIO surface, with 104 high-priority nodes pre-woven at boot and the remainder paged on demand into a 256-slot active Loom via shadow paging and round-robin eviction.
+- **The Sanctuary Guard** — Substrate-level security including MMIO isolation, authority sentries, HMAC-SHA256 **Aura** packets with replay cache, and NVS-provisioned keys for secure inter-system arcing.
+- **Coherent Heartbeat** — A LP RISC-V coprocessor program that ticks in parallel to HP at 1 Hz, mirroring geometric intent state across the RTC boundary.
 
 ## Hardware
 
-- **Board:** Seeed Studio XIAO ESP32C6
-- **Architecture:** RISC-V HP Core + RISC-V LP Core (Coherent Heartbeat via ULP RISC-V coprocessor).
-- **Memory:** Region-protected shared ternary memory with three-state (I/E/M) MESI-lite Soft-Cache and host-side Coherency Proxy.
-- **I/O:** Full peripheral mapping (The Atlas) including GPIO, LEDC, RMT, and PMU.
-
-## Core Documentation
-
-- `ARCHITECTURE.md`: Module layout and the GOOSE geometric paradigm.
-- `SECURITY.md`: The Sanctuary Guard and Authority Sentry specifications.
-- `bonsai/IMPLEMENTATION-STATUS-BONSAI.md`: Detailed v2.2 validation results.
-- `TASM-SPEC.md`: Ternary Assembler syntax and GOOSE-native opcodes.
-
-## Shell Commands
-
-- `help`, `reboot`, `version`, `uptime`, `heap`
-- `goonies ls`: List the hierarchical hardware DNS registry.
-- `goonies find <name>`: Resolve a name to its 9-trit coordinate.
-- `bonsai breach`: Execute a Sanctuary Violation test (rejection demo).
-- `bonsai heal`: Trigger a Supervisor rebalance pass on a tilted field.
-- `led status`: Query the physical LED state via the Tapestry.
-- `config <get|set>`: Persistence management.
-- `vm info`: Inspect the Ternary VM state.
-- `aura setkey <32 hex>`: Provision the HMAC-SHA256 Aura key into NVS.
+- **Board:** Seeed Studio XIAO ESP32-C6
+- **Architecture:** RISC-V HP Core + RISC-V LP Core (Coherent Heartbeat via the ULP LP-core coprocessor)
+- **Memory:** Region-protected shared ternary memory with a three-state (I/E/M) MESI-lite soft-cache and host-side coherency proxy
+- **I/O:** Full peripheral mapping (the Atlas) including GPIO, LEDC, RMT, PMU, and the LP I/O subsystem
 
 ## Build & Flash
 
 ```bash
-# Export ESP-IDF
 source ~/Projects/esp-idf/export.sh
-
-# Build & Flash
+idf.py set-target esp32c6     # only needed on first build
 idf.py build
-python3 -m esptool --chip esp32c6 --port /dev/cu.usbmodem1101 --before usb_reset write_flash 0x0 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0x10000 build/reflex_os.bin
+idf.py -p /dev/cu.usbmodem1101 flash
 ```
 
-## G.O.O.N.I.E.S. Oath (v2.2 Milestone)
+A clean checkout regenerates `sdkconfig` from `sdkconfig.defaults`. The target is pinned via `CONFIG_IDF_TARGET="esp32c6"` in the defaults file.
 
-Reflex OS v2.2 validates that a machine can be governed by geometry rather than binary logic. By leveraging the ESP32-C6's LP Core and RTC RAM, the OS maintains its identity and security posture even during deep reflection (sleep). 
+## Shell
 
-**"GOONIES never say die!"**
+| Command | Description |
+|---|---|
+| `help` | List available commands |
+| `reboot` | Warm software reset |
+| `sleep <secs>` | Enter deep sleep for N seconds (LP-timer wake) |
+| `led status` | Query the physical LED state via the Tapestry |
+| `goonies ls` | List the hierarchical hardware DNS registry |
+| `goonies find <name>` | Resolve a name to its 9-trit coordinate |
+| `vm info` | Inspect the ternary VM state |
+| `vm loadhex <HEX>` | Load a CRC32-verified packed image |
+| `heartbeat` | Read the LP core's parallel pulse counter |
+| `aura setkey <32 hex>` | Provision the HMAC-SHA256 Aura key into NVS |
+| `services` | List registered services |
+| `config <get\|set>` | Persistence management |
+| `bonsai <experiment>` | Run one of the in-tree experiments |
+
+## Documentation
+
+Canonical project documentation lives in [`docs/`](docs/):
+
+- [`docs/architecture.md`](docs/architecture.md) — Module layout and the GOOSE substrate.
+- [`docs/implementation-status.md`](docs/implementation-status.md) — What is built, validated, and what limits are known.
+- [`docs/strategy.md`](docs/strategy.md) — The Chronicler's Path: gaps, advantages, and next phases.
+- [`docs/potentials.md`](docs/potentials.md) — Realized milestones and the biological-frontier roadmap.
+- [`docs/tasm-spec.md`](docs/tasm-spec.md) — Ternary Assembler syntax and GOOSE-native opcodes.
+- [`docs/ternary-architecture.md`](docs/ternary-architecture.md) — Background on the ternary data model.
+- [`docs/vm/`](docs/vm/) — Ternary VM internals: cache, loader, state, syscalls.
+- [`SECURITY.md`](SECURITY.md) — Sanctuary Guard, Authority Sentry, Aura protocol.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — How to contribute.
+- [`CHANGELOG.md`](CHANGELOG.md) — Release notes.
+
+## License
+
+See [`LICENSE`](LICENSE).

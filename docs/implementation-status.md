@@ -17,7 +17,7 @@ Both layers build and have been revalidated on the XIAO ESP32C6 after the audit-
 - Cell types: VIRTUAL, HARDWARE_IN, HARDWARE_OUT, INTENT, SYSTEM_ONLY, PINNED, FIELD_PROXY, NEURON, NEED
 - Cold-boot reset keyed on `fabric_magic` (0xF11BFABE) and wakeup cause
 - Round-robin eviction of unpinned cells when the loom saturates
-- Lock: `loom_authority` spinlock with timeout-and-skip semantics (see SECURITY.md §2)
+- Lock: `loom_authority` spinlock with timeout-and-skip semantics (see [`../SECURITY.md`](../SECURITY.md) §2)
 
 ### G2 — G.O.O.N.I.E.S. Naming Service
 - Source: `components/goose/goose_runtime.c` (`goonies_register`, `goonies_resolve`, `goonies_resolve_cell`, `goonies_resolve_by_capability`)
@@ -81,7 +81,7 @@ Both layers build and have been revalidated on the XIAO ESP32C6 after the audit-
 - Performance metrics visible via `vm info`
 
 ### T007v2 — Packed Bytecode Loader
-- Source: `vm/loader.c`, `VM-LOADER-V2.md`, `tasm.py`
+- Source: `vm/loader.c`, [`vm/loader-v2.md`](vm/loader-v2.md), `tools/tasm.py`
 - 32-bit dense instruction packing
 - CRC32 checksum verification
 - Packed data-segment unpacking into VM private memory
