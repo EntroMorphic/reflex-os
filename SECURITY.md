@@ -17,11 +17,14 @@ To ensure system durability, the `loom_authority` spinlock is monitored by a cyc
 -   **Purpose:** Makes sustained lock contention observable (stats + log) without introducing data-race corruption. A persistently wedged holder starves pulses and is surfaced for higher-level recovery (e.g., supervisor-triggered reset), rather than being masked by silent unsynchronized execution.
 
 ## 3. Atmospheric Aura (Geometric Authentication)
-Radio-based state propagation (Arcing) is protected by a shared-secret verification layer.
+Radio-based state propagation (Arcing) is protected by a keyed message authentication layer.
 
--   **The Aura:** Every Arc packet contains a HMAC-like hash derived from the cell coordinate, state, and a shared `GOOSE_AURA_SECRET`.
--   **The Ground:** Nodes will "ground" (ignore) any Arc packet that does not match the local Aura.
+-   **The Aura:** Every Arc packet carries a 32-bit Aura computed as `HMAC-SHA256(GOOSE_AURA_KEY, op || coord || name_hash || state || nonce)` truncated to the first 32 bits. The wire field remains 32 bits for protocol compatibility; the truncation caps collision resistance at the birthday bound.
+-   **The Ground:** Nodes will "ground" (ignore) any Arc packet whose Aura does not match the locally computed value.
 -   **Purpose:** Prevents "Geometric Spoofing" where an unauthorized node attempts to hijack local hardware by broadcasting fake state changes.
+-   **Key provisioning:** on first boot (or NVS wipe), a unique 16-byte key is generated via `esp_fill_random()` and persisted to NVS under `goose/aura_key`. Two factory-fresh boards therefore do not accidentally trust each other. Pairing requires an operator to run `aura setkey <hex>` on both peers with a chosen shared key. A compile-time default is retained only as a last-resort fallback if NVS writes fail.
+-   **Replay protection:** a 16-slot replay cache in the RX path rejects packets whose `(src_mac, nonce)` pair has been seen recently.
+-   **Known limits:** the Aura key is still extractable by anyone with JTAG or flash-read access to the board (unchanged by this provisioning model); `esp_random()` entropy quality at very early boot is bounded by the Wi-Fi/RF subsystem seed. Wire-format Aura is 32 bits (HMAC-SHA256 truncated), capping collision resistance at the birthday bound (~2^16); a future protocol epoch can bump `GOOSE_ARC_VERSION` and expand the Aura field. These limits are tracked in `IMPLEMENTATION-STATUS.md` "Known Gaps".
 
 ## 4. G.O.O.N.I.E.S. Zone Protection
 Hierarchical naming is protected at the root.

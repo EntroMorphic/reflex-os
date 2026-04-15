@@ -11,6 +11,7 @@
 #include "esp_timer.h"
 #include "mbedtls/md.h"
 #include "nvs.h"
+#include "esp_random.h"
 #include <string.h>
 
 static const char *TAG = "GOOSE_ATMOSPHERE";
@@ -136,28 +137,51 @@ static bool replay_seen_or_record(const uint8_t *src_mac, uint32_t nonce, uint64
     return false;
 }
 
-static void load_aura_key(void) {
-    memcpy(goose_aura_key, GOOSE_AURA_KEY_DEFAULT, sizeof(goose_aura_key));
-    nvs_handle_t h;
-    if (nvs_open("goose", NVS_READONLY, &h) != ESP_OK) return;
-    size_t len = sizeof(goose_aura_key);
-    esp_err_t rc = nvs_get_blob(h, "aura_key", goose_aura_key, &len);
-    nvs_close(h);
-    if (rc == ESP_OK && len == sizeof(goose_aura_key)) {
-        ESP_LOGI(TAG, "aura key loaded from NVS");
-    } else {
-        ESP_LOGW(TAG, "aura key using compile-time default (unprovisioned)");
-    }
-}
-
-esp_err_t goose_atmosphere_set_key(const uint8_t key[16]) {
-    if (!key) return ESP_ERR_INVALID_ARG;
+/* Persist a 16-byte key blob to NVS under goose/aura_key. Shared between
+ * first-boot auto-provisioning and the operator `aura setkey` command. */
+static esp_err_t persist_aura_key(const uint8_t key[16]) {
     nvs_handle_t h;
     esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
     if (rc != ESP_OK) return rc;
     rc = nvs_set_blob(h, "aura_key", key, 16);
     if (rc == ESP_OK) rc = nvs_commit(h);
     nvs_close(h);
+    return rc;
+}
+
+static void load_aura_key(void) {
+    nvs_handle_t h;
+    if (nvs_open("goose", NVS_READONLY, &h) == ESP_OK) {
+        size_t len = sizeof(goose_aura_key);
+        esp_err_t rc = nvs_get_blob(h, "aura_key", goose_aura_key, &len);
+        nvs_close(h);
+        if (rc == ESP_OK && len == sizeof(goose_aura_key)) {
+            ESP_LOGI(TAG, "aura key loaded from NVS");
+            return;
+        }
+    }
+
+    /* First boot (or NVS wiped): generate a random per-board key so two
+     * factory-fresh boards don't accidentally trust each other. Pairing
+     * now requires an operator to run `aura setkey <hex>` on both sides
+     * with a chosen shared key. */
+    uint8_t fresh[16];
+    esp_fill_random(fresh, sizeof(fresh));
+    esp_err_t rc = persist_aura_key(fresh);
+    if (rc == ESP_OK) {
+        memcpy(goose_aura_key, fresh, sizeof(goose_aura_key));
+        ESP_LOGI(TAG, "aura key auto-provisioned (run 'aura setkey' on peers to pair)");
+    } else {
+        /* NVS write failed; fall back to compile-time default so the mesh
+         * still works at all. Logged as a warning so the operator notices. */
+        memcpy(goose_aura_key, GOOSE_AURA_KEY_DEFAULT, sizeof(goose_aura_key));
+        ESP_LOGW(TAG, "aura key NVS write failed (rc=0x%x); using compile-time default", rc);
+    }
+}
+
+esp_err_t goose_atmosphere_set_key(const uint8_t key[16]) {
+    if (!key) return ESP_ERR_INVALID_ARG;
+    esp_err_t rc = persist_aura_key(key);
     if (rc == ESP_OK) {
         memcpy(goose_aura_key, key, 16);
         ESP_LOGI(TAG, "aura key provisioned");
