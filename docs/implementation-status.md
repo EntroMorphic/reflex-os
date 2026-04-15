@@ -88,7 +88,7 @@ Both layers build and have been revalidated on the XIAO ESP32C6 after the audit-
 - Hex-loading path available via `vm loadhex` shell command
 
 ### Ternary Supervisor v1.0
-- Source: `supervisor.tasm`, `supervisor.hex`
+- Source: `examples/supervisor.tasm`, assembled to `.rfxv`/`.hex` locally (artifacts gitignored)
 - Background ternary program managing fabric → LED path
 - `vm loadhex` and `vm task start` target the same loaded image
 - Validated on device by injecting a message to VM node 7 and observing LED state change
@@ -113,7 +113,7 @@ Both layers build and have been revalidated on the XIAO ESP32C6 after the audit-
 ## Current Developer Flow
 
 1. **Code**: write `.tasm` or `.ls` files
-2. **Compile**: `python3 tasm.py program.tasm program.rfxv` or `python3 tools/loomc.py program.ls program.loom`
+2. **Compile**: `python3 tools/tasm.py program.tasm program.rfxv` or `python3 tools/loomc.py program.ls program.loom`
 3. **Deploy**: `vm loadhex <HEX>` in the Reflex shell, or `vm load` for the built-in sample image
 4. **Execute**: `vm task start` for background or `vm run` for foreground
 

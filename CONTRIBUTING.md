@@ -13,12 +13,13 @@
 2. Export the ESP-IDF environment:
 
 ```bash
-source /Users/aaronjosserand-austin/Projects/esp-idf/export.sh
+source ~/esp-idf/export.sh
 ```
 
 3. Build the firmware:
 
 ```bash
+idf.py set-target esp32c6   # first time only
 idf.py build
 ```
 
@@ -34,7 +35,7 @@ idf.py build
 Before submitting changes:
 
 1. Rebuild with `idf.py build`.
-2. Reassemble any changed `.tasm` programs with `python3 tasm.py`.
+2. Reassemble any changed `.tasm` programs with `python3 tools/tasm.py`.
 3. If runtime or hardware paths changed, flash the board and verify the affected shell and device behavior.
 4. Keep implementation docs in sync with the actual runtime contract.
 
