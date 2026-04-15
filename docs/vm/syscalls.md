@@ -30,6 +30,11 @@ For MVP, syscalls remain intentionally small, synchronous, and host-controlled.
 - Effect: none
 - Output: scalar config value as a `word18` read from the real config store
 
+### `REFLEX_VM_SYSCALL_DELAY`
+- Input: `SRC_A` interpreted as a millisecond count (signed; negative and zero are no-ops)
+- Effect: yields the VM's hosting task via `vTaskDelay(pdMS_TO_TICKS(ms))`, allowing other tasks (including the supervisor pulse and the atmospheric mesh RX callback) to run. Intentionally does not busy-wait.
+- Output: `0` on success
+
 ## Initial Config Keys
 
 The first config bridge only exposes scalar values. String values remain deferred.

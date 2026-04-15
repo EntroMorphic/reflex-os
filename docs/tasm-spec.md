@@ -28,6 +28,14 @@ The assembler validates operands per opcode. Commas are optional.
 - `TNOP`
 - `THALT`
 
+### GOOSE-Native Geometric Opcodes
+
+These opcodes bridge the VM into the GOOSE substrate for runtime route establishment, bias updates, and cell sampling.
+
+- `TROUTE DST, SRC_A, SRC_B` — establish a GOOSE route in the VM's route manifest. `IMM=0`: arguments are name handles; `IMM=1`: arguments are 9-trit coordinates. Up to `REFLEX_VM_MAX_ROUTES` (4) routes per VM instance.
+- `TBIAS DST, SRC_A` — update the orientation (bias trit) of an existing route. `DST` is the route index in the VM manifest; `SRC_A` holds the new bias trit.
+- `TSENSE DST, SRC_A` — sample the state of a cell. `DST` receives the trit value; `SRC_A` identifies the cell. `IMM=0`: name handle lookup; `IMM=1`: coordinate lookup.
+
 ### Registers
 `r0` through `r7`
 
@@ -83,3 +91,6 @@ loop:
 | `TINV`   | 16 | Invalidate Cache |
 | `TSYS`   | 17 | Host Syscall |
 | `THALT`  | 18 | Halt |
+| `TROUTE` | 19 | Establish GOOSE route (Phase 10/11) |
+| `TBIAS`  | 20 | Update route orientation |
+| `TSENSE` | 21 | Sample GOOSE cell state |

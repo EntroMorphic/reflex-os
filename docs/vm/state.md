@@ -132,3 +132,25 @@ The `T005` state model is sufficient when:
 - registers can hold arithmetic and compare results
 - faults can be recorded without crashing the host runtime
 - shell tooling can print the VM state in a stable format
+
+## Implemented Fields
+
+The current `reflex_vm_state_t` struct in `vm/include/reflex_vm_state.h` extends the MVP model with host-side services that came online after the first execution slice:
+
+| Field | Purpose |
+|---|---|
+| `status` | Lifecycle state (READY, RUNNING, HALTED, FAULTED). |
+| `fault` | Coarse fault classification when `status == FAULTED`. |
+| `ip` | Instruction pointer (host-side unsigned index into `program`). |
+| `steps_executed` | Monotonic counter for bounded execution slices and diagnostics. |
+| `registers[REFLEX_VM_REGISTER_COUNT]` | Eight `word18` registers, zeroed on reset. |
+| `program`, `program_length`, `owns_program` | Loaded instruction array. `owns_program` tells the unload path whether to free. |
+| `mmu` | Region-protected ternary memory descriptor from `reflex_vm_mem.h`. Enforces bounds on `TLD`/`TST`. |
+| `owned_private_memory`, `owned_private_memory_count` | Private data segment unpacked from the packed image loader (see `loader-v2.md`). |
+| `node_id` | Fabric node identity. `TSEND` uses this to stamp outgoing messages so the supervisor routing path matches TASM expectations. |
+| `syscall_handler`, `syscall_context` | Installed host-bridge callback for `TSYS`. Default: `reflex_vm_use_default_syscalls`. |
+| `cache` | Optional three-state (I/E/M) soft cache (`reflex_cache_t *`, see `cache.md`). NULL-safe — the interpreter falls back to direct MMU access if unset. |
+| `route_manifest[REFLEX_VM_MAX_ROUTES]` | Up to 4 GOOSE routes established at runtime by the `TROUTE` opcode. See `../tasm-spec.md` for the GOOSE-native opcodes. |
+| `route_count` | Number of populated entries in `route_manifest`. |
+
+These fields remain zero-initialized by `reflex_vm_reset`. The reset path does not unload the program, the MMU regions, or the cache — those are owned by whoever installed them and are reset via dedicated `unload` or `reinit` calls.
