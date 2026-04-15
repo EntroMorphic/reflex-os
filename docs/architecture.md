@@ -18,27 +18,43 @@ The "Loom DNS." It provides a hierarchical naming service (`agency.led.intent`) 
 - **Loom Eviction:** A round-robin recycling policy that ensures the 256-slot RAM Loom never overflows. Unpinned shadow nodes are evicted to make room for new discoveries.
 
 ### 4. Atmospheric Mesh (Global G.O.O.N.I.E.S.)
-Reflex OS extends the Tapestry across physical devices via ESP-NOW.
-- **Peer Scoping:** Names prefixed with `peer.` trigger mesh-wide discovery.
-- **Ghost Solidification:** Local "Ghost Cells" represent remote hardware; state changes are Arced across the mesh.
-- **Postural Consensus:** Swarms coordinate via "Geometric Hive Mind" logic, using probabilistic ternary summation to reach mesh-wide agreement on system state.
+Reflex OS extends the Tapestry across physical devices via ESP-NOW, implemented in `goose_atmosphere.c`.
+- **Peer Scoping:** names prefixed with `peer.` trigger mesh-wide discovery (`ARC_OP_QUERY` → `ARC_OP_ADVERTISE`).
+- **Ghost Solidification:** local "ghost cells" represent remote hardware; state changes are arced across the mesh via `ARC_OP_SYNC`.
+- **Postural Consensus:** swarms coordinate using ternary sum-and-threshold with a per-packet weight cap (`SWARM_WEIGHT_MAX=4`) and inertial hysteresis (`SWARM_THRESHOLD=10`, `SWARM_ACCUM_MAX=100`). A single peer cannot flip posture alone; consensus requires at least three cooperating peers.
+- **Aura Authentication:** every arc packet carries an HMAC-SHA256 MAC over (version, op, coord, name_hash, state, nonce), truncated to 32 bits for wire compatibility. Keys are NVS-backed with first-boot random auto-provisioning; pairing requires an operator to run `aura setkey <hex>` on every peer.
+- **Replay Guard:** a 64-slot time-bounded (5 s) replay cache rejects duplicate `(src_mac, nonce)` pairs. Slot index blends nonce and the last two MAC bytes to minimize cross-peer false positives.
+- **Protocol Epoch:** `GOOSE_ARC_VERSION` in the packet header lets cross-firmware peers log `AURA_VERSION_MISMATCH` (rate-limited per peer) instead of silently dropping.
 
 ### 5. Hierarchical Holons (Recursive Fields)
 Manifolds can be nested, allowing complex systems to be treated as single ternary cells.
-- **Asynchronous Pulse:** Parent fields sample the health of children without temporal dependency, preserving real-time deterministic timing.
-- **Encapsulation:** Subsystems (e.g., `agency.motor`) project a single "Success Trit" to their parents.
+- **Asynchronous Pulse:** parent fields sample the health of children without temporal dependency, preserving real-time deterministic timing. `internal_process_transitions` recurses up to depth 3.
+- **FIELD_PROXY Projection:** subsystems (e.g., `agency.motor`) project a single "success trit" — implemented in `goose_runtime.c` as a read from `routes[0].cached_source->state` on the child sub-field.
+- **NEURON Quorum:** `GOOSE_CELL_NEURON` cells aggregate all routes of the child sub-field via ternary sum-and-majority (threshold = floor(n/2)+1) in `neuron_quorum`. Unlike FIELD_PROXY's single-route projection, NEURON aggregation reflects the full sub-field consensus.
 
 ### 3. The Supervisor (Harmonic Regulation)
-An autonomic "immune system" that monitors the Loom for disequilibrium (e.g., a blocked intent route) and exercises meta-agency to restore signal flow.
+An autonomic regulation pass in `goose_supervisor.c`. The supervisor runs on a 100 ms tick (10 Hz) and interleaves several sub-passes at 1 Hz via time-division:
+- **check_equilibrium / rebalance:** monitors supervised fields for disequilibrium (blocked intent routes) and exercises meta-agency to restore flow.
+- **weave_sync (Autonomous Fabrication):** scans `fabric_cells[]` for `GOOSE_CELL_NEED` cells with non-zero state and wires them to capability-matched sinks via a generic last-segment resolver. `sys.need.led` → `.led` → any cell with that suffix.
+- **learn_sync (Hebbian Plasticity):** reward-gated co-activation rule. Under `sys.ai.reward`, each supervised route's `hebbian_counter` moves by +1 on source/sink agreement and -1 on disagreement. On threshold crossing, the counter commits its sign into `learned_orientation`. Under `sys.ai.pain`, counters decay toward zero (unlearning without reset).
+- **swarm_sync:** decays the `swarm_accumulator` toward zero when no atmospheric postures are arriving.
+
+### 6. Coherent Heartbeat (LP RISC-V)
+A parallel heartbeat program running on the ESP32-C6 LP coprocessor (`components/goose/ulp/lp_pulse.c`). Loaded and started from `goose_lp_heartbeat_init` at boot; HP mirrors `agency.led.intent` state into `ulp_lp_led_intent` each supervisor pulse via `goose_lp_heartbeat_sync`. LP ticks at ~1 Hz via `ULP_LP_CORE_WAKEUP_SOURCE_LP_TIMER` and increments `ulp_lp_pulse_count`, which HP reads via the `heartbeat` shell command as a liveness indicator.
 
 ## Module Layout
 
 ## `components/goose/`
 The core GOOSE implementation.
-- `goose_runtime.c`: Lattice hashing, cell allocation, and spatial paging.
-- `goose_supervisor.c`: Equilibrium checking and harmonic re-balancing.
-- `goose_atmosphere.c`: Secure ESP-NOW arcing (Inter-system state propagation).
-- `goose_atlas.c`: Peripheral mapping (The Root Zone).
+- `goose_runtime.c`: lattice hashing, cell allocation, route processing, `loom_authority` serialization, LP heartbeat bootstrap.
+- `goose_supervisor.c`: equilibrium checking, harmonic rebalancing, autonomous fabrication (`weave_sync`), Hebbian plasticity (`learn_sync`), swarm decay, LP liveness monitor.
+- `goose_atmosphere.c`: ESP-NOW atmospheric mesh — HMAC-SHA256 Aura, replay cache, protocol epoch, self-arc suppression, posture weight cap, mesh RX stats.
+- `goose_atlas.c`: the Root Zone — 26 peripheral categories × 4 register channels = 104 pre-woven atlas cells.
+- `goose_shadow_atlas.c`: SVD-generated shadow catalog of 9,527 additional MMIO nodes, paged in on demand via `goose_shadow_resolve`.
+- `goose_gateway.c`: legacy message bridge between the fabric and GOOSE cell state.
+- `goose_library.c`: LoomScript binary loader (`.loom` format, magic `LOOM`).
+- `goose_dma.c`, `goose_etm.c`: scaffold bridges for Geometric Flow (GDMA) and Silicon Agency (ETM).
+- `ulp/lp_pulse.c`: LP core program (compiled for RISC-V LP target via `ulp_embed_binary`).
 
 ## `main/`
 
