@@ -8,3 +8,4 @@ sdkconfig.old
 *.rfxv
 *.bin
 .DS_Store
+session-ses_*.md
