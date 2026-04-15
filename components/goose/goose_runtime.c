@@ -191,6 +191,7 @@ esp_err_t goose_process_transitions(goose_field_t *field) {
     /**
      * Phase 1: Evolution (Autonomous Rhythm)
      */
+    uint32_t evo_start = esp_cpu_get_cycle_count();
     for (size_t i = 0; i < field->transition_count; i++) {
         goose_transition_t *t = &field->transitions[i];
         
@@ -205,10 +206,12 @@ esp_err_t goose_process_transitions(goose_field_t *field) {
             t->last_run_us = now;
         }
     }
+    field->stats.phase_evolution_cycles = esp_cpu_get_cycle_count() - evo_start;
 
     /**
      * Phase 2: Propagation (Geometric Flow)
      */
+    uint32_t prop_start = esp_cpu_get_cycle_count();
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
         
@@ -244,6 +247,7 @@ esp_err_t goose_process_transitions(goose_field_t *field) {
             goose_atmosphere_emit_arc(r->cached_source);
         }
     }
+    field->stats.phase_propagation_cycles = esp_cpu_get_cycle_count() - prop_start;
 
     goose_loom_unlock();
 

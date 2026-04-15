@@ -69,6 +69,8 @@ typedef struct {
     uint64_t total_pulses;
     uint32_t last_pulse_cycles;
     uint32_t max_pulse_cycles;
+    uint32_t phase_evolution_cycles;
+    uint32_t phase_propagation_cycles;
     uint32_t tlb_miss_count;
     uint32_t lock_contention_cycles;
 } goose_stats_t;
