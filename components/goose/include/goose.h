@@ -36,7 +36,8 @@ typedef enum {
     GOOSE_CELL_HARDWARE_OUT, ///< Agency: Physical Output (Pinned)
     GOOSE_CELL_INTENT,       ///< Direction: Logical Goal (Swappable)
     GOOSE_CELL_SYSTEM_ONLY,  ///< Protected: Only the Supervisor/System (Pinned)
-    GOOSE_CELL_PINNED        ///< Explicitly pinned: Never evicted from RTC RAM
+    GOOSE_CELL_PINNED,       ///< Explicitly pinned: Never evicted from RTC RAM
+    GOOSE_CELL_FIELD_PROXY   ///< Recursive: Projects a sub-field into a single cell
 } goose_cell_type_t;
 
 /**

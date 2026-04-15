@@ -39,3 +39,9 @@ To prevent "Loom Bloat" (Resource Exhaustion attacks), the substrate implements 
 - **Shadow Recycling:** When the 256-slot RAM Loom reaches capacity, the allocator uses a round-robin policy to find and recycle an unpinned shadow node.
 - **Registry Coherency:** G.O.O.N.I.E.S. is automatically updated during eviction to ensure the name-to-coord mapping remains consistent.
 - **Purpose:** Protects the system from being paralyzed by an attacker resolving thousands of unique shadow nodes to overfill the RTC RAM Hearth.
+
+## 6. Mesh Integrity (Aura Shield)
+Atmospheric discovery and swarming are protected from external interference.
+- **Hashed Discovery:** `ARC_OP_QUERY` uses name-hashes to prevent passive observers from mapping the mesh's physical topology.
+- **Discovery Throttling:** Nodes rate-limit incoming queries to 10Hz, preventing Mesh Denial-of-Service (DoS) attacks.
+- **Inertial Hysteresis:** Swarm consensus requires an accumulated weight (+/- 10) before flipping local posture, preventing "Consensus Flickering" from malicious or failing nodes.

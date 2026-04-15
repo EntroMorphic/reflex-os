@@ -15,8 +15,18 @@ A high-performance spatial memory model residing in RTC RAM. It utilizes **Latti
 The "Loom DNS." It provides a hierarchical naming service (`agency.led.intent`) for geometric coordinates. 
 
 - **Shadow Paging:** The G.O.O.N.I.E.S. resolver autonomously "pages in" cells from Flash to RTC RAM on-demand.
-- **Loom Eviction:** A round-robin recycling policy that ensures the 256-slot RAM Loom never overflows. Unpinned shadow nodes are evicted to make room for new discoveries, enabling 100% MMIO coverage (9,500+ nodes) within the tight 16KB LP RAM hearth.
-- **Late Binding:** Allows logic to resolve physical hardware by name, ensuring software integrity even when pinouts change.
+- **Loom Eviction:** A round-robin recycling policy that ensures the 256-slot RAM Loom never overflows. Unpinned shadow nodes are evicted to make room for new discoveries.
+
+### 4. Atmospheric Mesh (Global G.O.O.N.I.E.S.)
+Reflex OS extends the Tapestry across physical devices via ESP-NOW.
+- **Peer Scoping:** Names prefixed with `peer.` trigger mesh-wide discovery.
+- **Ghost Solidification:** Local "Ghost Cells" represent remote hardware; state changes are Arced across the mesh.
+- **Postural Consensus:** Swarms coordinate via "Geometric Hive Mind" logic, using probabilistic ternary summation to reach mesh-wide agreement on system state.
+
+### 5. Hierarchical Holons (Recursive Fields)
+Manifolds can be nested, allowing complex systems to be treated as single ternary cells.
+- **Asynchronous Pulse:** Parent fields sample the health of children without temporal dependency, preserving real-time deterministic timing.
+- **Encapsulation:** Subsystems (e.g., `agency.motor`) project a single "Success Trit" to their parents.
 
 ### 3. The Supervisor (Harmonic Regulation)
 An autonomic "immune system" that monitors the Loom for disequilibrium (e.g., a blocked intent route) and exercises meta-agency to restore signal flow.

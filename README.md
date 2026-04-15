@@ -1,14 +1,14 @@
-# Reflex OS v2.3 (The All-Seeing Atlas)
+# Reflex OS v2.4 (The Apex Mesh)
 
 Reflex OS is a binary-hosted ternary operating environment for the Seeed Studio XIAO ESP32C6. It reinterprets physical hardware as a coherent **Geometric Tapestry**, replacing traditional binary software abstractions with a software-defined ternary execution substrate known as **GOOSE** (Geometric Ontologic Operating System Execution).
 
-## The Soft Silicon Stack
+## The Distributed Silicon Stack
 
-- **The Loom (Ternary Fabric):** High-performance spatial memory in RTC RAM utilizing **Lattice Hashing** for $O(1)$ coordinate-based cell lookups.
-- **G.O.O.N.I.E.S. & Shadow Atlas:** The *Geometric Object Oriented Name Identification Execution Service*. Features an exhaustive **Shadow Atlas** in Flash that provides 100% MMIO coverage through "Just-in-Time" paging.
-- **The Sanctuary Guard:** Substrate-level security that prevents unauthorized MMIO mapping and protects against **Shadow Hijacking**.
-- **Harmonic Supervisor:** An autonomic "immune system" that monitors the Loom for disequilibrium and re-levels system posture via meta-agency.
-- **Atmospheric Arcing:** Secure, Aura-checked ESP-NOW state propagation for inter-system geometric communication.
+- **Global G.O.O.N.I.E.S.:** Hardware is addressable by name across physical devices. Peer resources (e.g., `peer.worker.agency.led`) are paged into the local Loom via secure Atmospheric Discovery.
+- **Recursive Holons:** Hierarchical manifolds allow complex systems to be treated as single ternary cells, enabling recursive regulation without losing real-time determinism.
+- **Postural Swarms:** Multi-node coordination via a "Geometric Hive Mind." Swarms reach consensus using probabilistic ternary summation and inertial state flips.
+- **The All-Seeing Atlas:** Exhaustive MMIO coverage (9,531 atomic intents) using **Shadow Paging** and **Loom Eviction** to maintain a fixed 16KB LP RAM footprint.
+- **The Sanctuary Guard:** Substrate-level security including MMIO isolation, Authority Sentries, and the **Aura Shield** for secure inter-system arcing.
 
 ## Hardware
 
