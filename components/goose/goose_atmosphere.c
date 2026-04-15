@@ -116,8 +116,14 @@ int32_t swarm_accumulator = 0;
                              * from cooperating peers to flip posture. */
 
 /* Replay cache: reject packets whose (src_mac, nonce) pair has been seen
- * recently. 16-slot direct-mapped ring indexed by nonce low bits. */
-#define REPLAY_CACHE_SLOTS 16
+ * within REPLAY_WINDOW_US. 64-slot direct-mapped ring hashed over nonce
+ * and the trailing MAC bytes so two peers with colliding nonce low bits
+ * land in different slots. Entries older than the window are treated as
+ * empty and overwritten; entries within the window match only on exact
+ * (mac, nonce) equality. */
+#define REPLAY_CACHE_SLOTS 64
+#define REPLAY_WINDOW_US   (5 * 1000 * 1000ULL)  /* 5 seconds */
+
 typedef struct {
     uint8_t mac[6];
     uint32_t nonce;
@@ -125,12 +131,21 @@ typedef struct {
 } replay_entry_t;
 static replay_entry_t replay_cache[REPLAY_CACHE_SLOTS];
 
+static inline uint32_t replay_slot_index(uint32_t nonce, const uint8_t *mac) {
+    /* Blend nonce bits with the last two MAC bytes (least likely to be
+     * shared across peers on a local mesh) so cross-peer slot collisions
+     * are rare even when nonce low bits align. */
+    uint32_t h = nonce ^ ((uint32_t)mac[4] << 16) ^ ((uint32_t)mac[5] << 8);
+    return h & (REPLAY_CACHE_SLOTS - 1);
+}
+
 static bool replay_seen_or_record(const uint8_t *src_mac, uint32_t nonce, uint64_t now_us) {
-    uint32_t slot = nonce & (REPLAY_CACHE_SLOTS - 1);
-    replay_entry_t *e = &replay_cache[slot];
-    if (e->nonce == nonce && memcmp(e->mac, src_mac, 6) == 0) {
-        return true;  /* duplicate */
+    replay_entry_t *e = &replay_cache[replay_slot_index(nonce, src_mac)];
+    bool within_window = (e->last_us != 0) && (now_us - e->last_us < REPLAY_WINDOW_US);
+    if (within_window && e->nonce == nonce && memcmp(e->mac, src_mac, 6) == 0) {
+        return true;  /* duplicate inside the guard window */
     }
+    /* Stale or empty slot, or a different (mac, nonce): overwrite. */
     memcpy(e->mac, src_mac, 6);
     e->nonce = nonce;
     e->last_us = now_us;
