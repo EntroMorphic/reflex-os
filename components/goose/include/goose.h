@@ -117,6 +117,14 @@ typedef struct {
 /**
  * @brief GOOSE Transition
  * Defines a rule for state evolution over time (Rhythm).
+ *
+ * @note evolution_fn must not call goose_fabric_alloc_cell or any other
+ * function that acquires loom_authority. The pulse path already holds
+ * loom_authority when invoking evolution_fn, and try_lock is
+ * non-recursive, so a nested acquisition attempt would self-deadlock
+ * (timeout path) or return NULL. Cell allocation from inside a pulse
+ * is a design smell anyway — use the supervisor fabrication path
+ * (goose_supervisor_weave_sync) for autonomic route creation.
  */
 typedef struct {
     char name[16];
@@ -125,7 +133,7 @@ typedef struct {
     void *context;
     uint32_t interval_ms;
     uint64_t last_run_us;
-    
+
     // Cache
     goose_cell_t *cached_target;
     uint32_t cached_version;

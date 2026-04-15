@@ -131,12 +131,15 @@ static void goose_loom_unlock(void) { __atomic_clear(&loom_authority, __ATOMIC_R
 
 esp_err_t goose_fabric_init(void) {
     lattice_stable = false; goonies_count = 0;
+    /* Clear loom_authority unconditionally. On cold boot it starts at 0
+     * anyway; on warm boot (wake from deep sleep), the RTC-retained value
+     * could still be 1 from a pre-sleep holder that no longer exists. */
+    loom_authority = 0;
     bool cold_boot = (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED)
                   || (fabric_magic != GOOSE_FABRIC_MAGIC);
     if (cold_boot) {
         fabric_cell_count = 0;
         fabric_version = 0;
-        loom_authority = 0;
         for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
         fabric_version = 1;
         fabric_magic = GOOSE_FABRIC_MAGIC;
@@ -171,9 +174,20 @@ static portMUX_TYPE agency_mux = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t last_eviction_idx = 0;
 
 goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
+    /* Serialize against the supervisor pulse. Lock order is
+     * loom_authority -> fabric_mux. The pulse path holds loom_authority
+     * for the duration of internal_process_transitions and never takes
+     * fabric_mux, so allocation and pulse are now strictly serialized
+     * without any cycle. On contention (pulse in progress), alloc fails
+     * fast and the caller can retry. Evolution callbacks must not call
+     * alloc_cell from inside a pulse — doing so would deadlock here
+     * because try_lock is non-recursive; this constraint is documented
+     * on goose_transition_t in goose.h. */
+    if (!goose_loom_try_lock(NULL)) return NULL;
     taskENTER_CRITICAL(&fabric_mux);
     if (goose_fabric_get_cell_by_coord(coord) != NULL) {
         taskEXIT_CRITICAL(&fabric_mux);
+        goose_loom_unlock();
         /* Coord is already occupied. On warm boot (wake from deep sleep),
          * fabric_cells[] persists in RTC but goonies_registry is regular
          * BSS and gets zeroed. The atlas re-weave would then leave these
@@ -197,14 +211,17 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
                 idx = target; last_eviction_idx = (target + 1) % GOOSE_FABRIC_MAX_CELLS; found = true; break;
             }
         }
-        if (!found) { taskEXIT_CRITICAL(&fabric_mux); return NULL; }
+        if (!found) { taskEXIT_CRITICAL(&fabric_mux); goose_loom_unlock(); return NULL; }
     }
     goose_cell_t *c = &fabric_cells[idx];
     memset(c, 0, sizeof(goose_cell_t)); c->coord = coord;
     c->type = is_system_weaving ? GOOSE_CELL_PINNED : GOOSE_CELL_VIRTUAL;
     lattice_index[goose_lattice_hash(coord)] = (int16_t)idx;
     if (name) { goonies_register(name, coord, is_system_weaving); }
-    fabric_version++; taskEXIT_CRITICAL(&fabric_mux); return c;
+    fabric_version++;
+    taskEXIT_CRITICAL(&fabric_mux);
+    goose_loom_unlock();
+    return c;
 }
 
 esp_err_t goose_fabric_set_agency(goose_cell_t *cell, uint32_t hardware_addr, goose_cell_type_t type) {
