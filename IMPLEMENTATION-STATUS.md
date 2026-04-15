@@ -106,6 +106,9 @@ Both layers build and have been revalidated on the XIAO ESP32C6 after the audit-
 - **Supervisor routing**: `TSEND` uses the node id stored in the destination register, matching TASM supervisor code and on-device behavior
 - **System reliability**: 10s stability window + boot-loop detection + safe-mode fallback on panic-count threshold
 - **Aura provisioning**: `aura setkey <hex>` persists a 16-byte HMAC key to NVS with boot-time reload
+- **LP core Coherent Heartbeat**: ULP RISC-V LP core runs a 1 Hz counter loop in parallel to HP; `heartbeat` shell command exposes `lp_pulse_count`; HP mirrors `agency.led.intent` into `ulp_lp_led_intent` each supervisor pulse
+- **Hebbian plasticity**: reward-gated co-activation counter per route commits to `learned_orientation` at threshold; pain signal decays counters toward zero
+- **NEURON quorum**: `GOOSE_CELL_NEURON` cells aggregate all sub-field routes via ternary sum-and-majority via `neuron_quorum`
 
 ## Current Developer Flow
 
@@ -123,13 +126,14 @@ Closed in the current remediation sweep:
 - ~~Autonomous Fabrication hardcoded suffix~~: generic last-segment capability matcher in `goose_supervisor_weave_sync` (Phase 2).
 - ~~Replay protection on Atmosphere~~: 16-slot replay cache in `atmosphere_recv_cb` (Phase 1).
 - ~~Aura key material~~: NVS-backed key with `aura setkey <hex>` shell command; compile-time default retained as unprovisioned fallback (Phase 1).
+- ~~"MMU-backed memory" framing~~: README narrowed to "region-protected shared ternary memory" to match `vm/mmu.c` (Phase 4).
+- ~~LP-core "Coherent Heartbeat"~~: ULP enabled (`CONFIG_ULP_COPROC_TYPE_LP_CORE=y`), LP program rewritten to LP-local globals, HP bootstrap via `ulp_lp_core_load_binary`/`ulp_lp_core_run` with 1 Hz LP_TIMER wakeup, `heartbeat` shell command reads `lp_pulse_count` (Phase 5).
 
-Remaining:
+Remaining (honest limits, not regressions):
 
-- **"MMU-backed memory" framing**: `vm/mmu.c` is a region-and-bounds checker, not a translating MMU. Docs narrowed to "region-protected shared ternary memory" in Phase 4. No code change pending.
-- **LP-core "Coherent Heartbeat"**: `components/goose/ulp/lp_pulse.c` addressed in Phase 5 — LP rewritten to ULP-local globals, HP bootstrap added, sync hook in supervisor pulse.
-- **Aura wire size**: HMAC-SHA256 truncated to 32 bits for wire compatibility; collision resistance capped at the birthday bound (~2^16). Future protocol epoch could expand to 64+ bits.
-- **Aura key provisioning**: factory-fresh boards share the compile-time default until an operator runs `aura setkey`. Derive-from-efuse remains a follow-up.
+- **Aura wire size**: HMAC-SHA256 truncated to 32 bits for protocol compatibility; collision resistance capped at the birthday bound (~2^16). Future protocol epoch can bump `GOOSE_ARC_VERSION` and expand the Aura field.
+- **Aura key provisioning**: factory-fresh boards share the compile-time default until an operator runs `aura setkey <hex>`. Derive-from-efuse remains a follow-up.
+- **LP heartbeat does not drive the LED**: the onboard LED is on GPIO 15, a HP-only pin; the C6 LP core can only drive LP I/O (GPIO 0-7). The LP heartbeat is therefore a parallel counter + intent-mirror, not an LED driver. Driving the LED from the LP core would require external wiring to an LP I/O pin.
 
 ## Next Steps
 
