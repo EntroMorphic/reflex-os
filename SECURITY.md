@@ -31,3 +31,11 @@ Hierarchical naming is protected at the root.
 - **Shadow Hijack Check:** The registry performs a mandatory check against the Flash-native **Shadow Atlas** before any registration. This prevents malicious scripts from "squatting" on protected names (like `sys.pmu.*`) before the system has paged them into RAM.
 
 -   **Purpose:** Ensures that the mapping from `agency.led.intent` to physical silicon cannot be intercepted by user scripts.
+
+## 5. Loom Quota & Eviction (Resource Isolation)
+To prevent "Loom Bloat" (Resource Exhaustion attacks), the substrate implements a self-balancing memory policy.
+
+- **Pinned Cells:** Boot-time core nodes (Origins, Primary Agency) are marked as `GOOSE_CELL_PINNED` and can never be evicted.
+- **Shadow Recycling:** When the 256-slot RAM Loom reaches capacity, the allocator uses a round-robin policy to find and recycle an unpinned shadow node.
+- **Registry Coherency:** G.O.O.N.I.E.S. is automatically updated during eviction to ensure the name-to-coord mapping remains consistent.
+- **Purpose:** Protects the system from being paralyzed by an attacker resolving thousands of unique shadow nodes to overfill the RTC RAM Hearth.

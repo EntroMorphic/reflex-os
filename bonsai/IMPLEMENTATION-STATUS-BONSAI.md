@@ -100,17 +100,17 @@ Reflex OS has successfully birthed the **GOOSE** paradigm (Geometric Ontologic O
 -   **Findings:** The Tapestry now supports hierarchical naming (e.g., `agency.led.intent`) via **G.O.O.N.I.E.S.** (Geometric Object Oriented Name Identification Execution Service). 
 -   **Discovery:** **"Immutable Intent"**. System-critical zones (`sys`, `agency`) are now immutable. The **Sanctuary Guard** prevents non-system cells from mapping to critical MMIO regions (PMU, EFUSE). The **Authority Sentry** prevents spinlock deadlocks via cycle-accurate watchdogs.
 
-### Phase 22: The All-Seeing Atlas (Shadow Paging)
+### Phase 22: The All-Seeing Atlas (Shadow Paging & Eviction)
 -   **Status:** Done
--   **Findings:** Achieved 100% MMIO parity by implementing **Shadow Paging**. The machine can now project any of its 2000+ registers into the Loom on-demand.
--   **Discovery:** **"Exhaustive Revelation"**. The machine is no longer a black box. By moving the manifest to Flash and paging it into the 16KB RTC RAM hearth, we've enabled total territory coverage with $O(1)$ lookup performance.
+-   **Findings:** Achieved 100% MMIO parity by implementing **Shadow Paging** and **Loom Eviction**. The machine can now project any of its 9,531 registers into the Loom on-demand while maintaining a constant 256-cell RAM footprint.
+-   **Discovery:** **"Infinite Machine, Finite Hearth"**. The machine is no longer a black box. By automating the SVD scraper and implementing round-robin eviction, we've enabled total territory coverage with sub-millisecond discovery speed.
 
 ## Current State of the "Tapestry" (v2.3 Final)
 -   **Atmosphere:** ESP-NOW Arcing (Aura-checked).
--   **Memory:** Spatial Paging + Compact Cells + Lattice Index.
--   **Discovery:** G.O.O.N.I.E.S. + **Shadow Atlas** (Flash-Native).
--   **Integrity:** Sanctuary Guard + Authority Sentry + **Shadow Hijack Check**.
--   **Speed:** Silicon ETM (40ns) + Lattice LSH ($O(1)$).
+-   **Memory:** Spatial Paging + Compact Cells + Loom Eviction.
+-   **Discovery:** G.O.O.N.I.E.S. + **All-Seeing Atlas v2.0** (9,531 nodes).
+-   **Integrity:** Sanctuary Guard + Authority Sentry + Shadow Hijack Check.
+-   **Speed:** Silicon ETM (40ns) + Binary Search Shadow Index ($O(log N)$).
 
 ## What Has Emerged (The Final Thesis)
 Reflex OS v2.2 proves that the Geometric Field is not only possible but **Highly Efficient**. By leveraging silicon-native structures (ETM, Aligned Atomics, Lattice Hashing), we have created an OS that is faster than its own clock cycles. The Mothership is now shored up and ready for expansion.

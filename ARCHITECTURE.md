@@ -14,8 +14,8 @@ A high-performance spatial memory model residing in RTC RAM. It utilizes **Latti
 ### 2. G.O.O.N.I.E.S. & Shadow Paging (The All-Seeing Atlas)
 The "Loom DNS." It provides a hierarchical naming service (`agency.led.intent`) for geometric coordinates. 
 
-- **Shadow Atlas:** An exhaustive manifest of 1000+ hardware registers residing in Flash.
-- **Shadow Paging:** The G.O.O.N.I.E.S. resolver autonomously "pages in" cells from Flash to RTC RAM on-demand, enabling 100% MMIO coverage within the tight 16KB LP RAM hearth.
+- **Shadow Paging:** The G.O.O.N.I.E.S. resolver autonomously "pages in" cells from Flash to RTC RAM on-demand.
+- **Loom Eviction:** A round-robin recycling policy that ensures the 256-slot RAM Loom never overflows. Unpinned shadow nodes are evicted to make room for new discoveries, enabling 100% MMIO coverage (9,500+ nodes) within the tight 16KB LP RAM hearth.
 - **Late Binding:** Allows logic to resolve physical hardware by name, ensuring software integrity even when pinouts change.
 
 ### 3. The Supervisor (Harmonic Regulation)

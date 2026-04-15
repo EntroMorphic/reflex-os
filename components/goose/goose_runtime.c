@@ -55,12 +55,12 @@ esp_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_syst
     if (!name || strlen(name) < 3) return ESP_ERR_INVALID_ARG;
 
     // Red-Team Remediation: Shadow Check
-    extern esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type);
+    extern esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, uint32_t *out_mask, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type);
     
-    uint32_t s_addr;
+    uint32_t s_addr, s_mask;
     reflex_tryte9_t s_coord;
     goose_cell_type_t s_type;
-    bool in_shadow = (goose_shadow_resolve(name, &s_addr, &s_coord, &s_type) == ESP_OK);
+    bool in_shadow = (goose_shadow_resolve(name, &s_addr, &s_mask, &s_coord, &s_type) == ESP_OK);
 
     bool is_protected = (strncmp(name, "sys.", 4) == 0 || strncmp(name, "agency.", 7) == 0 || in_shadow);
     
@@ -102,15 +102,16 @@ goose_cell_t* goonies_resolve_cell(const char *name) {
         return goose_fabric_get_cell_by_coord(coord);
     }
 
-    extern esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type);
+    extern esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, uint32_t *out_mask, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type);
     
-    uint32_t addr;
+    uint32_t addr, mask;
     goose_cell_type_t type;
-    if (goose_shadow_resolve(name, &addr, &coord, &type) == ESP_OK) {
+    if (goose_shadow_resolve(name, &addr, &mask, &coord, &type) == ESP_OK) {
         ESP_LOGI("GOONIES", "Shadow Hit! Paging in node [%s]", name);
         goose_cell_t *c = goose_fabric_alloc_cell(name, coord, true); 
         if (c) {
             goose_fabric_set_agency(c, addr, type);
+            c->bit_mask = mask;
             return c;
         }
     }
@@ -165,6 +166,10 @@ esp_err_t goose_fabric_init(void) {
         for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
         goose_fabric_alloc_cell("sys.origin", goose_make_coord(0, 0, 0), true);
         goose_fabric_alloc_cell("agency.led.intent", goose_make_coord(0, 0, 1), true);
+        
+        // Pin boot-time entries
+        goose_fabric_get_cell("sys.origin")->type = GOOSE_CELL_PINNED;
+        goose_fabric_get_cell("agency.led.intent")->type = GOOSE_CELL_PINNED;
         fabric_version = 1;
     } else {
         ESP_LOGI(TAG, "Wake-up detected. Secure Loom persistence verified.");
@@ -196,14 +201,69 @@ goose_cell_t* goose_fabric_get_cell(const char *name) {
 
 static portMUX_TYPE fabric_mux = portMUX_INITIALIZER_UNLOCKED;
 
+static uint32_t last_eviction_idx = 0;
+
+static esp_err_t goonies_unregister(const char *name) {
+    for (uint32_t i = 0; i < goonies_count; i++) {
+        if (strcmp(goonies_registry[i].name, name) == 0) {
+            // Swap with last
+            goonies_registry[i] = goonies_registry[--goonies_count];
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
 goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
     taskENTER_CRITICAL(&fabric_mux);
-    if (goose_fabric_get_cell_by_coord(coord) != NULL) { taskEXIT_CRITICAL(&fabric_mux); return NULL; }
-    if (fabric_cell_count >= GOOSE_FABRIC_MAX_CELLS) { taskEXIT_CRITICAL(&fabric_mux); return NULL; }
-    uint32_t idx = fabric_cell_count++;
+    
+    if (goose_fabric_get_cell_by_coord(coord) != NULL) {
+        taskEXIT_CRITICAL(&fabric_mux);
+        return NULL;
+    }
+    
+    uint32_t idx = 0;
+    if (fabric_cell_count < GOOSE_FABRIC_MAX_CELLS) {
+        idx = fabric_cell_count++;
+    } else {
+        // Red-Team Remediation: Loom Eviction
+        // Find an unpinned node to recycle.
+        bool found = false;
+        for (int i = 0; i < GOOSE_FABRIC_MAX_CELLS; i++) {
+            uint32_t target = (last_eviction_idx + i) % GOOSE_FABRIC_MAX_CELLS;
+            if (fabric_cells[target].type != GOOSE_CELL_PINNED && 
+                fabric_cells[target].type != GOOSE_CELL_SYSTEM_ONLY) {
+                
+                // Evict node from G.O.O.N.I.E.S. if it has a name
+                // Note: We'd need to store the name in the cell to do this cleanly,
+                // but for now we'll search by coord.
+                for (uint32_t g = 0; g < goonies_count; g++) {
+                    if (goose_coord_equal(goonies_registry[g].coord, fabric_cells[target].coord)) {
+                        goonies_registry[g] = goonies_registry[--goonies_count];
+                        break;
+                    }
+                }
+
+                idx = target;
+                last_eviction_idx = (target + 1) % GOOSE_FABRIC_MAX_CELLS;
+                found = true;
+                ESP_LOGW("GOOSE", "Loom Eviction: Slot [%ld] recycled for [%s]", idx, name ? name : "anon");
+                break;
+            }
+        }
+        
+        if (!found) {
+            taskEXIT_CRITICAL(&fabric_mux);
+            ESP_LOGE("GOOSE", "Loom Saturation! No evictable nodes found.");
+            return NULL;
+        }
+    }
+
     goose_cell_t *c = &fabric_cells[idx];
     memset(c, 0, sizeof(goose_cell_t));
     c->coord = coord;
+    c->type = is_system_weaving ? GOOSE_CELL_PINNED : GOOSE_CELL_VIRTUAL;
+    
     lattice_index[goose_lattice_hash(coord)] = (int16_t)idx;
     if (name) { goonies_register(name, coord, is_system_weaving); }
     fabric_version++;
