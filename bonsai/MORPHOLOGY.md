@@ -324,6 +324,31 @@ The allocation of disparate execution frequencies to different manifolds. Tiered
 ### Definition
 The process of initializing the operating system by weaving a sequence of geometric fragments into the Loom. The system "starts" when the global posture cell reaches equilibrium.
 
+## 14. Geometric Arcing (The Atmosphere)
+
+### Definition
+A transition where state jumps the gap between two disparate Looms (nodes) via an asynchronous radio bridge.
+
+### Ternary Meaning
+- **-1 (Discharge):** Arcing is forbidden or noisy.
+- **0 (Potential):** Arcing is latent; gap is not yet jumped.
+- **+1 (Conduction):** State is arcing across the atmosphere.
+
+## 15. Spatial Paging (The Virtual Manifold)
+
+### Definition
+The virtualization of the Loom where inactive regions are "Hibernated" to Flash to save RTC RAM. It separates the **Identity** of a cell (Metadata) from its **Activity** (Live State).
+
+## 16. Trans-Core Coherence (The Spinlock)
+
+### Definition
+A geometric authority mechanism (e.g. Ternary Peterson Lock) that ensures the HP and LP cores do not "Smudge" the Loom during concurrent pulses.
+
+## 17. Geometric Flow (DMA Projection)
+
+### Definition
+A high-speed projection of a route where the OS routes the **Authority to Flow** binary data blocks, rather than routing individual trits.
+
 ## Relations Between Terms
 
 The current working relation is:

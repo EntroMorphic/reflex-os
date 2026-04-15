@@ -20,7 +20,9 @@
 typedef enum {
     GOOSE_COUPLING_HARDWARE, ///< Silicon-level routing (Shadow Agency: GPIO Matrix)
     GOOSE_COUPLING_SOFTWARE, ///< CPU-polled state propagation (Ternary Product Rule)
-    GOOSE_COUPLING_ASYNC     ///< Interrupt-driven evolution
+    GOOSE_COUPLING_ASYNC,    ///< Interrupt-driven evolution
+    GOOSE_COUPLING_RADIO,    ///< Geometric Arcing: ESP-NOW state propagation
+    GOOSE_COUPLING_DMA       ///< Geometric Flow: Authority-led binary data transfer
 } goose_coupling_t;
 
 /**
@@ -28,11 +30,12 @@ typedef enum {
  * Defines the ontological role of a state unit.
  */
 typedef enum {
-    GOOSE_CELL_VIRTUAL,      ///< Pure manifold state
-    GOOSE_CELL_HARDWARE_IN,  ///< Perception: Physical Input (Observer)
-    GOOSE_CELL_HARDWARE_OUT, ///< Agency: Physical Output (Actor)
-    GOOSE_CELL_INTENT,       ///< Direction: Logical Goal (User/Service controlled)
-    GOOSE_CELL_SYSTEM_ONLY   ///< Protected: Only the Supervisor/System can access
+    GOOSE_CELL_VIRTUAL,      ///< Pure manifold state (Swappable)
+    GOOSE_CELL_HARDWARE_IN,  ///< Perception: Physical Input (Pinned)
+    GOOSE_CELL_HARDWARE_OUT, ///< Agency: Physical Output (Pinned)
+    GOOSE_CELL_INTENT,       ///< Direction: Logical Goal (Swappable)
+    GOOSE_CELL_SYSTEM_ONLY,  ///< Protected: Only the Supervisor/System (Pinned)
+    GOOSE_CELL_PINNED        ///< Explicitly pinned: Never evicted from RTC RAM
 } goose_cell_type_t;
 
 /**
@@ -41,6 +44,7 @@ typedef enum {
  */
 typedef enum {
     GOOSE_RHYTHM_AUTONOMIC = 1,    ///< 1Hz: Persistent/Sleep-safe regulation (LP Core)
+    GOOSE_RHYTHM_DISTRIBUTED = 5,  ///< 5Hz: Geometric Arcing (Radio Pulse)
     GOOSE_RHYTHM_HARMONIC  = 10,   ///< 10Hz: General system posture (Supervisor)
     GOOSE_RHYTHM_REACTIVE  = 100,  ///< 100Hz: High-speed reactive agency
     GOOSE_RHYTHM_REALTIME  = 1000  ///< 1000Hz: Urgent hardware agency
@@ -48,26 +52,33 @@ typedef enum {
 
 #pragma pack(push, 1)
 /**
- * @brief GOOSE Cell
- * The atomic unit of state in the machine.
- * Isomorphic to the binary layout used by the LP core pulse.
+ * @brief Compact GOOSE Cell
+ * Optimized for spatial footprint in RTC RAM.
+ * Identity (Name) is moved to the Flash-based Spatial Catalog.
  */
 typedef struct {
-    char name[16];           ///< Semantic name for Tapestry identification
-    reflex_tryte9_t coord;   ///< Geometric Coordinate (Field, Region, Cell)
+    reflex_tryte9_t coord;   ///< Geometric Primary Key
     int8_t state;            ///< Current ternary state (-1, 0, +1)
     int8_t type;             ///< Role of the cell (goose_cell_type_t)
     uint32_t hardware_addr;  ///< Physical mapping (GPIO num or MMIO addr)
     uint32_t bit_mask;       ///< Mask for multi-bit register mappings
-} goose_cell_t;
+} __attribute__((aligned(4))) goose_cell_t;
 #pragma pack(pop)
+
+typedef struct {
+    uint64_t total_pulses;
+    uint32_t last_pulse_cycles;
+    uint32_t max_pulse_cycles;
+    uint32_t tlb_miss_count;
+    uint32_t lock_contention_cycles;
+} goose_stats_t;
 
 /**
  * @brief GOOSE Region
- * A collection of related cells forming a functional unit (e.g. a GPIO block).
+ * A collection of related cells forming a functional unit.
  */
 typedef struct {
-    char name[16];
+    reflex_tryte9_t base_coord;
     goose_cell_t *cells;
     size_t cell_count;
 } goose_region_t;
@@ -75,15 +86,21 @@ typedef struct {
 /**
  * @brief GOOSE Route
  * A persistent structural orientation between two cells.
- * Source -> Orientation -> Sink.
+ * Uses Geometric Coordinates to survive Spatial Paging.
  */
 typedef struct {
     char name[16];
-    goose_cell_t *source;
-    goose_cell_t *sink;
+    reflex_tryte9_t source_coord;
+    reflex_tryte9_t sink_coord;
     reflex_trit_t orientation;  ///< Static orientation (Pass, Block, Invert)
-    goose_cell_t *control;      ///< Meta-Agency: Dynamic orientation overriding static
-    goose_coupling_t coupling;  ///< Manifestation mode (Hardware/Software)
+    reflex_tryte9_t control_coord; ///< Meta-Agency: Dynamic orientation
+    goose_coupling_t coupling;  ///< Manifestation mode (Hardware/Software/Radio)
+
+    // Geometric TLB (Spatial Cache)
+    goose_cell_t *cached_source;
+    goose_cell_t *cached_sink;
+    goose_cell_t *cached_control;
+    uint32_t cached_version;
 } goose_route_t;
 
 /**
@@ -92,11 +109,15 @@ typedef struct {
  */
 typedef struct {
     char name[16];
-    goose_cell_t *target;
+    reflex_tryte9_t target_coord;
     reflex_trit_t (*evolution_fn)(void *context);
     void *context;
     uint32_t interval_ms;
     uint64_t last_run_us;
+    
+    // Cache
+    goose_cell_t *cached_target;
+    uint32_t cached_version;
 } goose_transition_t;
 
 /**
@@ -113,7 +134,39 @@ typedef struct {
     goose_transition_t *transitions;
     size_t transition_count;
     goose_rhythm_t rhythm;       ///< Assigned tiered rhythm
+    goose_stats_t stats;         ///< Performance instrumentation
 } goose_field_t;
+
+// --- Atmosphere API (Geometric Arcing) ---
+
+/**
+ * @brief Initialize the ESP-NOW substrate for Geometric Arcing.
+ */
+esp_err_t goose_atmosphere_init(void);
+
+/**
+ * @brief Process atmospheric arcing (TX/RX of geometric state).
+ */
+esp_err_t goose_atmosphere_process(void);
+
+// --- Stats API (Instrumentation) ---
+
+/**
+ * @brief Get the current stats for a specific field.
+ */
+goose_stats_t goose_field_get_stats(goose_field_t *field);
+
+// --- DMA API (Geometric Flow) ---
+
+/**
+ * @brief Initialize the GDMA substrate.
+ */
+esp_err_t goose_dma_init(void);
+
+/**
+ * @brief Manifest a geometric DMA route (Authority-led flow).
+ */
+esp_err_t goose_dma_apply_route(goose_route_t *route);
 
 // --- Substrate API ---
 
@@ -153,6 +206,11 @@ goose_cell_t* goose_fabric_get_cell(const char *name);
  * @brief Find a cell in the Tapestry by its 9-trit geometric coordinate.
  */
 goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord);
+
+/**
+ * @brief Find a radio route that expects a specific source coordinate.
+ */
+goose_route_t* goose_fabric_find_radio_route_by_source_coord(reflex_tryte9_t coord);
 
 /**
  * @brief Allocate a new spatial unit in the LP Loom.

@@ -120,6 +120,53 @@ void app_main(void)
     if (goose_atlas_manifest_weave() != ESP_OK) {
         REFLEX_LOGE(REFLEX_BOOT_TAG, "goose atlas weave failed");
     }
+
+    // Phase 15: Atmospheric Arcing (Inter-System Tapestry)
+    if (goose_atmosphere_init() == ESP_OK) {
+        /**
+         * Demo: The Blinky Arc
+         * Node A (Source): Arcs state of 'led_intent' to Remote Coordinate (-1, 0, 1)
+         * Node B (Sink):   Weaves a Lawful Route from (-1, 0, 1) to its own LED.
+         * For this proof-of-concept, we weave BOTH routes on this node (Self-Arc).
+         */
+        
+        // 1. Create a Remote Field for arcing
+        static goose_region_t remote_region;
+        static goose_route_t arc_out_route;
+        static goose_route_t arc_in_route;
+        static goose_field_t atmosphere_field;
+        
+        goose_cell_t *local_intent = goose_fabric_get_cell("led_intent");
+        
+        // The Atmospheric Ghost Coordinate
+        reflex_tryte9_t ghost_coord = goose_make_coord(-1, 0, 1);
+        goose_cell_t *ghost_cell = goose_fabric_alloc_cell("ghost_arc", ghost_coord);
+
+        if (local_intent && ghost_cell) {
+            // ARC OUT: Local Intent -> RADIO -> Ghost
+            snprintf(arc_out_route.name, 16, "arc_out");
+            arc_out_route.source = local_intent;
+            arc_out_route.sink = ghost_cell;
+            arc_out_route.orientation = 1;
+            arc_out_route.coupling = GOOSE_COUPLING_RADIO;
+
+            // ARC IN: Ghost -> SOFTWARE -> Local LED (Physical Pin 15)
+            // Note: In a real multi-node setup, this route only exists on the receiver.
+            snprintf(arc_in_route.name, 16, "arc_in");
+            arc_in_route.source = ghost_cell;
+            arc_in_route.sink = goose_fabric_get_cell("led_0"); // Atlas-woven cell for GPIO 15
+            arc_in_route.orientation = 1;
+            arc_in_route.coupling = GOOSE_COUPLING_SOFTWARE;
+
+            atmosphere_field.routes = (goose_route_t[]){arc_out_route, arc_in_route};
+            atmosphere_field.route_count = 2;
+            atmosphere_field.rhythm = GOOSE_RHYTHM_DISTRIBUTED;
+            snprintf(atmosphere_field.name, 16, "atmosphere");
+
+            goose_field_start_pulse(&atmosphere_field);
+            REFLEX_LOGI(REFLEX_BOOT_TAG, "Geometric Arcing active (Self-Arc Loopback)");
+        }
+    }
     
     xTaskCreate(goose_supervisor_task, "goose-super", 4096, NULL, 20, NULL);
     

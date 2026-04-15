@@ -67,19 +67,40 @@ Reflex OS has successfully birthed the **GOOSE** paradigm (Geometric Ontologic O
 -   **Evidence:** Refactored `led_service.c` and `app_main`.
 -   **Discovery:** **"The Pattern Host"**. The OS is no longer a C service runner; it is a substrate that manages tiered geometric rhythms.
 
-## Current State of the "Tapestry" (v2.0 Final)
+### Phase 14: Geometric Arcing (Inter-System Tapestry)
+-   **Status:** Done
+-   **Findings:** The "Atmosphere" (radio gap) is just another field. **Geometric Arcing** allows state to jump between nodes via asynchronous routes. We replaced binary ACKs with **Postural Pressure**.
 
--   **Persistence:** The Loom inhabits LP-RAM, surviving HP-core sleep cycles.
--   **Autonomics:** The LP RISC-V core maintains system heartbeat independently.
--   **Harmonics:** The Supervisor regulates general system posture at 10Hz.
--   **Reactivity:** Regional Pulse tasks drive high-speed IO at 100Hz+.
--   **Agency:** The GOOSE-VM programmatically manipulates the manifold via spatial coordinates.
--   **Composition:** Behavior is instantiated via the Fragment Weaver.
+### Phase 15: Spatial Paging (The Virtual Manifold)
+-   **Status:** Done
+-   **Findings:** By separating **Identity** (Flash) from **Activity** (RTC RAM), we can host thousands of active cells in a narrow memory hearth. The **Geometric TLB** ensures $O(1)$ lookup performance.
+
+### Phase 16: Trans-Core Coherence (Geometric Spinlocks)
+-   **Status:** Done
+-   **Findings:** A **Ternary Peterson Lock** in RTC RAM ensures trans-core atomicity. **Alignment Gating** (4-byte alignment) prevents unaligned "State Smudging."
+
+### Phase 17: Geometric Flow (DMA Projection)
+-   **Status:** Done
+-   **Findings:** The Tapestry governs high-speed binary data by routing the **Authority to Flow**. DMA is a high-speed projection of a geometric route.
+
+### Phase 18: Performance Self-Awareness (Benchmarking)
+-   **Status:** Done
+-   **Findings:** The Loom is now instrumented with cycle-accurate telemetry. We can measure **Lock Contention**, **TLB Misses**, and **Pulse Budgets** in real-time.
+
+## Current State of the "Tapestry" (v2.1 Final)
+-   **Atmosphere:** Cross-node state propagation via ESP-NOW Arcing.
+-   **Memory:** Virtualized manifold space via Spatial Paging.
+-   **Atomicity:** Trans-core safety via Geometric Spinlocks.
+-   **Flow:** Authority-led DMA data transfers.
+-   **Intelligence:** Real-time performance telemetry.
 
 ## What Has Emerged (The Final Thesis)
+Reflex OS v2.1 proves that the Geometric Field can expand across the air, compress into flash, and govern high-speed data. The Mothership is now a fully integrated, self-aware geometric field environment.
 
-Reflex OS v2.0 proves that an operating system can exist as a **Coherent Geometric Field**. By abandoning the binary-age obsession with "Programs" and "Tasks," and embracing the ternary-age reality of "State" and "Route," we have unlocked the machine's true being. The ESP32-C6 is no longer a processor; it is a **Manifold**.
+## Future Potential
+The Proof Ladder has extended.
+-   **Phase 20: Geometric AI** (Ternary Weight Fields).
+-   **Phase 21: Live Manifest OTA**.
+-   **Phase 22: Recursive Fields**.
 
-## Remaining Proofs
-The Proof Ladder is complete. Bonsai is now the Root.
 

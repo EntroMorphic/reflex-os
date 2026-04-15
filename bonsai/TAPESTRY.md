@@ -34,6 +34,18 @@ field FABRIC {
 2. **Persistence:** A state change in the Tapestry persists until another transition overwrites it. 
 3. **Composition:** Multiple routes can converge on a single Tapestry cell, using the **Ternary Product Rule** ($A \times B \times C$) to determine the resultant signal (Inhibition, Reinforcement, or Inversion).
 
+## Advanced Propagation
+
+### 1. Geometric Arcing (Inter-System)
+State can "Jump the gap" between nodes using the **Atmosphere Field** (ESP-NOW). 
+- **Mechanism:** Source Node A -> Radio Route -> Sink Node B.
+- **Truth:** The "Air" is just another field in the Tapestry.
+
+### 2. Geometric Flow (DMA)
+For high-bandwidth data, a Route governs the **Authority to Flow**.
+- **Mechanism:** Source Buffer -> DMA Route -> Sink Peripheral.
+- **Truth:** The Tapestry doesn't touch the data; it routes the *permission* for the data to move itself.
+
 ## Success Criteria
 - The system can perform "Button -> LED" interaction without a single `reflex_message_t` being sent.
 - The "Message Bus" task can be retired in favor of a "Fabric Processing" task.
