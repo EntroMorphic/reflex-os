@@ -37,7 +37,8 @@ typedef enum {
     GOOSE_CELL_INTENT,       ///< Direction: Logical Goal (Swappable)
     GOOSE_CELL_SYSTEM_ONLY,  ///< Protected: Only the Supervisor/System (Pinned)
     GOOSE_CELL_PINNED,       ///< Explicitly pinned: Never evicted from RTC RAM
-    GOOSE_CELL_FIELD_PROXY   ///< Recursive: Projects a sub-field into a single cell
+    GOOSE_CELL_FIELD_PROXY,  ///< Recursive: Projects a sub-field into a single cell
+    GOOSE_CELL_NEURON        ///< Neural: Aggregates multiple routes via Quorum
 } goose_cell_type_t;
 
 /**
@@ -97,7 +98,8 @@ typedef struct {
     char name[16];
     reflex_tryte9_t source_coord;
     reflex_tryte9_t sink_coord;
-    reflex_trit_t orientation;  ///< Static orientation (Pass, Block, Invert)
+    reflex_trit_t orientation;          ///< Static instinct (Fixed)
+    reflex_trit_t learned_orientation;   ///< Topological plasticity (Mutable)
     reflex_tryte9_t control_coord; ///< Meta-Agency: Dynamic orientation
     goose_coupling_t coupling;  ///< Manifestation mode (Hardware/Software/Radio)
 

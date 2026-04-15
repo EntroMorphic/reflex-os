@@ -323,8 +323,8 @@ static esp_err_t internal_process_transitions(goose_field_t *field, int depth) {
         }
         if (!r->cached_source || !r->cached_sink) continue;
 
-        // Phase 24 Red-Team Remediation: Asynchronous Sampling
-        if (r->cached_source->type == GOOSE_CELL_FIELD_PROXY) {
+        // Phase 24 & 27: Holon and Neuron Sampling
+        if (r->cached_source->type == GOOSE_CELL_FIELD_PROXY || r->cached_source->type == GOOSE_CELL_NEURON) {
             goose_field_t *sub_field = goose_fabric_find_field_by_name_hash(r->cached_source->hardware_addr);
             if (sub_field && sub_field->route_count > 0 && sub_field->routes[0].cached_source) {
                 r->cached_source->state = sub_field->routes[0].cached_source->state;
@@ -332,10 +332,20 @@ static esp_err_t internal_process_transitions(goose_field_t *field, int depth) {
         }
 
         if (r->coupling == GOOSE_COUPLING_SOFTWARE) {
-            reflex_trit_t orient = r->cached_control ? (reflex_trit_t)r->cached_control->state : r->orientation;
-            r->cached_sink->state = (int8_t)((int)r->cached_source->state * (int)orient);
+            // Phase 27: Learned Orientation (Plasticity)
+            reflex_trit_t effective_orient = r->learned_orientation ? r->learned_orientation : r->orientation;
+            reflex_trit_t control = r->cached_control ? (reflex_trit_t)r->cached_control->state : effective_orient;
+            r->cached_sink->state = (int8_t)((int)r->cached_source->state * (int)control);
+            
             if (r->cached_sink->hardware_addr > 0 && r->cached_sink->hardware_addr < GPIO_NUM_MAX) {
                 gpio_set_level((gpio_num_t)r->cached_sink->hardware_addr, r->cached_sink->state == 1 ? 1 : 0);
+            } 
+            else if (r->cached_sink->hardware_addr >= 0x60000000) {
+                // Phase 27: Masked Bit-level Write (Silicon Summation)
+                volatile uint32_t *reg = (volatile uint32_t *)r->cached_sink->hardware_addr;
+                uint32_t mask = r->cached_sink->bit_mask ? r->cached_sink->bit_mask : 0xFFFFFFFF;
+                if (r->cached_sink->state == 1) *reg |= mask;
+                else if (r->cached_sink->state == -1) *reg &= ~mask;
             }
         } else if (r->coupling == GOOSE_COUPLING_RADIO) {
             extern esp_err_t goose_atmosphere_emit_arc(goose_cell_t *source);

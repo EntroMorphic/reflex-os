@@ -6,6 +6,7 @@
 #include "goose.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -85,17 +86,50 @@ esp_err_t goose_supervisor_swarm_sync(void) {
     return ESP_OK;
 }
 
-esp_err_t goose_supervisor_pulse(void) {
-    taskENTER_CRITICAL(&supervisor_mux);
-    size_t count = supervised_field_count;
-    taskEXIT_CRITICAL(&supervisor_mux);
-
-    for (size_t i = 0; i < count; i++) {
-        if (goose_supervisor_check_equilibrium(supervised_fields[i]) != ESP_OK) {
-            goose_supervisor_rebalance(supervised_fields[i]);
+/**
+ * @brief Learning Pass (Topological Plasticity)
+ * Adjusts the learned_orientation of routes based on sys.ai.pain.
+ */
+esp_err_t goose_supervisor_learn_sync(void) {
+    goose_cell_t *pain_cell = goonies_resolve_cell("sys.ai.pain");
+    goose_cell_t *reward_cell = goonies_resolve_cell("sys.ai.reward");
+    
+    if (pain_cell && pain_cell->state == -1) {
+        // Pain sensed! Jiggle the Tapestry to find equilibrium.
+        ESP_LOGW(TAG, "AI Pain detected. Increasing plasticity...");
+        for (size_t f = 0; f < supervised_field_count; f++) {
+            goose_field_t *field = supervised_fields[f];
+            for (size_t r = 0; r < field->route_count; r++) {
+                // Randomly shift 10% of routes to find a new manifold shape
+                if ((esp_random() % 10) == 0) {
+                    field->routes[r].learned_orientation = (int8_t)((esp_random() % 3) - 1);
+                }
+            }
         }
+    } else if (reward_cell && reward_cell->state == 1) {
+        // Success sensed! Pin the current learned orientations.
+        for (size_t f = 0; f < supervised_field_count; f++) {
+            goose_field_t *field = supervised_fields[f];
+            for (size_t r = 0; r < field->route_count; r++) {
+                field->routes[r].orientation = field->routes[r].learned_orientation;
+            }
+        }
+        reward_cell->state = 0; // Reset reward
+    }
+    return ESP_OK;
+}
+
+esp_err_t goose_supervisor_pulse(void) {
+    // ... (existing equilibrium checks)
+    
+    // Learning pass at 1Hz
+    static int learn_div = 0;
+    if (learn_div++ >= 10) {
+        goose_supervisor_learn_sync();
+        learn_div = 0;
     }
     
+    // Swarm Sync at 1Hz (offset by 5)
     static int sync_div = 0;
     if (sync_div++ >= 10) {
         goose_supervisor_swarm_sync();
