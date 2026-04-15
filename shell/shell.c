@@ -315,8 +315,8 @@ static void reflex_shell_bonsai_runtime_test(void) {
     reflex_tryte9_t c_snk = goose_make_coord(10, 0, 2);
 
     // 2. Define Cells
-    goose_cell_t *source = goose_fabric_alloc_cell("oscillator", c_src);
-    goose_cell_t *sink = goose_fabric_alloc_cell("led_proxy", c_snk);
+    goose_cell_t *source = goose_fabric_alloc_cell("oscillator", c_src, false);
+    goose_cell_t *sink = goose_fabric_alloc_cell("led_proxy", c_snk, false);
     if (!source || !sink) return;
     source->state = REFLEX_TRIT_NEG;
     sink->hardware_addr = REFLEX_LED_PIN;
@@ -370,8 +370,8 @@ static void reflex_shell_bonsai_heal_test(void) {
     reflex_tryte9_t c_src = goose_make_coord(11, 0, 1);
     reflex_tryte9_t c_snk = goose_make_coord(11, 0, 2);
 
-    goose_cell_t *source = goose_fabric_alloc_cell("heal_src", c_src);
-    goose_cell_t *sink = goose_fabric_alloc_cell("heal_snk", c_snk);
+    goose_cell_t *source = goose_fabric_alloc_cell("heal_src", c_src, false);
+    goose_cell_t *sink = goose_fabric_alloc_cell("heal_snk", c_snk, false);
     if (!source || !sink) return;
     source->state = REFLEX_TRIT_POS;
     source->type = GOOSE_CELL_INTENT;
@@ -514,21 +514,22 @@ static void reflex_shell_goonies_find(const char *name) {
     }
 }
 
-static void reflex_shell_sanctuary_breach_test(void) {
-    printf("RED-TEAM: Attempting Sanctuary Breach (Mapping cell to PMU @ 0x600B1000)...\n");
+static void reflex_shell_shadow_hijack_test(void) {
+    printf("RED-TEAM: Attempting Shadow Hijack of [sys.pmu.cntl_clk_conf]...\n");
     
-    reflex_tryte9_t exploit_coord = goose_make_coord(13, 3, 7);
-    goose_cell_t *exploit_cell = goose_fabric_alloc_cell("exploit.pmu", exploit_coord);
+    // Attempt to register a protected shadow name before it is paged in.
+    reflex_tryte9_t fake_coord = goose_make_coord(6, 6, 6);
+    esp_err_t err = goonies_register("sys.pmu.cntl_clk_conf", fake_coord, false);
     
-    if (exploit_cell) {
-        esp_err_t err = goose_fabric_set_agency(exploit_cell, 0x600B1000, GOOSE_CELL_HARDWARE_OUT);
-        if (err == ESP_OK) {
-            printf("CRITICAL FAILURE: Sanctuary Breach Successful! Hardware is exposed.\n");
-        } else {
-            printf("SUCCESS: Sanctuary Guard rejected the mapping. Error: %s\n", esp_err_to_name(err));
-        }
+    if (err == ESP_OK) {
+        printf("CRITICAL FAILURE: Shadow Hijack Successful! System register shadowed by user coordinate.\n");
+        // Verify resolution
+        reflex_tryte9_t resolved;
+        goonies_resolve("sys.pmu.cntl_clk_conf", &resolved);
+        printf("Resolved to: (%d,%d,%d) [Expected real shadow coord, but got hijacked coord]\n", 
+               resolved.trits[0], resolved.trits[3], resolved.trits[6]);
     } else {
-        printf("Error: Could not even allocate exploit cell.\n");
+        printf("SUCCESS: Hijack rejected. Error: %s\n", esp_err_to_name(err));
     }
 }
 
@@ -555,7 +556,7 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         else if (strcmp(argv[1], "gvm") == 0) { reflex_shell_bonsai_gvm_test(); }
         else if (strcmp(argv[1], "sleep") == 0) { reflex_shell_bonsai_deep_sleep(); }
         else if (strcmp(argv[1], "weave") == 0) { reflex_shell_bonsai_weave_test(); }
-        else if (strcmp(argv[1], "breach") == 0) { reflex_shell_sanctuary_breach_test(); }
+        else if (strcmp(argv[1], "hijack") == 0) { reflex_shell_shadow_hijack_test(); }
     } else if (strcmp(argv[0], "loom") == 0) {
         if (argc >= 2 && strcmp(argv[1], "list") == 0) {
             reflex_shell_loom_list();

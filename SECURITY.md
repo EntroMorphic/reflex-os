@@ -27,5 +27,7 @@ Radio-based state propagation (Arcing) is protected by a shared-secret verificat
 Hierarchical naming is protected at the root.
 
 -   **Immutable Zones:** Names starting with `sys.` or `agency.` are immutable once woven.
--   **Shadow Protection:** Attempting to re-register a protected name to a new coordinate is rejected.
+- **Shadow Protection:** Attempting to re-register a protected name to a new coordinate is rejected.
+- **Shadow Hijack Check:** The registry performs a mandatory check against the Flash-native **Shadow Atlas** before any registration. This prevents malicious scripts from "squatting" on protected names (like `sys.pmu.*`) before the system has paged them into RAM.
+
 -   **Purpose:** Ensures that the mapping from `agency.led.intent` to physical silicon cannot be intercepted by user scripts.

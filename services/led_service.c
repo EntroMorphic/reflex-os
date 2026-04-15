@@ -20,7 +20,7 @@ static void reflex_led_task(void *arg)
     
     // Allocate a coordinate for the physical LED (Field 1, Region 1, Cell 15)
     reflex_tryte9_t phys_coord = goose_make_coord(1, 1, 15);
-    goose_cell_t *led_phys = goose_fabric_alloc_cell("led_phys", phys_coord);
+    goose_cell_t *led_phys = goose_fabric_alloc_cell("led_phys", phys_coord, true);
 
     if (!led_intent || !led_phys) {
         ESP_LOGE("LED_SERVICE", "Failed to manifest LED in Fabric!");

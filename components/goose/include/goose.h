@@ -218,8 +218,9 @@ goose_route_t* goose_fabric_find_radio_route_by_source_coord(reflex_tryte9_t coo
 
 /**
  * @brief Allocate a new spatial unit in the LP Loom.
+ * @param is_system_weaving If true, bypasses manual registration lockout (for shadow paging/boot).
  */
-goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord);
+goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving);
 
 /**
  * @brief Securely map a cell to physical agency (Sanctuary Guarded).
@@ -281,7 +282,7 @@ esp_err_t goose_atlas_manifest_weave(void);
 /**
  * @brief Register a human-readable name for a geometric coordinate.
  */
-esp_err_t goonies_register(const char *name, reflex_tryte9_t coord);
+esp_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving);
 
 /**
  * @brief Resolve a name to its 9-trit coordinate.
@@ -289,9 +290,14 @@ esp_err_t goonies_register(const char *name, reflex_tryte9_t coord);
 esp_err_t goonies_resolve(const char *name, reflex_tryte9_t *out_coord);
 
 /**
- * @brief Resolve a name and return the direct cell pointer.
+ * @brief Resolve a name. If not in the active Loom, attempt to pull from the Shadow Atlas.
  */
 goose_cell_t* goonies_resolve_cell(const char *name);
+
+/**
+ * @brief Manually page-in a hardware node from the Shadow Atlas.
+ */
+esp_err_t goonies_page_in(const char *name);
 
 // --- Supervisor API ---
 

@@ -48,10 +48,11 @@ static void goose_gateway_task(void *arg) {
                 ESP_LOGI(TAG, "Projecting MMIO: %s @ (F:%d, R:%d, C:%d) -> Addr 0x%lx", 
                          name, coord.trits[0], coord.trits[3], coord.trits[6], (unsigned long)addr);
 
-                goose_cell_t *c = goose_fabric_alloc_cell(name, coord);
+                // Note: is_system_weaving = false for external projections
+                // They MUST pass G.O.O.N.I.E.S. name checks.
+                goose_cell_t *c = goose_fabric_alloc_cell(name, coord, false);
                 if (c) {
-                    c->hardware_addr = addr;
-                    c->type = GOOSE_CELL_HARDWARE_OUT; // Agency
+                    goose_fabric_set_agency(c, addr, GOOSE_CELL_HARDWARE_OUT);
                 }
             }
         }

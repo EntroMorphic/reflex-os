@@ -33,7 +33,7 @@ esp_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, ref
              * Heartbeat Fragment: Autonomous Rhythm
              * 1 Virtual Cell + 1 Evolutionary Transition.
              */
-            goose_cell_t *pulse_cell = goose_fabric_alloc_cell(name, base_coord);
+            goose_cell_t *pulse_cell = goose_fabric_alloc_cell(name, base_coord, true);
             if (!pulse_cell) return ESP_ERR_NO_MEM;
             
             pulse_cell->type = GOOSE_CELL_VIRTUAL;
@@ -48,7 +48,7 @@ esp_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, ref
              * Gate Fragment: Routed Inhibition
              * 1 Intent Cell (Control) + 1 Software Route.
              */
-            goose_cell_t *ctrl = goose_fabric_alloc_cell(name, base_coord);
+            goose_cell_t *ctrl = goose_fabric_alloc_cell(name, base_coord, true);
             if (!ctrl) return ESP_ERR_NO_MEM;
             
             ctrl->type = GOOSE_CELL_INTENT;

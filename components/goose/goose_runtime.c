@@ -1,16 +1,6 @@
 /**
  * @file goose_runtime.c
  * @brief GOOSE Runtime: The Loom of State
- * 
- * This module implements the "Loom" - a ternary state-space residing in RTC RAM.
- * It reinterprets machine memory as a geometric fabric where identity is 
- * defined by spatial coordinates rather than pointers.
- * 
- * Substrate Features:
- * 1. G.O.O.N.I.E.S. - Hierarchical Naming (Loom DNS)
- * 2. Lattice Hashing - O(1) Spatial Lookup
- * 3. Sanctuary Guard - Hardware Privilege Isolation
- * 4. Authority Sentry - Cycle-accurate Spinlock Watchdog
  */
 
 #include "goose.h"
@@ -43,30 +33,51 @@ static RTC_DATA_ATTR volatile bool lattice_stable = false;
 
 // G.O.O.N.I.E.S. Registry (DRAM-based)
 typedef struct {
-    char name[24]; // Slightly larger for hierarchical names like "agency.light.led0"
+    char name[24]; 
     reflex_tryte9_t coord;
 } goonies_entry_t;
 
 static goonies_entry_t goonies_registry[GOOSE_FABRIC_MAX_CELLS];
 static uint32_t goonies_count = 0;
 
-esp_err_t goonies_register(const char *name, reflex_tryte9_t coord) {
+static RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
+
+static uint32_t goose_lattice_hash(reflex_tryte9_t coord) {
+    uint32_t hash = 0;
+    for (int i = 0; i < 9; i++) {
+        hash = (hash * 3) + (uint32_t)(coord.trits[i] + 1);
+    }
+    return hash % GOOSE_LATTICE_BUCKETS;
+}
+
+esp_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
     if (goonies_count >= GOOSE_FABRIC_MAX_CELLS) return ESP_ERR_NO_MEM;
     if (!name || strlen(name) < 3) return ESP_ERR_INVALID_ARG;
 
-    // Red-Team Remediation: Zone Protection
-    // Names in 'sys' or 'agency' zones are IMMUTABLE once woven.
-    bool is_protected = (strncmp(name, "sys.", 4) == 0 || strncmp(name, "agency.", 7) == 0);
+    // Red-Team Remediation: Shadow Check
+    extern esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type);
+    
+    uint32_t s_addr;
+    reflex_tryte9_t s_coord;
+    goose_cell_type_t s_type;
+    bool in_shadow = (goose_shadow_resolve(name, &s_addr, &s_coord, &s_type) == ESP_OK);
+
+    bool is_protected = (strncmp(name, "sys.", 4) == 0 || strncmp(name, "agency.", 7) == 0 || in_shadow);
     
     for (uint32_t i = 0; i < goonies_count; i++) {
         if (strcmp(goonies_registry[i].name, name) == 0) {
-            if (is_protected) {
+            if (is_protected && !is_system_weaving) {
                 ESP_LOGE("GOONIES", "Security Violation: Cannot re-weave protected name [%s]", name);
                 return ESP_ERR_INVALID_STATE;
             }
-            goonies_registry[i].coord = coord; // Update allowed for user zones
+            goonies_registry[i].coord = coord; 
             return ESP_OK;
         }
+    }
+
+    if ((in_shadow || is_protected) && !is_system_weaving) {
+        ESP_LOGE("GOONIES", "Security Violation: Manual registration of protected name [%s] denied.", name);
+        return ESP_ERR_NOT_SUPPORTED;
     }
 
     snprintf(goonies_registry[goonies_count].name, 24, "%s", name);
@@ -90,44 +101,44 @@ goose_cell_t* goonies_resolve_cell(const char *name) {
     if (goonies_resolve(name, &coord) == ESP_OK) {
         return goose_fabric_get_cell_by_coord(coord);
     }
+
+    extern esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type);
+    
+    uint32_t addr;
+    goose_cell_type_t type;
+    if (goose_shadow_resolve(name, &addr, &coord, &type) == ESP_OK) {
+        ESP_LOGI("GOONIES", "Shadow Hit! Paging in node [%s]", name);
+        goose_cell_t *c = goose_fabric_alloc_cell(name, coord, true); 
+        if (c) {
+            goose_fabric_set_agency(c, addr, type);
+            return c;
+        }
+    }
     return NULL;
 }
 
-// Shell-facing helper to get registry count and entries
 uint32_t goonies_get_count(void) { return goonies_count; }
 const char* goonies_get_name_by_idx(uint32_t idx) { return (idx < goonies_count) ? goonies_registry[idx].name : NULL; }
 reflex_tryte9_t goonies_get_coord_by_idx(uint32_t idx) { return (idx < goonies_count) ? goonies_registry[idx].coord : (reflex_tryte9_t){0}; }
 
-static RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
-
-static uint32_t goose_lattice_hash(reflex_tryte9_t coord) {
-    uint32_t hash = 0;
-    for (int i = 0; i < 9; i++) {
-        hash = (hash * 3) + (uint32_t)(coord.trits[i] + 1);
-    }
-    return hash % GOOSE_LATTICE_BUCKETS;
-}
-
 #define LOOM_LOCK_TIMEOUT_CYCLES 50000
 
-/**
- * @brief MMIO Sanctuary Guard
- * Defines which hardware regions are "Safe Agency" for the Loom.
- */
 static bool is_sanctuary_address(uint32_t addr) {
-    // Permitted: GPIO (0x60091000), LEDC (0x60007000), RMT (0x60006000)
-    if ((addr & 0xFFFFF000) == 0x60091000) return false; // Safe
-    if ((addr & 0xFFFFF000) == 0x60007000) return false; // Safe
-    if ((addr & 0xFFFFF000) == 0x60006000) return false; // Safe
-    
-    // Everything else is Sanctuary (PMU, EFUSE, MMU, etc.)
+    uint32_t base = addr & 0xFFFFF000;
+    if (base == 0x60091000) return false; 
+    if (base == 0x60007000) return false; 
+    if (base == 0x60006000) return false; 
+    if (base == 0x60000000) return false; 
+    if (base == 0x60001000) return false; 
+    if (base == 0x60004000) return false; 
+    if (base == 0x60003000) return false; 
+    if (base == 0x6000C000) return false; 
+    if (base == 0x6000E000) return false; 
     return true; 
 }
 
 static uint32_t goose_loom_lock_with_stats(goose_field_t *field) {
     uint32_t start = esp_cpu_get_cycle_count();
-    
-    // Red-Team Remediation: Authority Sentry (Anti-Deadlock)
     while (__atomic_test_and_set(&loom_authority, __ATOMIC_ACQUIRE)) {
         if ((esp_cpu_get_cycle_count() - start) > LOOM_LOCK_TIMEOUT_CYCLES) {
             ESP_LOGE("GOOSE", "AUTHORITY DEADLOCK! Force-breaking Loom lock.");
@@ -137,7 +148,6 @@ static uint32_t goose_loom_lock_with_stats(goose_field_t *field) {
         }
         esp_rom_delay_us(1);
     }
-
     uint32_t end = esp_cpu_get_cycle_count();
     if (field) field->stats.lock_contention_cycles += (end - start);
     return end - start;
@@ -149,17 +159,12 @@ static void goose_loom_unlock(void) {
 
 esp_err_t goose_fabric_init(void) {
     ESP_LOGI(TAG, "Initializing Secure GOOSE Ternary Fabric...");
-    
     lattice_stable = false;
     goonies_count = 0;
-    
     if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED) {
         for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
-        
-        // Root Zone Entries (GOONIES Registry)
-        goose_fabric_alloc_cell("sys.origin", goose_make_coord(0, 0, 0));
-        goose_fabric_alloc_cell("agency.led.intent", goose_make_coord(0, 0, 1));
-        
+        goose_fabric_alloc_cell("sys.origin", goose_make_coord(0, 0, 0), true);
+        goose_fabric_alloc_cell("agency.led.intent", goose_make_coord(0, 0, 1), true);
         fabric_version = 1;
     } else {
         ESP_LOGI(TAG, "Wake-up detected. Secure Loom persistence verified.");
@@ -168,27 +173,19 @@ esp_err_t goose_fabric_init(void) {
             lattice_index[goose_lattice_hash(fabric_cells[i].coord)] = i;
         }
     }
-
     lattice_stable = true;
     return ESP_OK;
 }
 
 goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
     if (!lattice_stable) return NULL; 
-
     uint32_t hash = goose_lattice_hash(coord);
     int16_t idx = lattice_index[hash];
-    
     if (idx >= 0 && idx < fabric_cell_count) {
-        if (goose_coord_equal(fabric_cells[idx].coord, coord)) {
-            return &fabric_cells[idx];
-        }
+        if (goose_coord_equal(fabric_cells[idx].coord, coord)) return &fabric_cells[idx];
     }
-
     for (size_t i = 0; i < fabric_cell_count; i++) {
-        if (goose_coord_equal(fabric_cells[i].coord, coord)) {
-            return &fabric_cells[i];
-        }
+        if (goose_coord_equal(fabric_cells[i].coord, coord)) return &fabric_cells[i];
     }
     return NULL;
 }
@@ -199,32 +196,16 @@ goose_cell_t* goose_fabric_get_cell(const char *name) {
 
 static portMUX_TYPE fabric_mux = portMUX_INITIALIZER_UNLOCKED;
 
-goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord) {
+goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
     taskENTER_CRITICAL(&fabric_mux);
-    
-    if (goose_fabric_get_cell_by_coord(coord) != NULL) {
-        taskEXIT_CRITICAL(&fabric_mux);
-        return NULL;
-    }
-    
-    if (fabric_cell_count >= GOOSE_FABRIC_MAX_CELLS) {
-        taskEXIT_CRITICAL(&fabric_mux);
-        return NULL;
-    }
-
+    if (goose_fabric_get_cell_by_coord(coord) != NULL) { taskEXIT_CRITICAL(&fabric_mux); return NULL; }
+    if (fabric_cell_count >= GOOSE_FABRIC_MAX_CELLS) { taskEXIT_CRITICAL(&fabric_mux); return NULL; }
     uint32_t idx = fabric_cell_count++;
     goose_cell_t *c = &fabric_cells[idx];
     memset(c, 0, sizeof(goose_cell_t));
     c->coord = coord;
-    c->state = 0;
-    
     lattice_index[goose_lattice_hash(coord)] = (int16_t)idx;
-    
-    // Register in GOONIES
-    if (name) {
-        goonies_register(name, coord);
-    }
-
+    if (name) { goonies_register(name, coord, is_system_weaving); }
     fabric_version++;
     taskEXIT_CRITICAL(&fabric_mux);
     return c;
@@ -232,19 +213,15 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord) {
 
 esp_err_t goose_fabric_set_agency(goose_cell_t *cell, uint32_t hardware_addr, goose_cell_type_t type) {
     if (!cell) return ESP_ERR_INVALID_ARG;
-
-    // Red-Team Remediation: MMIO Sanctuary Guard
     if (is_sanctuary_address(hardware_addr) && type != GOOSE_CELL_SYSTEM_ONLY) {
         ESP_LOGE("GOOSE", "SANCTUARY VIOLATION: Refusing to map cell to address 0x%08lX", hardware_addr);
         return ESP_ERR_NOT_SUPPORTED;
     }
-
     cell->hardware_addr = hardware_addr;
     cell->type = type;
     return ESP_OK;
 }
 
-// --- Radio Route Registry (Required for Atmospheric Arcing) ---
 static goose_field_t *global_fields[16];
 static size_t global_field_count = 0;
 
@@ -253,9 +230,7 @@ goose_route_t* goose_fabric_find_radio_route_by_source_coord(reflex_tryte9_t coo
         goose_field_t *field = global_fields[f];
         for (size_t r = 0; r < field->route_count; r++) {
             goose_route_t *route = &field->routes[r];
-            if (route->coupling == GOOSE_COUPLING_RADIO && goose_coord_equal(route->source_coord, coord)) {
-                return route;
-            }
+            if (route->coupling == GOOSE_COUPLING_RADIO && goose_coord_equal(route->source_coord, coord)) return route;
         }
     }
     return NULL;
@@ -270,9 +245,7 @@ reflex_tryte9_t goose_make_coord(int8_t field, int8_t region, int8_t cell) {
 }
 
 bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b) {
-    for (int i = 0; i < 9; i++) {
-        if (a.trits[i] != b.trits[i]) return false;
-    }
+    for (int i = 0; i < 9; i++) { if (a.trits[i] != b.trits[i]) return false; }
     return true;
 }
 
@@ -291,10 +264,7 @@ esp_err_t goose_apply_route(goose_route_t *route) {
 esp_err_t goose_process_transitions(goose_field_t *field) {
     if (!field) return ESP_ERR_INVALID_ARG;
     uint64_t now = esp_timer_get_time();
-
     goose_loom_lock_with_stats(field);
-
-    // Evolution
     for (size_t i = 0; i < field->transition_count; i++) {
         goose_transition_t *t = &field->transitions[i];
         if (!t->cached_target || t->cached_version != fabric_version) {
@@ -306,8 +276,6 @@ esp_err_t goose_process_transitions(goose_field_t *field) {
             t->last_run_us = now;
         }
     }
-
-    // Propagation
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
         if (!r->cached_source || r->cached_version != fabric_version) {
@@ -317,11 +285,9 @@ esp_err_t goose_process_transitions(goose_field_t *field) {
             r->cached_version = fabric_version;
         }
         if (!r->cached_source || !r->cached_sink) continue;
-
         if (r->coupling == GOOSE_COUPLING_SOFTWARE) {
             reflex_trit_t orient = r->cached_control ? (reflex_trit_t)r->cached_control->state : r->orientation;
             r->cached_sink->state = (int8_t)((int)r->cached_source->state * (int)orient);
-            
             if (r->cached_sink->hardware_addr > 0 && r->cached_sink->hardware_addr < GPIO_NUM_MAX) {
                 gpio_set_level((gpio_num_t)r->cached_sink->hardware_addr, r->cached_sink->state == 1 ? 1 : 0);
             }
@@ -330,7 +296,6 @@ esp_err_t goose_process_transitions(goose_field_t *field) {
             goose_atmosphere_emit_arc(r->cached_source);
         }
     }
-
     goose_loom_unlock();
     field->stats.total_pulses++;
     return ESP_OK;
@@ -347,12 +312,7 @@ static void goose_regional_pulse_task(void *arg) {
 
 esp_err_t goose_field_start_pulse(goose_field_t *field) {
     if (!field) return ESP_ERR_INVALID_ARG;
-
-    // Register for radio route lookups
-    if (global_field_count < 16) {
-        global_fields[global_field_count++] = field;
-    }
-
+    if (global_field_count < 16) { global_fields[global_field_count++] = field; }
     char task_name[16];
     snprintf(task_name, sizeof(task_name), "p_%.13s", field->name);
     xTaskCreate(goose_regional_pulse_task, task_name, 4096, field, 10, NULL);

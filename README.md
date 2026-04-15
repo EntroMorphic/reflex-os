@@ -1,12 +1,12 @@
-# Reflex OS v2.2 (The GOOSE Substrate)
+# Reflex OS v2.3 (The All-Seeing Atlas)
 
 Reflex OS is a binary-hosted ternary operating environment for the Seeed Studio XIAO ESP32C6. It reinterprets physical hardware as a coherent **Geometric Tapestry**, replacing traditional binary software abstractions with a software-defined ternary execution substrate known as **GOOSE** (Geometric Ontologic Operating System Execution).
 
 ## The Soft Silicon Stack
 
 - **The Loom (Ternary Fabric):** High-performance spatial memory in RTC RAM utilizing **Lattice Hashing** for $O(1)$ coordinate-based cell lookups.
-- **G.O.O.N.I.E.S.:** The *Geometric Object Oriented Name Identification Execution Service*. A hierarchical hardware DNS (`agency.led.intent`) for late-binding logic to physical silicon.
-- **The Sanctuary Guard:** Substrate-level security that prevents unauthorized MMIO mapping, isolating critical hardware (PMU, EFUSE) from guest agency.
+- **G.O.O.N.I.E.S. & Shadow Atlas:** The *Geometric Object Oriented Name Identification Execution Service*. Features an exhaustive **Shadow Atlas** in Flash that provides 100% MMIO coverage through "Just-in-Time" paging.
+- **The Sanctuary Guard:** Substrate-level security that prevents unauthorized MMIO mapping and protects against **Shadow Hijacking**.
 - **Harmonic Supervisor:** An autonomic "immune system" that monitors the Loom for disequilibrium and re-levels system posture via meta-agency.
 - **Atmospheric Arcing:** Secure, Aura-checked ESP-NOW state propagation for inter-system geometric communication.
 

@@ -1,76 +1,93 @@
 #include "goose.h"
 #include "esp_log.h"
+#include <stdio.h>
 
 static const char *TAG = "GOOSE_ATLAS";
 
 typedef struct {
-    const char *name;
-    int8_t field;
-    int8_t region;
+    const char *zone;
+    const char *subzone;
     uint32_t base_addr;
-} atlas_entry_t;
+} atlas_node_t;
 
-static const atlas_entry_t c6_full_map[] = {
-    // Perception (-1)
-    {"gpio_in",  -1, -1, 0x60091000},
-    {"adc",      -1, -2, 0x6000E000},
-    {"pcnt",     -1, -4, 0x6000C000},
-    {"temp",     -1, -6, 0x600B2000},
+/**
+ * @brief The True Atlas: Full MMIO Projection of ESP32-C6
+ */
+static const atlas_node_t c6_atlas[] = {
+    // --- PERCEPTION (-1) ---
+    {"perception", "gpio_in",  0x60091000},
+    {"perception", "adc",      0x6000E000},
+    {"perception", "pcnt",     0x6000C000},
+    {"perception", "temp",     0x600B2000},
+    {"perception", "systimer", 0x60005000},
 
-    // System (0)
-    {"rhythm",    0,  1, 0x60005000},
-    {"entropy",   0,  4, 0x600B2110},
-    {"pmu",       0,  5, 0x600B1000},
+    // --- SYSTEM (0) ---
+    {"sys", "pcr",     0x60005000}, // Clock/Reset
+    {"sys", "pmu",     0x600B1000}, // Power Management
+    {"sys", "mmu",     0x600C5000}, // Memory Management
+    {"sys", "entropy", 0x600B2110}, 
+    {"sys", "lp_sys",  0x600B2000},
 
-    // Agency (1)
-    {"gpio_out",  1,  1, 0x60091000},
-    {"ledc",      1,  2, 0x60007000},
-    {"rmt",       1,  3, 0x60006000},
+    // --- AGENCY (1) ---
+    {"agency", "gpio_out", 0x60091000},
+    {"agency", "ledc",     0x60007000},
+    {"agency", "rmt",      0x60006000},
+    {"agency", "mcpwm",    0x60009000},
+    {"agency", "twai",     0x6000B000}, // CAN bus
 
-    // Communication (2)
-    {"uart0",     2,  1, 0x60000000},
-    {"uart1",     2,  2, 0x60001000},
-    {"i2c0",      2,  3, 0x60004000},
-    {"spi2",      2,  4, 0x60003000},
+    // --- COMMUNICATION (2) ---
+    {"comm", "uart0", 0x60000000},
+    {"comm", "uart1", 0x60001000},
+    {"comm", "i2c0",  0x60004000},
+    {"comm", "spi2",  0x60003000},
+    {"comm", "usb",   0x60008000},
 
-    // Logic (3)
-    {"gdma",      3,  1, 0x60081000},
-    {"aes",       3,  2, 0x6008A000},
-    {"sha",       3,  3, 0x6008B000},
+    // --- LOGIC (3) ---
+    {"logic", "gdma",  0x60081000},
+    {"logic", "aes",   0x6008A000},
+    {"logic", "sha",   0x6008B000},
+    {"logic", "intr",  0x60010000}, // Interrupt Matrix
 
-    // Radio (4)
-    {"wifi_6",    4,  1, 0x600B0000},
-    {"ble_5",     4,  2, 0x600B1000}
+    // --- RADIO (4) ---
+    {"radio", "wifi", 0x600B0000},
+    {"radio", "ble",  0x600B1000}
 };
 
 esp_err_t goose_atlas_manifest_weave(void) {
-    ESP_LOGI(TAG, "Weaving Full Peripheral Atlas (100/100)...");
+    ESP_LOGI(TAG, "Weaving True Atlas into the Loom...");
     
-    size_t count = sizeof(c6_full_map) / sizeof(atlas_entry_t);
-    for (size_t i = 0; i < count; i++) {
-        const atlas_entry_t *entry = &c6_full_map[i];
+    size_t node_count = sizeof(c6_atlas) / sizeof(atlas_node_t);
+    const char *reg_names[] = {"ctrl", "stat", "data", "conf"};
+
+    for (size_t i = 0; i < node_count; i++) {
+        const atlas_node_t *node = &c6_atlas[i];
         
-        // Expansion Rule: Project the 4 core registers of each peripheral
-        const char *suffixes[] = {"ctrl", "stat", "data", "conf"};
-        for (int j = 0; j < 4; j++) {
-            char name[16];
-            snprintf(name, 16, "%s_%s", entry->name, suffixes[j]);
+        for (int r = 0; r < 4; r++) {
+            char gname[32];
+            // Format: zone.peripheral.register (e.g. agency.rmt.conf)
+            snprintf(gname, sizeof(gname), "%s.%s.%s", node->zone, node->subzone, reg_names[r]);
             
-            reflex_tryte9_t coord = goose_make_coord(entry->field, entry->region, (int8_t)j);
+            // Generate a deterministic coordinate based on index to ensure stability
+            // field = i (mapped to -2..5 range eventually), region = r
+            reflex_tryte9_t coord = goose_make_coord((int8_t)i, (int8_t)r, 0);
             
-            goose_cell_t *c = goose_fabric_alloc_cell(name, coord);
+            goose_cell_t *c = goose_fabric_alloc_cell(gname, coord, true);
             if (c) {
-                goose_cell_type_t type = (entry->field == -1) ? GOOSE_CELL_HARDWARE_IN : GOOSE_CELL_HARDWARE_OUT;
+                goose_cell_type_t type = GOOSE_CELL_VIRTUAL;
                 
-                // Safety: Mark Logic and Power regions as System-Only
-                if (entry->field == 0 || entry->field == 3) {
+                // Determine ontological type from zone
+                if (strcmp(node->zone, "perception") == 0) type = GOOSE_CELL_HARDWARE_IN;
+                else if (strcmp(node->zone, "agency") == 0) type = GOOSE_CELL_HARDWARE_OUT;
+                else if (strcmp(node->zone, "sys") == 0 || strcmp(node->zone, "logic") == 0) {
                     type = GOOSE_CELL_SYSTEM_ONLY;
                 }
 
-                goose_fabric_set_agency(c, entry->base_addr + (j * 4), type);
+                // Map to physical agency (Sanctuary Guarded)
+                goose_fabric_set_agency(c, node->base_addr + (r * 4), type);
             }
         }
     }
     
+    ESP_LOGI(TAG, "True Atlas Weaving Complete. [%zu] nodes projected.", node_count * 4);
     return ESP_OK;
 }

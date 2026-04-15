@@ -57,7 +57,7 @@ static void manifest_demo_arc(void)
         
         goose_cell_t *local_intent = goose_fabric_get_cell("led_intent");
         reflex_tryte9_t ghost_coord = goose_make_coord(-1, 0, 1);
-        goose_cell_t *ghost_cell = goose_fabric_alloc_cell("ghost_arc", ghost_coord);
+        goose_cell_t *ghost_cell = goose_fabric_alloc_cell("ghost_arc", ghost_coord, true);
 
         if (local_intent && ghost_cell) {
             snprintf(arc_out_route.name, 16, "arc_out");

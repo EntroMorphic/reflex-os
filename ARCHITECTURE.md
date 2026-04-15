@@ -11,8 +11,12 @@ The binary host layer (ESP-IDF) owns boot, hardware drivers, and low-level sched
 ### 1. The Loom (Ternary Fabric)
 A high-performance spatial memory model residing in RTC RAM. It utilizes **Lattice Hashing** for $O(1)$ lookup of ternary cells across power cycles.
 
-### 2. G.O.O.N.I.E.S. (Geometric Object Oriented Name Identification Execution Service)
-The "Loom DNS." It provides a hierarchical naming service (`agency.led.intent`) for geometric coordinates. This allows late-binding of logic to physical hardware, ensuring software integrity even when hardware pinouts change.
+### 2. G.O.O.N.I.E.S. & Shadow Paging (The All-Seeing Atlas)
+The "Loom DNS." It provides a hierarchical naming service (`agency.led.intent`) for geometric coordinates. 
+
+- **Shadow Atlas:** An exhaustive manifest of 1000+ hardware registers residing in Flash.
+- **Shadow Paging:** The G.O.O.N.I.E.S. resolver autonomously "pages in" cells from Flash to RTC RAM on-demand, enabling 100% MMIO coverage within the tight 16KB LP RAM hearth.
+- **Late Binding:** Allows logic to resolve physical hardware by name, ensuring software integrity even when pinouts change.
 
 ### 3. The Supervisor (Harmonic Regulation)
 An autonomic "immune system" that monitors the Loom for disequilibrium (e.g., a blocked intent route) and exercises meta-agency to restore signal flow.
