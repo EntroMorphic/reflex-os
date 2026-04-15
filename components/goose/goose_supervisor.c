@@ -1,6 +1,6 @@
 /**
  * @file goose_supervisor.c
- * @brief Harmonic Supervisor: Autonomic Posture Regulation
+ * @brief Harmonic Supervisor: Hardened AI Regulation
  */
 
 #include "goose.h"
@@ -47,7 +47,7 @@ esp_err_t goose_supervisor_check_equilibrium(goose_field_t *field) {
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
         if (r->cached_source && r->cached_source->type == GOOSE_CELL_HARDWARE_IN) continue;
-        reflex_trit_t orient = r->cached_control ? (reflex_trit_t)r->cached_control->state : r->orientation;
+        reflex_trit_t orient = r->cached_control ? (reflex_trit_t)r->cached_control->state : (r->learned_orientation ? r->learned_orientation : r->orientation);
         reflex_trit_t expected = (reflex_trit_t)((int)r->cached_source->state * (int)orient);
         if (r->cached_sink && r->cached_sink->state != (int8_t)expected) {
             if (r->cached_sink->type == GOOSE_CELL_HARDWARE_OUT) {
@@ -82,54 +82,62 @@ extern int32_t swarm_accumulator;
 
 esp_err_t goose_supervisor_swarm_sync(void) {
     if (swarm_accumulator > 0) swarm_accumulator--;
-    else if (swarm_accumulator < 0) swarm_accumulator++;
+    else if (swarm_accumulator < -1) swarm_accumulator++;
     return ESP_OK;
 }
 
-/**
- * @brief Learning Pass (Topological Plasticity)
- * Adjusts the learned_orientation of routes based on sys.ai.pain.
- */
 esp_err_t goose_supervisor_learn_sync(void) {
     goose_cell_t *pain_cell = goonies_resolve_cell("sys.ai.pain");
     goose_cell_t *reward_cell = goonies_resolve_cell("sys.ai.reward");
     
     if (pain_cell && pain_cell->state == -1) {
-        // Pain sensed! Jiggle the Tapestry to find equilibrium.
-        ESP_LOGW(TAG, "AI Pain detected. Increasing plasticity...");
         for (size_t f = 0; f < supervised_field_count; f++) {
             goose_field_t *field = supervised_fields[f];
-            for (size_t r = 0; r < field->route_count; r++) {
-                // Randomly shift 10% of routes to find a new manifold shape
-                if ((esp_random() % 10) == 0) {
-                    field->routes[r].learned_orientation = (int8_t)((esp_random() % 3) - 1);
+            if (goose_supervisor_check_equilibrium(field) != ESP_OK) {
+                for (size_t r = 0; r < field->route_count; r++) {
+                    if ((esp_random() % 10) == 0) {
+                        field->routes[r].learned_orientation = (int8_t)((esp_random() % 3) - 1);
+                    }
                 }
             }
         }
     } else if (reward_cell && reward_cell->state == 1) {
-        // Success sensed! Pin the current learned orientations.
         for (size_t f = 0; f < supervised_field_count; f++) {
             goose_field_t *field = supervised_fields[f];
             for (size_t r = 0; r < field->route_count; r++) {
                 field->routes[r].orientation = field->routes[r].learned_orientation;
             }
         }
-        reward_cell->state = 0; // Reset reward
+        reward_cell->state = 0;
     }
     return ESP_OK;
 }
 
 esp_err_t goose_supervisor_pulse(void) {
-    // ... (existing equilibrium checks)
+    taskENTER_CRITICAL(&supervisor_mux);
+    size_t count = supervised_field_count;
+    taskEXIT_CRITICAL(&supervisor_mux);
+
+    for (size_t i = 0; i < count; i++) {
+        if (goose_supervisor_check_equilibrium(supervised_fields[i]) != ESP_OK) {
+            goose_supervisor_rebalance(supervised_fields[i]);
+        }
+    }
     
-    // Learning pass at 1Hz
+    // Autonomic Fabrication pass at 1Hz (offset by 2)
+    static int weave_div = 0;
+    if (weave_div++ >= 10) {
+        extern esp_err_t goose_supervisor_weave_sync(void);
+        goose_supervisor_weave_sync();
+        weave_div = 0;
+    }
+
     static int learn_div = 0;
     if (learn_div++ >= 10) {
         goose_supervisor_learn_sync();
         learn_div = 0;
     }
-    
-    // Swarm Sync at 1Hz (offset by 5)
+
     static int sync_div = 0;
     if (sync_div++ >= 10) {
         goose_supervisor_swarm_sync();
