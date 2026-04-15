@@ -597,9 +597,21 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         } else if (argc >= 3 && strcmp(argv[1], "emit") == 0) {
             goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
             if (!c) { printf("mesh emit: agency.led.intent not resolved\n"); return; }
-            c->state = (int8_t)atoi(argv[2]);
-            esp_err_t rc = goose_atmosphere_emit_arc(c);
-            printf("mesh emit: state=%d rc=0x%x\n", c->state, rc);
+            int req = atoi(argv[2]);
+            if (req < -1 || req > 1) {
+                printf("mesh emit: state must be -1, 0, or 1\n");
+                return;
+            }
+            /* Broadcast from a stack-local copy so we don't mutate the
+             * real cell as a side effect (that would toggle the physical
+             * LED whenever someone ran `mesh emit` for a transmission
+             * test). The copy carries the requested state and the
+             * original coord, which is all goose_atmosphere_emit_arc
+             * reads from it. */
+            goose_cell_t tx = *c;
+            tx.state = (int8_t)req;
+            esp_err_t rc = goose_atmosphere_emit_arc(&tx);
+            printf("mesh emit: state=%d rc=0x%x\n", (int)tx.state, rc);
         } else if (argc >= 3 && strcmp(argv[1], "query") == 0) {
             esp_err_t rc = goose_atmosphere_query(argv[2]);
             printf("mesh query: name=%s rc=0x%x\n", argv[2], rc);
