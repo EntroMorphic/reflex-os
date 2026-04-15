@@ -222,15 +222,25 @@ static void atmosphere_recv_cb(const esp_now_recv_info_t *recv_info, const uint8
 
     goose_arc_packet_t *arc = (goose_arc_packet_t *)data;
 
-    // Protocol version gate — log once, don't spam
+    /* Protocol version gate — rate-limited per (sender mac, version) so
+     * two simultaneously-mismatched peers each get one log entry per
+     * window instead of the louder one starving the quieter one. 8-slot
+     * direct-mapped ring keyed on the low-order MAC bytes. */
     if (arc->version != GOOSE_ARC_VERSION) {
         mesh_stats.rx_version_mismatch++;
-        static uint64_t last_version_warn_us = 0;
+        typedef struct { uint8_t mac[6]; uint8_t version; uint64_t last_us; } version_warn_entry_t;
+        static version_warn_entry_t version_warn_ring[8];
+        uint32_t slot = ((uint32_t)recv_info->src_addr[4] << 8 |
+                          recv_info->src_addr[5]) & 0x7;
+        version_warn_entry_t *w = &version_warn_ring[slot];
         uint64_t now_v = esp_timer_get_time();
-        if (now_v - last_version_warn_us > 5000000) {
+        bool same = (memcmp(w->mac, recv_info->src_addr, 6) == 0 && w->version == arc->version);
+        if (!same || (now_v - w->last_us > 5000000)) {
             ESP_LOGW(TAG, "AURA_VERSION_MISMATCH remote=0x%02x local=0x%02x from " MACSTR,
                      arc->version, GOOSE_ARC_VERSION, MAC2STR(recv_info->src_addr));
-            last_version_warn_us = now_v;
+            memcpy(w->mac, recv_info->src_addr, 6);
+            w->version = arc->version;
+            w->last_us = now_v;
         }
         return;
     }
