@@ -241,28 +241,47 @@ esp_err_t goose_supervisor_weave_sync(void) {
         autonomy_field = f;
         goose_field_start_pulse(autonomy_field);
     }
-    for (int i = 0; i < fabric_cell_count; i++) {
+    for (uint32_t i = 0; i < fabric_cell_count; i++) {
         goose_cell_t *need = &fabric_cells[i];
-        bool is_trusted_need = false;
+        if (need->type != GOOSE_CELL_NEED || need->state == 0) continue;
+
+        /* Reverse-lookup the need's registered name so we can both gate on
+         * trust and derive a capability suffix from the need's own identity. */
+        const char *need_name = NULL;
         for (uint32_t g = 0; g < goonies_count; g++) {
             if (goose_coord_equal(goonies_registry[g].coord, need->coord)) {
-                if (strncmp(goonies_registry[g].name, "sys.", 4) == 0 || strncmp(goonies_registry[g].name, "agency.", 7) == 0) { is_trusted_need = true; }
+                need_name = goonies_registry[g].name;
                 break;
             }
         }
-        if (need->type == GOOSE_CELL_NEED && need->state != 0 && is_trusted_need) {
-            goose_cell_t *cap = goonies_resolve_by_capability(".led");
-            if (cap && autonomy_field->route_count < MAX_FABRICATED_ROUTES) {
-                bool exists = false;
-                for (size_t ridx = 0; ridx < autonomy_field->route_count; ridx++) {
-                    if (goose_coord_equal(autonomy_field->routes[ridx].source_coord, need->coord) && goose_coord_equal(autonomy_field->routes[ridx].sink_coord, cap->coord)) { exists = true; break; }
-                }
-                if (exists) continue;
-                goose_route_t *r = &autonomy_field->routes[autonomy_field->route_count++];
-                snprintf(r->name, 16, "auto_%d", i); r->source_coord = need->coord; r->sink_coord = cap->coord;
-                r->orientation = REFLEX_TRIT_POS; r->coupling = GOOSE_COUPLING_SOFTWARE; goose_apply_route(r);
+        if (!need_name) continue;
+        bool is_trusted_need = (strncmp(need_name, "sys.", 4) == 0 ||
+                                strncmp(need_name, "agency.", 7) == 0);
+        if (!is_trusted_need) continue;
+
+        /* Generic capability match: take everything from the last '.' of the
+         * need name as the capability suffix. "sys.need.led" -> ".led". */
+        const char *suffix = strrchr(need_name, '.');
+        if (!suffix) continue;
+        goose_cell_t *cap = goonies_resolve_by_capability(suffix);
+        if (!cap) continue;
+
+        if (autonomy_field->route_count >= MAX_FABRICATED_ROUTES) break;
+        bool exists = false;
+        for (size_t ridx = 0; ridx < autonomy_field->route_count; ridx++) {
+            if (goose_coord_equal(autonomy_field->routes[ridx].source_coord, need->coord) &&
+                goose_coord_equal(autonomy_field->routes[ridx].sink_coord, cap->coord)) {
+                exists = true; break;
             }
         }
+        if (exists) continue;
+        goose_route_t *r = &autonomy_field->routes[autonomy_field->route_count++];
+        snprintf(r->name, 16, "auto_%lu", (unsigned long)i);
+        r->source_coord = need->coord;
+        r->sink_coord = cap->coord;
+        r->orientation = REFLEX_TRIT_POS;
+        r->coupling = GOOSE_COUPLING_SOFTWARE;
+        goose_apply_route(r);
     }
     return ESP_OK;
 }
@@ -296,6 +315,25 @@ esp_err_t goose_apply_route(goose_route_t *route) {
     return ESP_OK;
 }
 
+/* NEURON aggregation: ternary sum across all routes in a sub-field,
+ * thresholded at strict majority. For n routes the threshold is floor(n/2)+1:
+ *   n=1 -> 1, n=2 -> 2, n=3 -> 2, n=4 -> 3, n=5 -> 3
+ * Returns +1 / 0 / -1 representing the aggregate posture. */
+static int8_t neuron_quorum(const goose_field_t *sub_field) {
+    if (!sub_field) return 0;
+    int32_t sum = 0;
+    int count = 0;
+    for (size_t i = 0; i < sub_field->route_count; i++) {
+        const goose_cell_t *src = sub_field->routes[i].cached_source;
+        if (src) { sum += (int32_t)src->state; count++; }
+    }
+    if (count == 0) return 0;
+    int32_t threshold = (count / 2) + 1;
+    if (sum >= threshold) return 1;
+    if (sum <= -threshold) return -1;
+    return 0;
+}
+
 static esp_err_t internal_process_transitions(goose_field_t *field, int depth) {
     if (!field || depth > 3) return ESP_ERR_INVALID_STATE;
     uint64_t now = esp_timer_get_time();
@@ -314,9 +352,18 @@ static esp_err_t internal_process_transitions(goose_field_t *field, int depth) {
             r->cached_version = fabric_version;
         }
         if (!r->cached_source || !r->cached_sink) continue;
-        if (r->cached_source->type == GOOSE_CELL_FIELD_PROXY || r->cached_source->type == GOOSE_CELL_NEURON) {
+        if (r->cached_source->type == GOOSE_CELL_FIELD_PROXY) {
+            /* Projection: parent samples a single "success trit" from child.
+             * Uses routes[0] as the designated projection route per
+             * ARCHITECTURE.md §5 (Asynchronous Pulse). */
             goose_field_t *sub_field = goose_fabric_find_field_by_name_hash(r->cached_source->hardware_addr);
-            if (sub_field && sub_field->route_count > 0 && sub_field->routes[0].cached_source) { r->cached_source->state = sub_field->routes[0].cached_source->state; }
+            if (sub_field && sub_field->route_count > 0 && sub_field->routes[0].cached_source) {
+                r->cached_source->state = sub_field->routes[0].cached_source->state;
+            }
+        } else if (r->cached_source->type == GOOSE_CELL_NEURON) {
+            /* Aggregation: multi-route ternary sum with majority threshold. */
+            goose_field_t *sub_field = goose_fabric_find_field_by_name_hash(r->cached_source->hardware_addr);
+            r->cached_source->state = neuron_quorum(sub_field);
         }
         if (r->coupling == GOOSE_COUPLING_SOFTWARE) {
             reflex_trit_t effective_orient = r->learned_orientation ? r->learned_orientation : r->orientation;
