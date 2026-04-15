@@ -16,8 +16,10 @@
 #include <string.h>
 
 #ifdef CONFIG_ULP_COPROC_ENABLED
-#include "ulp_riscv.h"
-#include "goose_ulp.h" 
+#include "ulp_lp_core.h"
+#include "goose_ulp.h"
+extern const uint8_t ulp_main_bin_start[] asm("_binary_goose_ulp_bin_start");
+extern const uint8_t ulp_main_bin_end[]   asm("_binary_goose_ulp_bin_end");
 #endif
 
 static const char *TAG = "GOOSE_RUNTIME";
@@ -304,6 +306,48 @@ reflex_tryte9_t goose_make_coord(int8_t field, int8_t region, int8_t cell) {
 }
 
 bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b) { for (int i = 0; i < 9; i++) { if (a.trits[i] != b.trits[i]) return false; } return true; }
+
+#ifdef CONFIG_ULP_COPROC_ENABLED
+static bool lp_heartbeat_running = false;
+
+esp_err_t goose_lp_heartbeat_init(void) {
+    if (lp_heartbeat_running) return ESP_OK;
+    esp_err_t rc = ulp_lp_core_load_binary(ulp_main_bin_start,
+                                           ulp_main_bin_end - ulp_main_bin_start);
+    if (rc != ESP_OK) {
+        ESP_LOGW(TAG, "LP heartbeat: load failed rc=0x%x", rc);
+        return rc;
+    }
+    ulp_lp_led_intent  = 0;
+    ulp_lp_pulse_count = 0;
+    ulp_lp_core_cfg_t cfg = {
+        .wakeup_source = ULP_LP_CORE_WAKEUP_SOURCE_LP_TIMER,
+        .lp_timer_sleep_duration_us = 1000 * 1000,  /* 1 Hz */
+    };
+    rc = ulp_lp_core_run(&cfg);
+    if (rc != ESP_OK) {
+        ESP_LOGW(TAG, "LP heartbeat: run failed rc=0x%x", rc);
+        return rc;
+    }
+    lp_heartbeat_running = true;
+    ESP_LOGI(TAG, "LP heartbeat: active (LP timer 1Hz)");
+    return ESP_OK;
+}
+
+void goose_lp_heartbeat_sync(void) {
+    if (!lp_heartbeat_running) return;
+    goose_cell_t *intent = goonies_resolve_cell("agency.led.intent");
+    if (intent) ulp_lp_led_intent = (int32_t)intent->state;
+}
+
+uint32_t goose_lp_heartbeat_count(void) {
+    return lp_heartbeat_running ? (uint32_t)ulp_lp_pulse_count : 0;
+}
+#else
+esp_err_t goose_lp_heartbeat_init(void) { return ESP_ERR_NOT_SUPPORTED; }
+void goose_lp_heartbeat_sync(void) {}
+uint32_t goose_lp_heartbeat_count(void) { return 0; }
+#endif
 
 esp_err_t goose_apply_route(goose_route_t *route) {
     if (!route) return ESP_ERR_INVALID_ARG;

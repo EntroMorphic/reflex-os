@@ -158,6 +158,9 @@ esp_err_t goose_supervisor_pulse(void) {
             goose_supervisor_rebalance(supervised_fields[i]);
         }
     }
+
+    // Mirror HP intent into LP coprocessor for Coherent Heartbeat.
+    goose_lp_heartbeat_sync();
     
     // Autonomic Fabrication pass at 1Hz (offset by 2)
     static int weave_div = 0;

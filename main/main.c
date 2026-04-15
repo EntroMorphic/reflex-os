@@ -137,6 +137,7 @@ void app_main(void)
     goose_supervisor_init();
     goose_gateway_init();
     goose_atlas_manifest_weave();
+    goose_lp_heartbeat_init();  // LP RISC-V Coherent Heartbeat
 
     // 6. Background Regulation
     xTaskCreate(goose_supervisor_task, "goose-super", 4096, NULL, 20, NULL);

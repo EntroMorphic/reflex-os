@@ -542,7 +542,7 @@ static void reflex_shell_loom_bloat_test(void) {
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <..>, goonies <ls|find name>, services, config <get|set>, vm info, aura setkey <hex>\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <..>, goonies <ls|find name>, services, config <get|set>, vm info, aura setkey <hex>, heartbeat\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
     else if (strcmp(argv[0], "goonies") == 0) {
         if (argc >= 2 && strcmp(argv[1], "ls") == 0) reflex_shell_loom_list();
@@ -578,6 +578,8 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
     } else if (strcmp(argv[0], "config") == 0) {
         if (argc >= 3 && strcmp(argv[1], "get") == 0) reflex_shell_config_get(argv[2]);
         else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
+    } else if (strcmp(argv[0], "heartbeat") == 0) {
+        printf("lp_pulse_count=%lu\n", (unsigned long)goose_lp_heartbeat_count());
     } else if (strcmp(argv[0], "aura") == 0) {
         if (argc >= 3 && strcmp(argv[1], "setkey") == 0) {
             const char *hex = argv[2];

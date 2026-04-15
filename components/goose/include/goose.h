@@ -377,5 +377,23 @@ esp_err_t goose_atmosphere_emit_posture(int8_t state, uint8_t weight);
  */
 esp_err_t goose_atmosphere_set_key(const uint8_t key[16]);
 
+/**
+ * @brief Bootstrap the LP RISC-V coprocessor heartbeat. Loads the embedded
+ * ULP binary, provisions initial globals, and starts it. Returns
+ * ESP_ERR_NOT_SUPPORTED if CONFIG_ULP_COPROC_ENABLED is off.
+ */
+esp_err_t goose_lp_heartbeat_init(void);
+
+/**
+ * @brief Mirror agency.led.intent state into the LP coprocessor. Called
+ * from the supervisor pulse so the LP heartbeat tracks HP intent.
+ */
+void goose_lp_heartbeat_sync(void);
+
+/**
+ * @brief Read the LP heartbeat counter. Zero if the LP core is not running.
+ */
+uint32_t goose_lp_heartbeat_count(void);
+
 #endif
 
