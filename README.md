@@ -1,97 +1,53 @@
-# Reflex OS
+# Reflex OS v2.2 (The GOOSE Substrate)
 
-Reflex OS is a binary-hosted ternary operating environment for the Seeed Studio XIAO ESP32C6, built on ESP-IDF. It extends binary silicon with a software-defined ternary machine that manages physical hardware.
+Reflex OS is a binary-hosted ternary operating environment for the Seeed Studio XIAO ESP32C6. It reinterprets physical hardware as a coherent **Geometric Tapestry**, replacing traditional binary software abstractions with a software-defined ternary execution substrate known as **GOOSE** (Geometric Ontologic Operating System Execution).
 
-The project provides a complete "Soft Silicon" stack:
+## The Soft Silicon Stack
 
-- **Ternary Core:** Balanced ternary semantics, 32-bit packed bytecode (v2), and an MMU-backed shared memory model.
-- **Acceleration:** A software-defined L1 Soft-Cache with MESI-lite coherency for high-speed ternary execution.
-- **Coordination:** A high-speed Ternary Message Fabric for 1-to-1 task and service communication.
-- **Supervisor:** A background ternary assembly program that manages physical hardware (LED, Button) via the fabric.
+- **The Loom (Ternary Fabric):** High-performance spatial memory in RTC RAM utilizing **Lattice Hashing** for $O(1)$ coordinate-based cell lookups.
+- **G.O.O.N.I.E.S.:** The *Geometric Object Oriented Name Identification Execution Service*. A hierarchical hardware DNS (`agency.led.intent`) for late-binding logic to physical silicon.
+- **The Sanctuary Guard:** Substrate-level security that prevents unauthorized MMIO mapping, isolating critical hardware (PMU, EFUSE) from guest agency.
+- **Harmonic Supervisor:** An autonomic "immune system" that monitors the Loom for disequilibrium and re-levels system posture via meta-agency.
+- **Atmospheric Arcing:** Secure, Aura-checked ESP-NOW state propagation for inter-system geometric communication.
 
 ## Hardware
 
 - **Board:** Seeed Studio XIAO ESP32C6
-- **Flash:** 4MB (OTA-ready layout)
-- **Console:** USB Serial/JTAG (Native)
-- **I/O:** Onboard LED and User Button (GPIO 9) integrated into the Ternary Fabric.
+- **Architecture:** RISC-V HP Core + RISC-V LP Core (Coherent Heartbeat)
+- **Memory:** MMU-backed shared ternary memory with MESI-lite Soft-Cache.
+- **I/O:** Full peripheral mapping (The Atlas) including GPIO, LEDC, RMT, and PMU.
 
-## Developer Tools
+## Core Documentation
 
-- **TASM:** The Reflex Ternary Assembler (`tasm.py`). Compiles `.tasm` assembly into `.rfxv` binary images with CRC32 integrity and opcode-aware validation.
-- **Hex Loader:** Copy-paste assembled binaries directly into the board via the shell.
-
-## Docs
-
-- `OS-PRD.md`: product requirements
-- `OS-BACKLOG.md`: implementation backlog and status
-- `ARCHITECTURE.md`: project module layout and boundaries
-- `TERNARY-ARCHITECTURE.md`: ternary model decisions
-- `TASM-SPEC.md`: assembler syntax and opcode mapping
-- `VM-LOADER-V2.md`: packed bytecode specification
-- `VM-CACHE.md`: soft-cache and coherency specification
-- `VM-SYSCALLS.md`: host syscall bridge contract
-- `IMPLEMENTATION-STATUS.md`: current hardware-validated state
-- `docs/REMEDIATION-PLAN.md`: audit findings and remediation execution plan
-- `bonsai/`: incubation space for the GOOSE paradigm (Geometric Ontologic Operating System Execution)
-
-## Bonsai (GOOSE Paradigm)
-
-Bonsai is the research space where the deeper geometric execution model is being proven on the C6 silicon.
-
-- **Ontology:** Reinterpreting hardware as a "State Ecology" (`bonsai/GOOSE.md`).
-- **Proof Ladder:** 5 phases of hardware-validated proofs, from atomic cells to native silicon loop intersections (`bonsai/ROADMAP.md`).
-- **Notation:** First-class routing and orientation rules for self-choreographing hardware (`bonsai/NOTATION.md`).
+- `ARCHITECTURE.md`: Module layout and the GOOSE geometric paradigm.
+- `SECURITY.md`: The Sanctuary Guard and Authority Sentry specifications.
+- `bonsai/IMPLEMENTATION-STATUS-BONSAI.md`: Detailed v2.2 validation results.
+- `TASM-SPEC.md`: Ternary Assembler syntax and GOOSE-native opcodes.
 
 ## Shell Commands
 
-Current shell commands:
-
-- `help`
-- `reboot`
-- `led status`: Query the physical LED state.
-- `bonsai exp1 <start|stop|status>`: Edge-attention cell proof (physical button).
-- `bonsai exp2 <start|stop|status>`: Autonomous rhythm field proof (blinking).
-- `bonsai exp3a <start|stop|status>`: Multi-field composition ($A \times B$ multiplication).
-- `bonsai exp4 <connect|invert|detach>`: Regional geometry (GPIO Matrix patch).
-- `bonsai exp5 run`: Silicon Loop intersection (Native Ternary Hardware Compute).
-- `version`, `uptime`, `heap`
-- `config <get|set>`
-- `wifi <status|connect>`
-- `vm loadhex <HEX>`
-- `fabric send <to> <op> <value>`
-- `vm task <start|stop|status>`
-- `vm info`
+- `help`, `reboot`, `version`, `uptime`, `heap`
+- `goonies ls`: List the hierarchical hardware DNS registry.
+- `goonies find <name>`: Resolve a name to its 9-trit coordinate.
+- `bonsai breach`: Execute a Sanctuary Violation test (rejection demo).
+- `bonsai heal`: Trigger a Supervisor rebalance pass on a tilted field.
+- `led status`: Query the physical LED state via the Tapestry.
+- `config <get|set>`: Persistence management.
+- `vm info`: Inspect the Ternary VM state.
 
 ## Build & Flash
 
 ```bash
 # Export ESP-IDF
-source /Users/aaronjosserand-austin/Projects/esp-idf/export.sh
+source ~/Projects/esp-idf/export.sh
 
-# Build
+# Build & Flash
 idf.py build
-
-# Flash (Forcing download mode)
 python3 -m esptool --chip esp32c6 --port /dev/cu.usbmodem1101 --before usb_reset write_flash 0x0 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0x10000 build/reflex_os.bin
 ```
 
-## Validation Status
+## G.O.O.N.I.E.S. Oath (v2.2 Milestone)
 
-The current remediation pass has been validated on the XIAO ESP32C6 for:
+Reflex OS v2.2 validates that a machine can be governed by geometry rather than binary logic. By leveraging the ESP32-C6's LP Core and RTC RAM, the OS maintains its identity and security posture even during deep reflection (sleep). 
 
-- Ternary Supervisor background execution
-- Fabric-native Button and LED coordination
-- Soft-Cache performance and coherency
-- Multi-VM Shared Memory (MMU)
-- NVS storage and config persistence
-- Asynchronous Event Bus stability
-- 32-bit Packed Loader with CRC32 verification
-
-Red-team checks executed on device:
-
-- truncated binary rejection in `vm loadhex`
-- corrupted CRC32 rejection in `vm loadhex`
-- loaded-image background task start path
-- supervisor-controlled LED toggle via injected fabric message to VM node `7`
-- direct LED toggle via injected fabric message to node `1`
+**"GOONIES never say die!"**
