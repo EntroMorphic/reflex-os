@@ -461,7 +461,7 @@ static esp_err_t internal_process_transitions(goose_field_t *field, int depth) {
         if (r->cached_source->type == GOOSE_CELL_FIELD_PROXY) {
             /* Projection: parent samples a single "success trit" from child.
              * Uses routes[0] as the designated projection route per
-             * ARCHITECTURE.md §5 (Asynchronous Pulse). */
+             * docs/architecture.md §5 (Asynchronous Pulse). */
             goose_field_t *sub_field = goose_fabric_find_field_by_name_hash(r->cached_source->hardware_addr);
             if (sub_field && sub_field->route_count > 0 && sub_field->routes[0].cached_source) {
                 r->cached_source->state = sub_field->routes[0].cached_source->state;

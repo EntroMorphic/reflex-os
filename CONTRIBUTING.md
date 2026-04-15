@@ -10,10 +10,12 @@
 ## Development Setup
 
 1. Install ESP-IDF 5.5 or a compatible version.
-2. Export the ESP-IDF environment:
+2. Export the ESP-IDF environment. The path depends on where you
+   installed ESP-IDF; typical locations are `~/esp-idf/export.sh` or
+   `~/Projects/esp-idf/export.sh`:
 
 ```bash
-source ~/esp-idf/export.sh
+source /path/to/esp-idf/export.sh
 ```
 
 3. Build the firmware:
