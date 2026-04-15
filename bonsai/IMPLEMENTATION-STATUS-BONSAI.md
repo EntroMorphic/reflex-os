@@ -95,13 +95,17 @@ Reflex OS has successfully birthed the **GOOSE** paradigm (Geometric Ontologic O
 -   **Status:** Done
 -   **Findings:** Replaced linear searches with a **Prime Lattice Projection**. Reduced lookup latency by **100x** (Linear $\to$ Lattice). Stabilized the fabric for concurrent trans-core access during re-weaving.
 
+### Phase 21: G.O.O.N.I.E.S. & Sanctuary (Hardened Discovery)
+-   **Status:** Done
+-   **Findings:** The Tapestry now supports hierarchical naming (e.g., `agency.led.intent`) via **G.O.O.N.I.E.S.** (Geometric Object Oriented Name Identification Execution Service). 
+-   **Discovery:** **"Immutable Intent"**. System-critical zones (`sys`, `agency`) are now immutable. The **Sanctuary Guard** prevents non-system cells from mapping to critical MMIO regions (PMU, EFUSE). The **Authority Sentry** prevents spinlock deadlocks via cycle-accurate watchdogs.
+
 ## Current State of the "Tapestry" (v2.2 Final)
--   **Atmosphere:** ESP-NOW Arcing.
--   **Memory:** Spatial Paging + Compact Cells.
--   **Atomicity:** Aligned Spinlocks + Peterson Safety.
--   **Flow:** Authority-led DMA.
+-   **Atmosphere:** ESP-NOW Arcing (Aura-checked).
+-   **Memory:** Spatial Paging + Compact Cells + Lattice Index.
+-   **Discovery:** G.O.O.N.I.E.S. (Hierarchical DNS).
+-   **Integrity:** Sanctuary Guard (MMIO Whitelist) + Authority Sentry (Watchdog).
 -   **Speed:** Silicon ETM (40ns) + Lattice LSH ($O(1)$).
--   **Intelligence:** Real-time telemetry.
 
 ## What Has Emerged (The Final Thesis)
 Reflex OS v2.2 proves that the Geometric Field is not only possible but **Highly Efficient**. By leveraging silicon-native structures (ETM, Aligned Atomics, Lattice Hashing), we have created an OS that is faster than its own clock cycles. The Mothership is now shored up and ready for expansion.

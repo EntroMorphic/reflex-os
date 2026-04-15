@@ -10,62 +10,60 @@
 #include "reflex_fabric.h"
 #include "goose.h"
 
-static goose_cell_t *led_intent = NULL;
-static goose_cell_t led_physical = { 
-    .name = "physical", 
-    .state = REFLEX_TRIT_ZERO, 
-    .type = GOOSE_CELL_HARDWARE_OUT, 
-    .hardware_addr = REFLEX_LED_PIN 
-};
-
-static goose_route_t led_route = {
-    .name = "agency_path",
-    .source = NULL, // Will be linked to led_intent
-    .sink = &led_physical,
-    .orientation = REFLEX_TRIT_POS,
-    .coupling = GOOSE_COUPLING_SOFTWARE
-};
-
-static goose_field_t led_agency_field = {
-    .name = "led_agency",
-    .routes = &led_route,
-    .route_count = 1,
-    .rhythm = GOOSE_RHYTHM_REACTIVE // 100Hz high-speed IO
-};
+static goose_route_t led_route;
+static goose_field_t led_agency_field;
 
 static void reflex_led_task(void *arg)
 {
     // Retrieve the intent cell from the global fabric
-    led_intent = goose_fabric_get_cell("led_intent");
-    led_route.source = led_intent;
+    goose_cell_t *led_intent = goose_fabric_get_cell("led_intent");
+    
+    // Allocate a coordinate for the physical LED (Field 1, Region 1, Cell 15)
+    reflex_tryte9_t phys_coord = goose_make_coord(1, 1, 15);
+    goose_cell_t *led_phys = goose_fabric_alloc_cell("led_phys", phys_coord);
 
-    if (!led_intent) {
-        ESP_LOGE("LED_SERVICE", "Failed to find led_intent cell in fabric!");
+    if (!led_intent || !led_phys) {
+        ESP_LOGE("LED_SERVICE", "Failed to manifest LED in Fabric!");
         vTaskDelete(NULL);
         return;
     }
+
+    goose_fabric_set_agency(led_phys, REFLEX_LED_PIN, GOOSE_CELL_HARDWARE_OUT);
+
+    // Manifest the Route
+    memset(&led_route, 0, sizeof(goose_route_t));
+    snprintf(led_route.name, 16, "led_path");
+    led_route.source_coord = led_intent->coord;
+    led_route.sink_coord = phys_coord;
+    led_route.orientation = REFLEX_TRIT_POS;
+    led_route.coupling = GOOSE_COUPLING_SOFTWARE;
+
+    // Manifest the Field
+    memset(&led_agency_field, 0, sizeof(goose_field_t));
+    snprintf(led_agency_field.name, 16, "led_agency");
+    led_agency_field.routes = &led_route;
+    led_agency_field.route_count = 1;
+    led_agency_field.rhythm = GOOSE_RHYTHM_REACTIVE;
 
     // Register field for global regulation (10Hz)
     goose_supervisor_register_field(&led_agency_field);
 
     // Start regional high-speed pulse (100Hz)
-    // This replaces the manual loop and ensures low-latency propagation.
     goose_field_start_pulse(&led_agency_field);
 
-    vTaskDelete(NULL); // This task's job is done; the Pulse Task takes over.
+    vTaskDelete(NULL);
 }
 
 static esp_err_t reflex_led_service_init(void *ctx)
 {
     (void)ctx;
-    // We still call reflex_led_init to ensure the GPIO is configured
     return reflex_led_init();
 }
 
 static esp_err_t reflex_led_service_start(void *ctx)
 {
     (void)ctx;
-    if (xTaskCreate(reflex_led_task, "reflex-led", 2048, NULL, 5, NULL) != pdPASS) {
+    if (xTaskCreate(reflex_led_task, "reflex-led", 4096, NULL, 5, NULL) != pdPASS) {
         return ESP_FAIL;
     }
     return ESP_OK;

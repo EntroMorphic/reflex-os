@@ -222,6 +222,11 @@ goose_route_t* goose_fabric_find_radio_route_by_source_coord(reflex_tryte9_t coo
 goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord);
 
 /**
+ * @brief Securely map a cell to physical agency (Sanctuary Guarded).
+ */
+esp_err_t goose_fabric_set_agency(goose_cell_t *cell, uint32_t hardware_addr, goose_cell_type_t type);
+
+/**
  * @brief Reserve a coordinate space in the Loom.
  */
 esp_err_t goose_fabric_process(void);
@@ -270,6 +275,40 @@ bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b);
  * @brief Weave the full hardware spectrum of the ESP32-C6 into the Loom.
  */
 esp_err_t goose_atlas_manifest_weave(void);
+
+// --- G.O.O.N.I.E.S. API (Geometric Object Oriented Name Identification Execution Service) ---
+
+/**
+ * @brief Register a human-readable name for a geometric coordinate.
+ */
+esp_err_t goonies_register(const char *name, reflex_tryte9_t coord);
+
+/**
+ * @brief Resolve a name to its 9-trit coordinate.
+ */
+esp_err_t goonies_resolve(const char *name, reflex_tryte9_t *out_coord);
+
+/**
+ * @brief Resolve a name and return the direct cell pointer.
+ */
+goose_cell_t* goonies_resolve_cell(const char *name);
+
+// --- Supervisor API ---
+
+/**
+ * @brief Initialize the Harmonic Supervisor.
+ */
+esp_err_t goose_supervisor_init(void);
+
+/**
+ * @brief Register a field for harmonic regulation.
+ */
+esp_err_t goose_supervisor_register_field(goose_field_t *field);
+
+/**
+ * @brief Perform a single regulation pulse.
+ */
+esp_err_t goose_supervisor_pulse(void);
 
 #endif
 

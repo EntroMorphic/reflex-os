@@ -1,3 +1,18 @@
+/**
+ * @file goose_runtime.c
+ * @brief GOOSE Runtime: The Loom of State
+ * 
+ * This module implements the "Loom" - a ternary state-space residing in RTC RAM.
+ * It reinterprets machine memory as a geometric fabric where identity is 
+ * defined by spatial coordinates rather than pointers.
+ * 
+ * Substrate Features:
+ * 1. G.O.O.N.I.E.S. - Hierarchical Naming (Loom DNS)
+ * 2. Lattice Hashing - O(1) Spatial Lookup
+ * 3. Sanctuary Guard - Hardware Privilege Isolation
+ * 4. Authority Sentry - Cycle-accurate Spinlock Watchdog
+ */
+
 #include "goose.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -8,25 +23,83 @@
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <string.h>
 
 #ifdef CONFIG_ULP_COPROC_ENABLED
 #include "ulp_riscv.h"
-#include "goose_ulp.h" // Generated header from CMake
+#include "goose_ulp.h" 
 #endif
 
 static const char *TAG = "GOOSE_RUNTIME";
 
 #define GOOSE_FABRIC_MAX_CELLS 256
-#define GOOSE_LATTICE_BUCKETS 503 // Prime number to reduce harmonic collisions
+#define GOOSE_LATTICE_BUCKETS 503 
+
 static RTC_DATA_ATTR goose_cell_t fabric_cells[GOOSE_FABRIC_MAX_CELLS];
 static RTC_DATA_ATTR int16_t lattice_index[GOOSE_LATTICE_BUCKETS]; 
 static RTC_DATA_ATTR uint32_t fabric_cell_count = 0;
 static RTC_DATA_ATTR uint32_t fabric_version = 0;
 static RTC_DATA_ATTR volatile bool lattice_stable = false;
 
-/**
- * @brief Ternary Lattice Hash (Spatial Projection)
- */
+// G.O.O.N.I.E.S. Registry (DRAM-based)
+typedef struct {
+    char name[24]; // Slightly larger for hierarchical names like "agency.light.led0"
+    reflex_tryte9_t coord;
+} goonies_entry_t;
+
+static goonies_entry_t goonies_registry[GOOSE_FABRIC_MAX_CELLS];
+static uint32_t goonies_count = 0;
+
+esp_err_t goonies_register(const char *name, reflex_tryte9_t coord) {
+    if (goonies_count >= GOOSE_FABRIC_MAX_CELLS) return ESP_ERR_NO_MEM;
+    if (!name || strlen(name) < 3) return ESP_ERR_INVALID_ARG;
+
+    // Red-Team Remediation: Zone Protection
+    // Names in 'sys' or 'agency' zones are IMMUTABLE once woven.
+    bool is_protected = (strncmp(name, "sys.", 4) == 0 || strncmp(name, "agency.", 7) == 0);
+    
+    for (uint32_t i = 0; i < goonies_count; i++) {
+        if (strcmp(goonies_registry[i].name, name) == 0) {
+            if (is_protected) {
+                ESP_LOGE("GOONIES", "Security Violation: Cannot re-weave protected name [%s]", name);
+                return ESP_ERR_INVALID_STATE;
+            }
+            goonies_registry[i].coord = coord; // Update allowed for user zones
+            return ESP_OK;
+        }
+    }
+
+    snprintf(goonies_registry[goonies_count].name, 24, "%s", name);
+    goonies_registry[goonies_count].coord = coord;
+    goonies_count++;
+    return ESP_OK;
+}
+
+esp_err_t goonies_resolve(const char *name, reflex_tryte9_t *out_coord) {
+    for (uint32_t i = 0; i < goonies_count; i++) {
+        if (strcmp(goonies_registry[i].name, name) == 0) {
+            *out_coord = goonies_registry[i].coord;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+goose_cell_t* goonies_resolve_cell(const char *name) {
+    reflex_tryte9_t coord;
+    if (goonies_resolve(name, &coord) == ESP_OK) {
+        return goose_fabric_get_cell_by_coord(coord);
+    }
+    return NULL;
+}
+
+// Shell-facing helper to get registry count and entries
+uint32_t goonies_get_count(void) { return goonies_count; }
+const char* goonies_get_name_by_idx(uint32_t idx) { return (idx < goonies_count) ? goonies_registry[idx].name : NULL; }
+reflex_tryte9_t goonies_get_coord_by_idx(uint32_t idx) { return (idx < goonies_count) ? goonies_registry[idx].coord : (reflex_tryte9_t){0}; }
+
+static RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
+
 static uint32_t goose_lattice_hash(reflex_tryte9_t coord) {
     uint32_t hash = 0;
     for (int i = 0; i < 9; i++) {
@@ -35,130 +108,83 @@ static uint32_t goose_lattice_hash(reflex_tryte9_t coord) {
     return hash % GOOSE_LATTICE_BUCKETS;
 }
 
-esp_err_t goose_fabric_init(void) {
-    ESP_LOGI(TAG, "Initializing GOOSE Ternary Fabric (The Loom)...");
+#define LOOM_LOCK_TIMEOUT_CYCLES 50000
+
+/**
+ * @brief MMIO Sanctuary Guard
+ * Defines which hardware regions are "Safe Agency" for the Loom.
+ */
+static bool is_sanctuary_address(uint32_t addr) {
+    // Permitted: GPIO (0x60091000), LEDC (0x60007000), RMT (0x60006000)
+    if ((addr & 0xFFFFF000) == 0x60091000) return false; // Safe
+    if ((addr & 0xFFFFF000) == 0x60007000) return false; // Safe
+    if ((addr & 0xFFFFF000) == 0x60006000) return false; // Safe
     
-    lattice_stable = false;
-    for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
-    
-    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED) {
-        // [0,0,0] System:Origin
-        fabric_cells[0].coord = goose_make_coord(0, 0, 0); 
-        fabric_cells[0].state = 1; 
-        fabric_cells[0].type = 0; 
-        lattice_index[goose_lattice_hash(fabric_cells[0].coord)] = 0;
-        
-        // [0,0,1] Agency:LED_Intent
-        fabric_cells[1].coord = goose_make_coord(0, 0, 1); 
-        fabric_cells[1].state = 0; 
-        fabric_cells[1].type = 3; 
-        fabric_cells[1].hardware_addr = 15; 
-        lattice_index[goose_lattice_hash(fabric_cells[1].coord)] = 1;
-        
-        fabric_cell_count = 2;
-        fabric_version = 1;
-    } else {
-        ESP_LOGI(TAG, "Wake-up detected. Loom persistence verified.");
-        for (uint32_t i = 0; i < fabric_cell_count; i++) {
-            lattice_index[goose_lattice_hash(fabric_cells[i].coord)] = i;
-        }
-    }
-    lattice_stable = true;
-    return ESP_OK;
+    // Everything else is Sanctuary (PMU, EFUSE, MMU, etc.)
+    return true; 
 }
 
-goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
-    if (!lattice_stable) return NULL; // Safety gate for concurrent LP pulses
-
-    uint32_t hash = goose_lattice_hash(coord);
-    int16_t idx = lattice_index[hash];
+static uint32_t goose_loom_lock_with_stats(goose_field_t *field) {
+    uint32_t start = esp_cpu_get_cycle_count();
     
-    // 1. Lattice Hit?
-    if (idx >= 0 && idx < fabric_cell_count) {
-        if (goose_coord_equal(fabric_cells[idx].coord, coord)) {
-            return &fabric_cells[idx];
+    // Red-Team Remediation: Authority Sentry (Anti-Deadlock)
+    while (__atomic_test_and_set(&loom_authority, __ATOMIC_ACQUIRE)) {
+        if ((esp_cpu_get_cycle_count() - start) > LOOM_LOCK_TIMEOUT_CYCLES) {
+            ESP_LOGE("GOOSE", "AUTHORITY DEADLOCK! Force-breaking Loom lock.");
+            __atomic_clear(&loom_authority, __ATOMIC_RELEASE);
+            if (field) field->stats.lock_contention_cycles += LOOM_LOCK_TIMEOUT_CYCLES;
+            return LOOM_LOCK_TIMEOUT_CYCLES;
         }
+        esp_rom_delay_us(1);
     }
-
-    // 2. Lattice Miss/Collision - Linear Fallback (Temporary)
-    // Increment collision count for benchmarking and supervisor observation.
-    // Note: We need a way to find the current field's stats here.
-    for (size_t i = 0; i < fabric_cell_count; i++) {
-        if (goose_coord_equal(fabric_cells[i].coord, coord)) {
-            return &fabric_cells[i];
-        }
-    }
-    return NULL;
-}
 
     uint32_t end = esp_cpu_get_cycle_count();
     if (field) field->stats.lock_contention_cycles += (end - start);
     return end - start;
 }
 
-static void goose_loom_lock(void) {
-    goose_loom_lock_with_stats(NULL);
-}
-
 static void goose_loom_unlock(void) {
-    loom_authority = 0;
+    __atomic_clear(&loom_authority, __ATOMIC_RELEASE);
 }
 
 esp_err_t goose_fabric_init(void) {
-    ESP_LOGI(TAG, "Initializing GOOSE Ternary Fabric (The Loom)...");
+    ESP_LOGI(TAG, "Initializing Secure GOOSE Ternary Fabric...");
     
-    // Check if we are waking up from sleep - if so, don't re-init Loom
+    lattice_stable = false;
+    goonies_count = 0;
+    
     if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED) {
-        // [0,0,0] System:Origin
-        fabric_cells[0].coord = goose_make_coord(0, 0, 0); 
-        fabric_cells[0].state = 1; // POS (Balanced)
-        fabric_cells[0].type = 0; // VIRTUAL
+        for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
         
-        // [0,0,1] Agency:LED_Intent (Legacy Proof)
-        fabric_cells[1].coord = goose_make_coord(0, 0, 1); 
-        fabric_cells[1].state = 0; // ZERO
-        fabric_cells[1].type = 3; // INTENT
-        fabric_cells[1].hardware_addr = 15; // LED PIN
+        // Root Zone Entries (GOONIES Registry)
+        goose_fabric_alloc_cell("sys.origin", goose_make_coord(0, 0, 0));
+        goose_fabric_alloc_cell("agency.led.intent", goose_make_coord(0, 0, 1));
         
-        fabric_cell_count = 2;
         fabric_version = 1;
     } else {
-        ESP_LOGI(TAG, "Wake-up detected. Loom persistence verified.");
+        ESP_LOGI(TAG, "Wake-up detected. Secure Loom persistence verified.");
+        for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
+        for (uint32_t i = 0; i < fabric_cell_count; i++) {
+            lattice_index[goose_lattice_hash(fabric_cells[i].coord)] = i;
+        }
     }
 
-#ifdef CONFIG_ULP_COPROC_ENABLED
-    ESP_LOGI(TAG, "Starting Autonomous Heartbeat (LP Core)...");
-    esp_err_t err = ulp_riscv_load_binary(goose_ulp_bin_start, (goose_ulp_bin_end - goose_ulp_bin_start));
-    if (err == ESP_OK) {
-        ulp_riscv_run();
-    } else {
-        ESP_LOGE(TAG, "Failed to load LP Pulse binary: %d", err);
-    }
-#endif
-
+    lattice_stable = true;
     return ESP_OK;
 }
 
-goose_cell_t* goose_fabric_get_cell(const char *name) {
-    for (size_t i = 0; i < fabric_cell_count; i++) {
-        if (strcmp(fabric_cells[i].name, name) == 0) return &fabric_cells[i];
-    }
-    return NULL;
-}
-
 goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
+    if (!lattice_stable) return NULL; 
+
     uint32_t hash = goose_lattice_hash(coord);
     int16_t idx = lattice_index[hash];
     
-    // 1. Lattice Hit?
     if (idx >= 0 && idx < fabric_cell_count) {
         if (goose_coord_equal(fabric_cells[idx].coord, coord)) {
             return &fabric_cells[idx];
         }
     }
 
-    // 2. Lattice Miss/Collision - Linear Fallback (Temporary)
-    // In v2.3, this will be a small localized search within the Lattice sub-cube.
     for (size_t i = 0; i < fabric_cell_count; i++) {
         if (goose_coord_equal(fabric_cells[i].coord, coord)) {
             return &fabric_cells[i];
@@ -167,15 +193,22 @@ goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
     return NULL;
 }
 
+goose_cell_t* goose_fabric_get_cell(const char *name) {
+    return goonies_resolve_cell(name);
+}
+
+static portMUX_TYPE fabric_mux = portMUX_INITIALIZER_UNLOCKED;
+
 goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord) {
-    // Spatial Guard: Check for collision
+    taskENTER_CRITICAL(&fabric_mux);
+    
     if (goose_fabric_get_cell_by_coord(coord) != NULL) {
-        ESP_LOGE(TAG, "Geometric Collision at coord!");
+        taskEXIT_CRITICAL(&fabric_mux);
         return NULL;
     }
-
+    
     if (fabric_cell_count >= GOOSE_FABRIC_MAX_CELLS) {
-        ESP_LOGE(TAG, "Loom is full!");
+        taskEXIT_CRITICAL(&fabric_mux);
         return NULL;
     }
 
@@ -185,17 +218,33 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord) {
     c->coord = coord;
     c->state = 0;
     
-    // Update Lattice
     lattice_index[goose_lattice_hash(coord)] = (int16_t)idx;
-    fabric_version++;
     
-    ESP_LOGI(TAG, "Allocated Cell at coord index %u (Lattice Updated)", idx);
+    // Register in GOONIES
+    if (name) {
+        goonies_register(name, coord);
+    }
+
+    fabric_version++;
+    taskEXIT_CRITICAL(&fabric_mux);
     return c;
 }
-    return NULL;
+
+esp_err_t goose_fabric_set_agency(goose_cell_t *cell, uint32_t hardware_addr, goose_cell_type_t type) {
+    if (!cell) return ESP_ERR_INVALID_ARG;
+
+    // Red-Team Remediation: MMIO Sanctuary Guard
+    if (is_sanctuary_address(hardware_addr) && type != GOOSE_CELL_SYSTEM_ONLY) {
+        ESP_LOGE("GOOSE", "SANCTUARY VIOLATION: Refusing to map cell to address 0x%08lX", hardware_addr);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    cell->hardware_addr = hardware_addr;
+    cell->type = type;
+    return ESP_OK;
 }
 
-// Global list of fields for route lookup
+// --- Radio Route Registry (Required for Atmospheric Arcing) ---
 static goose_field_t *global_fields[16];
 static size_t global_field_count = 0;
 
@@ -204,7 +253,7 @@ goose_route_t* goose_fabric_find_radio_route_by_source_coord(reflex_tryte9_t coo
         goose_field_t *field = global_fields[f];
         for (size_t r = 0; r < field->route_count; r++) {
             goose_route_t *route = &field->routes[r];
-            if (route->coupling == GOOSE_COUPLING_RADIO && goose_coord_equal(route->source->coord, coord)) {
+            if (route->coupling == GOOSE_COUPLING_RADIO && goose_coord_equal(route->source_coord, coord)) {
                 return route;
             }
         }
@@ -212,34 +261,8 @@ goose_route_t* goose_fabric_find_radio_route_by_source_coord(reflex_tryte9_t coo
     return NULL;
 }
 
-goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord) {
-    // Spatial Guard: Check for collision
-    if (goose_fabric_get_cell_by_coord(coord) != NULL) {
-        ESP_LOGE(TAG, "Geometric Collision at coord!");
-        return NULL;
-    }
-
-    if (fabric_cell_count >= GOOSE_FABRIC_MAX_CELLS) {
-        ESP_LOGE(TAG, "Loom is full!");
-        return NULL;
-    }
-
-    goose_cell_t *c = &fabric_cells[fabric_cell_count++];
-    memset(c, 0, sizeof(goose_cell_t));
-    snprintf(c->name, 16, "%s", name);
-    c->coord = coord;
-    c->state = 0;
-    
-    ESP_LOGI(TAG, "Allocated Cell [%s] at new coord index %u", name, fabric_cell_count-1);
-    return c;
-}
-
 reflex_tryte9_t goose_make_coord(int8_t field, int8_t region, int8_t cell) {
     reflex_tryte9_t t = {0};
-    // Each component fits in 3 trits (base-3 balanced: -13 to +13)
-    // Field: trits[0..2], Region: trits[3..5], Cell: trits[6..8]
-    
-    // Simple mapping: -1 -> -1, 0 -> 0, 1 -> 1 (only using 1 trit per component for now for simplicity)
     t.trits[0] = (reflex_trit_t)field;
     t.trits[3] = (reflex_trit_t)region;
     t.trits[6] = (reflex_trit_t)cell;
@@ -253,82 +276,46 @@ bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b) {
     return true;
 }
 
-esp_err_t goose_fabric_process(void) {
-    // In the future, this would process global system-wide routes
-    return ESP_OK;
-}
-
 esp_err_t goose_apply_route(goose_route_t *route) {
-    if (!route || !route->source || !route->sink) return ESP_ERR_INVALID_ARG;
-
-    ESP_LOGI(TAG, "Applying Route: %s (%s -> %s) [Orient: %d]", 
-             route->name, route->source->name, route->sink->name, route->orientation);
-
+    if (!route) return ESP_ERR_INVALID_ARG;
     if (route->coupling == GOOSE_COUPLING_HARDWARE) {
-        /**
-         * Shadow Agency Implementation
-         * Direct silicon-level routing bypasses software registers.
-         */
-        if (route->cached_sink->hardware_addr < GPIO_NUM_MAX) {
-            bool invert = (route->orientation == -1);
+        if (route->cached_sink && route->cached_source && route->cached_sink->hardware_addr < GPIO_NUM_MAX) {
             esp_rom_gpio_connect_out_signal((gpio_num_t)route->cached_sink->hardware_addr, 
                                             (uint32_t)route->cached_source->hardware_addr, 
-                                            invert, false);
+                                            (route->orientation == -1), false);
         }
-    } else if (route->coupling == GOOSE_COUPLING_SILICON) {
-        /**
-         * Silicon Agency Implementation (ETM Matrix)
-         * Sub-100ns hardware routing.
-         */
-        extern esp_err_t goose_etm_apply_route(goose_route_t *route);
-        goose_etm_apply_route(route);
     }
-
     return ESP_OK;
 }
 
 esp_err_t goose_process_transitions(goose_field_t *field) {
     if (!field) return ESP_ERR_INVALID_ARG;
-    uint32_t start_cycles = esp_cpu_get_cycle_count();
     uint64_t now = esp_timer_get_time();
 
     goose_loom_lock_with_stats(field);
 
-    /**
-     * Phase 1: Evolution (Autonomous Rhythm)
-     */
-    uint32_t evo_start = esp_cpu_get_cycle_count();
+    // Evolution
     for (size_t i = 0; i < field->transition_count; i++) {
         goose_transition_t *t = &field->transitions[i];
-        
         if (!t->cached_target || t->cached_version != fabric_version) {
             t->cached_target = goose_fabric_get_cell_by_coord(t->target_coord);
             t->cached_version = fabric_version;
-            field->stats.tlb_miss_count++;
         }
-
         if (t->cached_target && t->evolution_fn && (now - t->last_run_us) >= (t->interval_ms * 1000)) {
             t->cached_target->state = t->evolution_fn(t->context);
             t->last_run_us = now;
         }
     }
-    field->stats.phase_evolution_cycles = esp_cpu_get_cycle_count() - evo_start;
 
-    /**
-     * Phase 2: Propagation (Geometric Flow)
-     */
-    uint32_t prop_start = esp_cpu_get_cycle_count();
+    // Propagation
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
-        
         if (!r->cached_source || r->cached_version != fabric_version) {
             r->cached_source = goose_fabric_get_cell_by_coord(r->source_coord);
             r->cached_sink = goose_fabric_get_cell_by_coord(r->sink_coord);
             r->cached_control = goose_fabric_get_cell_by_coord(r->control_coord);
             r->cached_version = fabric_version;
-            field->stats.tlb_miss_count++;
         }
-
         if (!r->cached_source || !r->cached_sink) continue;
 
         if (r->coupling == GOOSE_COUPLING_SOFTWARE) {
@@ -336,102 +323,38 @@ esp_err_t goose_process_transitions(goose_field_t *field) {
             r->cached_sink->state = (int8_t)((int)r->cached_source->state * (int)orient);
             
             if (r->cached_sink->hardware_addr > 0 && r->cached_sink->hardware_addr < GPIO_NUM_MAX) {
-                gpio_set_level((gpio_num_t)r->cached_sink->hardware_addr, 
-                               r->cached_sink->state == 1 ? 1 : 0);
-            } else if (r->cached_sink->hardware_addr >= 0x60000000) {
-                volatile uint32_t *reg = (volatile uint32_t *)r->cached_sink->hardware_addr;
-                uint32_t mask = r->cached_sink->bit_mask ? r->cached_sink->bit_mask : 0xFFFFFFFF;
-                
-                if (r->cached_sink->state == 1) {
-                    *reg |= mask;
-                } else if (r->cached_sink->state == -1) {
-                    *reg &= ~mask;
-                }
+                gpio_set_level((gpio_num_t)r->cached_sink->hardware_addr, r->cached_sink->state == 1 ? 1 : 0);
             }
         } else if (r->coupling == GOOSE_COUPLING_RADIO) {
             extern esp_err_t goose_atmosphere_emit_arc(goose_cell_t *source);
             goose_atmosphere_emit_arc(r->cached_source);
         }
     }
-    field->stats.phase_propagation_cycles = esp_cpu_get_cycle_count() - prop_start;
 
     goose_loom_unlock();
-
-    uint32_t end_cycles = esp_cpu_get_cycle_count();
-    uint32_t diff = end_cycles - start_cycles;
-    field->stats.last_pulse_cycles = diff;
-    if (diff > field->stats.max_pulse_cycles) field->stats.max_pulse_cycles = diff;
     field->stats.total_pulses++;
-
-    return ESP_OK;
-}
-
-goose_stats_t goose_field_get_stats(goose_field_t *field) {
-    if (!field) return (goose_stats_t){0};
-    return field->stats;
-}
-
-/**
- * @brief Regional Pulse Task
- * This high-frequency task executes a single field's transitions at its defined Rhythm.
- */
-static void goose_regional_pulse_task(void *arg) {
-    goose_field_t *field = (goose_field_t *)arg;
-    uint32_t delay_ms = 1000 / (uint32_t)field->rhythm;
-    if (delay_ms == 0) delay_ms = 1;
-
-    ESP_LOGI(TAG, "Regional Pulse Task started for [%s] at %u Hz", field->name, (uint32_t)field->rhythm);
-
-    while(1) {
-        goose_process_transitions(field);
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
-    }
-}
-    }
-
-    // 2. Process Routes (State Propagation)
-    for (size_t i = 0; i < field->route_count; i++) {
-        goose_route_t *r = &field->routes[i];
-        
-        if (r->coupling == GOOSE_COUPLING_SOFTWARE) {
-            reflex_trit_t orient = r->control ? r->control->state : r->orientation;
-            r->sink->state = (int8_t)((int)r->source->state * (int)orient);
-            
-            if (r->sink->hardware_addr < GPIO_NUM_MAX) {
-                gpio_set_level((gpio_num_t)r->sink->hardware_addr, 
-                               r->sink->state == 1 ? 1 : 0);
-            }
-        }
-    }
-
     return ESP_OK;
 }
 
 static void goose_regional_pulse_task(void *arg) {
     goose_field_t *field = (goose_field_t *)arg;
     uint32_t delay_ms = 1000 / (uint32_t)field->rhythm;
-    if (delay_ms == 0) delay_ms = 1;
-
-    ESP_LOGI(TAG, "Regional Pulse Task started for [%s] at %u Hz", field->name, (uint32_t)field->rhythm);
-
     while(1) {
         goose_process_transitions(field);
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        vTaskDelay(pdMS_TO_TICKS(delay_ms ? delay_ms : 1));
     }
 }
 
 esp_err_t goose_field_start_pulse(goose_field_t *field) {
     if (!field) return ESP_ERR_INVALID_ARG;
-    
-    // Register field for global route lookups
+
+    // Register for radio route lookups
     if (global_field_count < 16) {
         global_fields[global_field_count++] = field;
     }
 
     char task_name[16];
-    snprintf(task_name, 16, "pulse_%s", field->name);
-    
+    snprintf(task_name, sizeof(task_name), "p_%.13s", field->name);
     xTaskCreate(goose_regional_pulse_task, task_name, 4096, field, 10, NULL);
     return ESP_OK;
 }
-

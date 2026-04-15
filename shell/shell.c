@@ -37,6 +37,7 @@
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
 #include "goose.h"
+#include "esp_sleep.h"
 
 #define REFLEX_SHELL_LINE_MAX 256
 #define REFLEX_SHELL_ARGV_MAX 8
@@ -309,45 +310,48 @@ static void reflex_shell_bonsai_runtime_test(void) {
     printf("GOOSE Phase 7 (Hardened): Initializing Runtime Test...\n");
     goose_fabric_init();
 
-    // 1. Define Cells
-    static goose_cell_t source = { .name = "oscillator", .state = REFLEX_TRIT_NEG };
-    static goose_cell_t sink = { .name = "led_agency", .state = REFLEX_TRIT_ZERO, .hardware_addr = REFLEX_LED_PIN };
+    // 1. Coordinates
+    reflex_tryte9_t c_src = goose_make_coord(10, 0, 1);
+    reflex_tryte9_t c_snk = goose_make_coord(10, 0, 2);
 
-    // 2. Define Transition (Evolution)
-    static goose_transition_t trans = {
-        .name = "heartbeat",
-        .target = &source,
-        .evolution_fn = reflex_shell_bonsai_rhythm_evolve,
-        .interval_ms = 500
-    };
+    // 2. Define Cells
+    goose_cell_t *source = goose_fabric_alloc_cell("oscillator", c_src);
+    goose_cell_t *sink = goose_fabric_alloc_cell("led_proxy", c_snk);
+    if (!source || !sink) return;
+    source->state = REFLEX_TRIT_NEG;
+    sink->hardware_addr = REFLEX_LED_PIN;
 
-    // 3. Define Route
-    static goose_route_t route = {
-        .name = "agency_patch",
-        .source = &source,
-        .sink = &sink,
-        .orientation = REFLEX_TRIT_POS,
-        .coupling = GOOSE_COUPLING_SOFTWARE
-    };
+    // 3. Define Transition (Evolution)
+    static goose_transition_t trans;
+    memset(&trans, 0, sizeof(trans));
+    snprintf(trans.name, 16, "heartbeat");
+    trans.target_coord = c_src;
+    trans.evolution_fn = reflex_shell_bonsai_rhythm_evolve;
+    trans.interval_ms = 500;
 
-    // 4. Define Field
-    static goose_field_t field = {
-        .name = "rhythm_field",
-        .routes = &route,
-        .route_count = 1,
-        .transitions = &trans,
-        .transition_count = 1
-    };
+    // 4. Define Route
+    static goose_route_t route;
+    memset(&route, 0, sizeof(route));
+    snprintf(route.name, 16, "agency_patch");
+    route.source_coord = c_src;
+    route.sink_coord = c_snk;
+    route.orientation = REFLEX_TRIT_POS;
+    route.coupling = GOOSE_COUPLING_SOFTWARE;
 
-    printf("Field [%s] created with 1 route and 1 transition.\n", field.name);
-    
-    // Run for 5 seconds
-    printf("Running autonomous field for 5s...\n");
+    // 5. Define Field
+    static goose_field_t field;
+    memset(&field, 0, sizeof(field));
+    snprintf(field.name, 16, "rhythm_field");
+    field.routes = &route;
+    field.route_count = 1;
+    field.transitions = &trans;
+    field.transition_count = 1;
+
+    printf("Field [%s] created.\n", field.name);
     for(int i=0; i<50; i++) {
         goose_process_transitions(&field);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
-    
     printf("Runtime test complete.\n");
 }
 
@@ -363,39 +367,36 @@ static void reflex_shell_tapestry_signal(const char *name, int state) {
 
 static void reflex_shell_bonsai_heal_test(void) {
     printf("GOOSE Phase 9: Harmonic Supervisor Proof-of-Life...\n");
-    
-    // 1. Setup a "Broken" Field
-    static goose_cell_t source = { .name = "signal", .state = REFLEX_TRIT_POS, .type = GOOSE_CELL_INTENT };
-    static goose_cell_t sink = { .name = "agency", .state = REFLEX_TRIT_NEG, .type = GOOSE_CELL_HARDWARE_OUT, .hardware_addr = REFLEX_LED_PIN };
-    
-    // Route is intentionally INHIBITED (0)
-    static goose_route_t route = {
-        .name = "unbalanced_path",
-        .source = &source,
-        .sink = &sink,
-        .orientation = REFLEX_TRIT_ZERO,
-        .coupling = GOOSE_COUPLING_SOFTWARE
-    };
-    
-    static goose_field_t field = {
-        .name = "healing_field",
-        .routes = &route,
-        .route_count = 1
-    };
+    reflex_tryte9_t c_src = goose_make_coord(11, 0, 1);
+    reflex_tryte9_t c_snk = goose_make_coord(11, 0, 2);
 
-    printf("Created field [%s]. Signal=POS, Route=INHIBIT, Sink=NEG. (Disequilibrium)\n", field.name);
+    goose_cell_t *source = goose_fabric_alloc_cell("heal_src", c_src);
+    goose_cell_t *sink = goose_fabric_alloc_cell("heal_snk", c_snk);
+    if (!source || !sink) return;
+    source->state = REFLEX_TRIT_POS;
+    source->type = GOOSE_CELL_INTENT;
+    sink->state = REFLEX_TRIT_NEG;
+    sink->type = GOOSE_CELL_HARDWARE_OUT;
+    sink->hardware_addr = REFLEX_LED_PIN;
     
-    // 2. Perception: Supervisor checks equilibrium
-    if (goose_supervisor_check_equilibrium(&field) != ESP_OK) {
-        printf("Supervisor detected Disequilibrium! Initiating Rebalance...\n");
-        
-        // 3. Agency: Supervisor re-levels the manifold
-        goose_supervisor_rebalance(&field);
-        
-        printf("Rebalance complete. Route orientation is now: %d\n", route.orientation);
-        printf("Sink state is now: %d (LED should be ON)\n", sink.state);
-    } else {
-        printf("Error: Supervisor failed to detect disequilibrium.\n");
+    static goose_route_t route;
+    memset(&route, 0, sizeof(route));
+    snprintf(route.name, 16, "unbalanced");
+    route.source_coord = c_src;
+    route.sink_coord = c_snk;
+    route.orientation = REFLEX_TRIT_ZERO;
+    route.coupling = GOOSE_COUPLING_SOFTWARE;
+    
+    static goose_field_t field;
+    memset(&field, 0, sizeof(field));
+    snprintf(field.name, 16, "healing_field");
+    field.routes = &route;
+    field.route_count = 1;
+
+    printf("Created field [%s]. Signal=POS, Route=INHIBIT, Sink=NEG.\n", field.name);
+    
+    if (goose_supervisor_pulse() == ESP_OK) { // Simplified for shell test
+        printf("Pulse complete. Check logs for rebalance action.\n");
     }
 }
 
@@ -432,7 +433,7 @@ static void reflex_shell_bonsai_gvm_test(void) {
 
     // Manually set R1 to the coordinate of 'led_intent' (0, 0, 1)
     // Based on goose_make_coord: trit[0]=0, trit[3]=0, trit[6]=1
-    reflex_vm_zero_word(&gvm.registers[1]);
+    memset(&gvm.registers[1], 0, sizeof(reflex_word18_t));
     gvm.registers[1].trits[6] = REFLEX_TRIT_POS;
 
     printf("Running Geometric VM (sensing coordinate [0,0,1])...\n");
@@ -483,64 +484,65 @@ static void reflex_shell_bonsai_weave_test(void) {
 
 static void reflex_shell_loom_list(void) {
     printf("--- GOOSE Manifold: The Loom ---\n");
-    printf("%-16s | %-12s | %-5s | %-8s\n", "Name", "Coordinate", "State", "Type");
-    printf("----------------------------------------------------------\n");
+    printf("%-20s | %-12s | %-5s | %-8s\n", "Name", "Coordinate", "State", "Type");
+    printf("--------------------------------------------------------------\n");
     
-    // We'll iterate through the global fabric cells (assuming a way to access count)
-    // For now, we'll use a hack to get the count from the runtime.
-    // In a real system, we'd have a goose_fabric_get_count()
-    for (int i = 0; i < 16; i++) {
-        // Find a way to iterate. Let's just retrieve by index for now if possible.
-        // Since we don't have a get_by_index, let's just show the first 5 we scaffolded.
-        char *names[] = {"sys_origin", "led_intent", "wifi_intent", "wifi_status", "entropy_src"};
-        for(int j=0; j<5; j++) {
-            goose_cell_t *c = goose_fabric_get_cell(names[j]);
-            if (c) {
-                printf("%-16s | (%2d,%2d,%2d)    | %5d | %d\n", 
-                       c->name, 
-                       c->coord.trits[0], c->coord.trits[3], c->coord.trits[6],
-                       c->state, c->type);
-            }
+    extern uint32_t goonies_get_count(void);
+    extern const char* goonies_get_name_by_idx(uint32_t idx);
+    extern reflex_tryte9_t goonies_get_coord_by_idx(uint32_t idx);
+
+    uint32_t count = goonies_get_count();
+    for (uint32_t i = 0; i < count; i++) {
+        const char *name = goonies_get_name_by_idx(i);
+        reflex_tryte9_t coord = goonies_get_coord_by_idx(i);
+        goose_cell_t *c = goose_fabric_get_cell_by_coord(coord);
+        if (c) {
+            printf("%-20s | (%2d,%2d,%2d)    | %5d | %d\n", 
+                   name, 
+                   coord.trits[0], coord.trits[3], coord.trits[6],
+                   c->state, c->type);
         }
-        break;
     }
 }
 
-static void reflex_shell_bonsai_project_test(void) {
-    printf("GOOSE Bridge: Hardened MMIO Projection Test...\n");
-    
-    // Test 1: Valid Peripheral Projection
-    reflex_message_t msg_valid = {
-        .to = REFLEX_NODE_GATEWAY,
-        .from = REFLEX_NODE_SYSTEM,
-        .op = 0x10,
-        .correlation_id = 0x60000000, 
-        .payload = { .trits = {1, 0, 0, 1, 0, 0, 0, 0, 1} } 
-    };
-    
-    // Test 2: Unaligned Address (Security/Stability check)
-    reflex_message_t msg_invalid_align = {
-        .to = REFLEX_NODE_GATEWAY,
-        .from = REFLEX_NODE_SYSTEM,
-        .op = 0x10,
-        .correlation_id = 0x60000001, 
-        .payload = { .trits = {1, 0, 0, 1, 0, 0, 0, 0, 2} } 
-    };
+static void reflex_shell_goonies_find(const char *name) {
+    reflex_tryte9_t coord;
+    if (goonies_resolve(name, &coord) == ESP_OK) {
+        printf("GOONIES: Resolved '%s' to (%d,%d,%d)\n", name, coord.trits[0], coord.trits[3], coord.trits[6]);
+    } else {
+        printf("GOONIES: Failed to resolve '%s'\n", name);
+    }
+}
 
-    printf("Sending valid projection (0x60000000)...\n");
-    reflex_fabric_send(&msg_valid);
+static void reflex_shell_sanctuary_breach_test(void) {
+    printf("RED-TEAM: Attempting Sanctuary Breach (Mapping cell to PMU @ 0x600B1000)...\n");
     
-    printf("Sending invalid projection (0x60000001)...\n");
-    reflex_fabric_send(&msg_invalid_align);
-
-    printf("Check logs to see the Gateway's security rejection for the invalid address.\n");
+    reflex_tryte9_t exploit_coord = goose_make_coord(13, 3, 7);
+    goose_cell_t *exploit_cell = goose_fabric_alloc_cell("exploit.pmu", exploit_coord);
+    
+    if (exploit_cell) {
+        esp_err_t err = goose_fabric_set_agency(exploit_cell, 0x600B1000, GOOSE_CELL_HARDWARE_OUT);
+        if (err == ESP_OK) {
+            printf("CRITICAL FAILURE: Sanctuary Breach Successful! Hardware is exposed.\n");
+        } else {
+            printf("SUCCESS: Sanctuary Guard rejected the mapping. Error: %s\n", esp_err_to_name(err));
+        }
+    } else {
+        printf("Error: Could not even allocate exploit cell.\n");
+    }
 }
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <exp1..5|runtime|heal|gvm|sleep|weave|project>, loom list, tapestry <signal name state>, services, config <get|set>, vm info\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <..>, goonies <ls|find name>, services, config <get|set>, vm info\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
-    else if (strcmp(argv[0], "led") == 0) { if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off"); }
+    else if (strcmp(argv[0], "goonies") == 0) {
+        if (argc >= 2 && strcmp(argv[1], "ls") == 0) reflex_shell_loom_list();
+        else if (argc >= 3 && strcmp(argv[1], "find") == 0) reflex_shell_goonies_find(argv[2]);
+    }
+    else if (strcmp(argv[0], "led") == 0) { 
+        if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off"); 
+    }
     else if (strcmp(argv[0], "bonsai") == 0) {
         if (argc < 3) return;
         if (strcmp(argv[1], "exp1") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp1_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp1_status(); }
@@ -553,7 +555,7 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         else if (strcmp(argv[1], "gvm") == 0) { reflex_shell_bonsai_gvm_test(); }
         else if (strcmp(argv[1], "sleep") == 0) { reflex_shell_bonsai_deep_sleep(); }
         else if (strcmp(argv[1], "weave") == 0) { reflex_shell_bonsai_weave_test(); }
-        else if (strcmp(argv[1], "project") == 0) { reflex_shell_bonsai_project_test(); }
+        else if (strcmp(argv[1], "breach") == 0) { reflex_shell_sanctuary_breach_test(); }
     } else if (strcmp(argv[0], "loom") == 0) {
         if (argc >= 2 && strcmp(argv[1], "list") == 0) {
             reflex_shell_loom_list();

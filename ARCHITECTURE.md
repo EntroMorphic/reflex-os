@@ -2,11 +2,29 @@
 
 ## Intent
 
-Reflex OS is split into a binary host layer and a ternary runtime layer.
+Reflex OS is split into a binary host layer and a ternary execution substrate known as **GOOSE** (Geometric Ontologic Operating System Execution).
 
-The binary host layer owns boot, hardware access, persistence, shell access, networking, and service lifecycle. The ternary runtime layer owns the ternary machine model, soft opcodes, VM execution, and the syscall boundary back into the host.
+The binary host layer (ESP-IDF) owns boot, hardware drivers, and low-level scheduling. The GOOSE layer reinterprets the machine as a **Tapestry** of geometric nodes (Cells) and signal flows (Routes).
+
+## The GOOSE Substrate
+
+### 1. The Loom (Ternary Fabric)
+A high-performance spatial memory model residing in RTC RAM. It utilizes **Lattice Hashing** for $O(1)$ lookup of ternary cells across power cycles.
+
+### 2. G.O.O.N.I.E.S. (Geometric Object Oriented Name Identification Execution Service)
+The "Loom DNS." It provides a hierarchical naming service (`agency.led.intent`) for geometric coordinates. This allows late-binding of logic to physical hardware, ensuring software integrity even when hardware pinouts change.
+
+### 3. The Supervisor (Harmonic Regulation)
+An autonomic "immune system" that monitors the Loom for disequilibrium (e.g., a blocked intent route) and exercises meta-agency to restore signal flow.
 
 ## Module Layout
+
+## `components/goose/`
+The core GOOSE implementation.
+- `goose_runtime.c`: Lattice hashing, cell allocation, and spatial paging.
+- `goose_supervisor.c`: Equilibrium checking and harmonic re-balancing.
+- `goose_atmosphere.c`: Secure ESP-NOW arcing (Inter-system state propagation).
+- `goose_atlas.c`: Peripheral mapping (The Root Zone).
 
 ## `main/`
 

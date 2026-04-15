@@ -60,13 +60,14 @@ esp_err_t goose_atlas_manifest_weave(void) {
             
             goose_cell_t *c = goose_fabric_alloc_cell(name, coord);
             if (c) {
-                c->hardware_addr = entry->base_addr + (j * 4); // Standard 32-bit offsets
-                c->type = (entry->field == -1) ? GOOSE_CELL_HARDWARE_IN : GOOSE_CELL_HARDWARE_OUT;
+                goose_cell_type_t type = (entry->field == -1) ? GOOSE_CELL_HARDWARE_IN : GOOSE_CELL_HARDWARE_OUT;
                 
                 // Safety: Mark Logic and Power regions as System-Only
                 if (entry->field == 0 || entry->field == 3) {
-                    c->type = GOOSE_CELL_SYSTEM_ONLY;
+                    type = GOOSE_CELL_SYSTEM_ONLY;
                 }
+
+                goose_fabric_set_agency(c, entry->base_addr + (j * 4), type);
             }
         }
     }
