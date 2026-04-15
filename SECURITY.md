@@ -1,6 +1,6 @@
 # Reflex OS Security Model: The Sanctuary
 
-Reflex OS v2.2 implements a "Substrate-First" security model designed to protect the integrity of the **Geometric Loom** against malicious hijacking and physical privilege escalation.
+Reflex OS v2.5.1 implements a "Substrate-First" security model designed to protect the integrity of the **Geometric Loom** against malicious hijacking and physical privilege escalation.
 
 ## 1. The Sanctuary Guard (MMIO Isolation)
 The Sanctuary Guard prevents non-system ternary cells from mapping to critical hardware registers. 
@@ -9,12 +9,12 @@ The Sanctuary Guard prevents non-system ternary cells from mapping to critical h
 -   **The Sanctuary:** Access to the PMU (Power Management), EFUSE, MMU, and Interrupt Matrix is restricted to `sys.` zone cells woven by the core OS.
 -   **Enforcement:** `goose_fabric_set_agency` rejects any mapping that attempts to bridge a user-level cell to a Sanctuary address.
 
-## 2. The Authority Sentry (Deadlock Prevention)
+## 2. The Authority Sentry (Deadlock Observability)
 To ensure system durability, the `loom_authority` spinlock is monitored by a cycle-accurate watchdog.
 
 -   **Limit:** 50,000 CPU cycles (~300μs).
--   **Action:** If a core fails to acquire the Loom lock within the limit, the Sentry force-breaks the lock and logs a `LOOM_CONTENTION_FAULT`.
--   **Purpose:** Prevents a crashed core or hung evolution from deadlocking the entire system.
+-   **Action:** If a core fails to acquire the Loom lock within the limit, the Sentry records `lock_contention_cycles` in field stats, emits a `LOOM_CONTENTION_FAULT` log, and **skips the current pulse**. The in-flight lock holder is not forcibly preempted — breaking another core's lock would permit racing mutation of the fabric.
+-   **Purpose:** Makes sustained lock contention observable (stats + log) without introducing data-race corruption. A persistently wedged holder starves pulses and is surfaced for higher-level recovery (e.g., supervisor-triggered reset), rather than being masked by silent unsynchronized execution.
 
 ## 3. Atmospheric Aura (Geometric Authentication)
 Radio-based state propagation (Arcing) is protected by a shared-secret verification layer.

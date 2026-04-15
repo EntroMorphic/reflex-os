@@ -23,13 +23,15 @@
 static const char *TAG = "GOOSE_RUNTIME";
 
 #define GOOSE_FABRIC_MAX_CELLS 256
-#define GOOSE_LATTICE_BUCKETS 503 
+#define GOOSE_LATTICE_BUCKETS 503
+#define GOOSE_FABRIC_MAGIC    0xF11BFABE
 
 static RTC_DATA_ATTR goose_cell_t fabric_cells[GOOSE_FABRIC_MAX_CELLS];
-static RTC_DATA_ATTR int16_t lattice_index[GOOSE_LATTICE_BUCKETS]; 
+static RTC_DATA_ATTR int16_t lattice_index[GOOSE_LATTICE_BUCKETS];
 static RTC_DATA_ATTR uint32_t fabric_cell_count = 0;
 static RTC_DATA_ATTR uint32_t fabric_version = 0;
 static RTC_DATA_ATTR volatile bool lattice_stable = false;
+static RTC_DATA_ATTR uint32_t fabric_magic = 0;
 
 typedef struct {
     char name[24]; 
@@ -107,32 +109,39 @@ static bool is_sanctuary_address(uint32_t addr) {
     return true; 
 }
 
-static uint32_t goose_loom_lock_with_stats(goose_field_t *field) {
+static bool goose_loom_try_lock(goose_field_t *field) {
     uint32_t start = esp_cpu_get_cycle_count();
     while (__atomic_test_and_set(&loom_authority, __ATOMIC_ACQUIRE)) {
         if ((esp_cpu_get_cycle_count() - start) > LOOM_LOCK_TIMEOUT_CYCLES) {
-            __atomic_clear(&loom_authority, __ATOMIC_RELEASE);
             if (field) field->stats.lock_contention_cycles += LOOM_LOCK_TIMEOUT_CYCLES;
-            return LOOM_LOCK_TIMEOUT_CYCLES;
+            ESP_LOGW(TAG, "LOOM_CONTENTION_FAULT field=%s skipping pulse",
+                     field ? field->name : "?");
+            return false;
         }
         esp_rom_delay_us(1);
     }
     uint32_t end = esp_cpu_get_cycle_count();
     if (field) field->stats.lock_contention_cycles += (end - start);
-    return end - start;
+    return true;
 }
 
 static void goose_loom_unlock(void) { __atomic_clear(&loom_authority, __ATOMIC_RELEASE); }
 
 esp_err_t goose_fabric_init(void) {
     lattice_stable = false; goonies_count = 0;
-    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED) {
+    bool cold_boot = (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED)
+                  || (fabric_magic != GOOSE_FABRIC_MAGIC);
+    if (cold_boot) {
+        fabric_cell_count = 0;
+        fabric_version = 0;
+        loom_authority = 0;
         for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
+        /* is_system_weaving=true already pins these cells; redundant type sets
+         * here would deref NULL because lattice_stable is still false. */
         goose_fabric_alloc_cell("sys.origin", goose_make_coord(0, 0, 0), true);
         goose_fabric_alloc_cell("agency.led.intent", goose_make_coord(0, 0, 1), true);
-        goose_fabric_get_cell("sys.origin")->type = GOOSE_CELL_PINNED;
-        goose_fabric_get_cell("agency.led.intent")->type = GOOSE_CELL_PINNED;
         fabric_version = 1;
+        fabric_magic = GOOSE_FABRIC_MAGIC;
     } else {
         for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
         for (uint32_t i = 0; i < fabric_cell_count; i++) { lattice_index[goose_lattice_hash(fabric_cells[i].coord)] = i; }
@@ -144,7 +153,7 @@ goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
     if (!lattice_stable) return NULL; 
     uint32_t hash = goose_lattice_hash(coord);
     int16_t idx = lattice_index[hash];
-    if (idx >= 0 && idx < fabric_cell_count) { if (goose_coord_equal(fabric_cells[idx].coord, coord)) return &fabric_cells[idx]; }
+    if (idx >= 0 && (uint32_t)idx < fabric_cell_count) { if (goose_coord_equal(fabric_cells[idx].coord, coord)) return &fabric_cells[idx]; }
     for (size_t i = 0; i < fabric_cell_count; i++) { if (goose_coord_equal(fabric_cells[i].coord, coord)) return &fabric_cells[i]; }
     return NULL;
 }
@@ -222,10 +231,15 @@ static goose_field_t *autonomy_field = NULL;
 
 esp_err_t goose_supervisor_weave_sync(void) {
     if (!autonomy_field) {
-        autonomy_field = malloc(sizeof(goose_field_t)); memset(autonomy_field, 0, sizeof(goose_field_t));
-        snprintf(autonomy_field->name, 16, "sys.autonomy");
-        autonomy_field->routes = malloc(sizeof(goose_route_t) * MAX_FABRICATED_ROUTES);
-        autonomy_field->rhythm = GOOSE_RHYTHM_HARMONIC; goose_field_start_pulse(autonomy_field);
+        goose_field_t *f = malloc(sizeof(goose_field_t));
+        if (!f) return ESP_ERR_NO_MEM;
+        memset(f, 0, sizeof(goose_field_t));
+        snprintf(f->name, 16, "sys.autonomy");
+        f->routes = malloc(sizeof(goose_route_t) * MAX_FABRICATED_ROUTES);
+        if (!f->routes) { free(f); return ESP_ERR_NO_MEM; }
+        f->rhythm = GOOSE_RHYTHM_HARMONIC;
+        autonomy_field = f;
+        goose_field_start_pulse(autonomy_field);
     }
     for (int i = 0; i < fabric_cell_count; i++) {
         goose_cell_t *need = &fabric_cells[i];
@@ -285,7 +299,7 @@ esp_err_t goose_apply_route(goose_route_t *route) {
 static esp_err_t internal_process_transitions(goose_field_t *field, int depth) {
     if (!field || depth > 3) return ESP_ERR_INVALID_STATE;
     uint64_t now = esp_timer_get_time();
-    if (depth == 0) goose_loom_lock_with_stats(field);
+    if (depth == 0 && !goose_loom_try_lock(field)) return ESP_ERR_TIMEOUT;
     for (size_t i = 0; i < field->transition_count; i++) {
         goose_transition_t *t = &field->transitions[i];
         if (!t->cached_target || t->cached_version != fabric_version) { t->cached_target = goose_fabric_get_cell_by_coord(t->target_coord); t->cached_version = fabric_version; }

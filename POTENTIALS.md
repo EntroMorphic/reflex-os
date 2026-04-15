@@ -1,6 +1,6 @@
 # Potentials & Future Horizons
 
-## Realized Potentials (v2.7 Milestone)
+## Realized Potentials (v2.5.1 Milestone)
 
 The transition from a flat "Message Fabric" to a coherent **"Geometric Tapestry"** is complete. Reflex OS now treats hardware, logic, and distributed coordination as a unified topological field.
 

@@ -1,4 +1,4 @@
-# Reflex OS v2.4 (The Apex Mesh)
+# Reflex OS v2.5.1 (The Apex Mesh)
 
 Reflex OS is a binary-hosted ternary operating environment for the Seeed Studio XIAO ESP32C6. It reinterprets physical hardware as a coherent **Geometric Tapestry**, replacing traditional binary software abstractions with a software-defined ternary execution substrate known as **GOOSE** (Geometric Ontologic Operating System Execution).
 

@@ -138,9 +138,6 @@ void app_main(void)
     goose_gateway_init();
     goose_atlas_manifest_weave();
 
-    // 5. Demo/Experimental Arcing
-    manifest_demo_arc();
-    
     // 6. Background Regulation
     xTaskCreate(goose_supervisor_task, "goose-super", 4096, NULL, 20, NULL);
     
@@ -159,6 +156,9 @@ void app_main(void)
     if (reflex_service_start_all() != ESP_OK) {
         reflex_shell_run(); return;
     }
+
+    // 8.5 Demo/Experimental Arcing (after Wi-Fi init so ESP-NOW has its substrate)
+    manifest_demo_arc();
 
     // 9. Stability & Shell
     xTaskCreate(reflex_stability_task, "reflex-stable", 2048, NULL, 5, NULL);

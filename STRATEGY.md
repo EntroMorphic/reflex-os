@@ -1,6 +1,6 @@
 # Reflex OS Strategy: The Chronicler's Path
 
-## Birds-Eye View (v2.3)
+## Birds-Eye View (v2.5.1)
 Reflex OS has successfully moved from a binary-hosted VM to a hardened, geometric substrate. We have achieved 100% MMIO territory mapping through **Shadow Paging**.
 
 ### 1. The Gaps (Technical Debt)
