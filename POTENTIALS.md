@@ -7,7 +7,7 @@ The transition from a flat "Message Fabric" to a coherent **"Geometric Tapestry"
 - **[Realized] Hierarchical Naming (G.O.O.N.I.E.S.):** The machine territory is now addressable by semantic name (`agency.led.intent`) rather than numeric IDs.
 - **[Realized] Hardware as Actors:** 100% of the ESP32-C6 silicon (9,531 nodes) is projected into the Loom via the All-Seeing Atlas.
 - **[Realized] Radio as Substrate:** Atmospheric Discovery and Postural Arcing bridge physical boards into a secure, distributed hive mind.
-- **[Realized] Geometric AI:** Ternary Neural Manifolds now "learn" and "sculpt" their own topology via Supervisor-led plasticity.
+- **[Realized] Geometric AI:** `GOOSE_CELL_NEURON` cells aggregate sub-field routes via ternary sum-and-majority (`neuron_quorum`), and `goose_supervisor_learn_sync` implements reward-gated co-activation Hebbian plasticity: under `sys.ai.reward` each route's `hebbian_counter` moves by +1 on source/sink agreement and -1 on disagreement, committing to `learned_orientation` at threshold; under `sys.ai.pain` counters decay toward zero.
 - **[Realized] Autonomous Fabrication:** The machine can perceive unfulfilled "Needs" and autonomously weave the routes to satisfy them.
 
 ---

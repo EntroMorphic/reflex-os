@@ -31,4 +31,4 @@ Reflex OS has successfully moved from a binary-hosted VM to a hardened, geometri
 
 ### Cycle 3: The Geometric Organism (v2.5)
 - **Problem:** Declarative Logic & Self-Sculpting Topology.
-- **Synthesis:** LoomScript DSL + Ternary Neural Manifolds + Hebbian Learning. (Completed)
+- **Synthesis:** LoomScript DSL + Ternary Neural Manifolds (quorum aggregation via `neuron_quorum`) + reward-gated co-activation Hebbian plasticity in `goose_supervisor_learn_sync`. (Completed)
