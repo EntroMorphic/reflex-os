@@ -317,5 +317,22 @@ esp_err_t goose_supervisor_register_field(goose_field_t *field);
  */
 esp_err_t goose_supervisor_pulse(void);
 
+// --- Atmospheric API (Distributed Mesh) ---
+
+/**
+ * @brief Initialize the distributed atmospheric substrate.
+ */
+esp_err_t goose_atmosphere_init(void);
+
+/**
+ * @brief Emit a geometric discovery query to the mesh.
+ */
+esp_err_t goose_atmosphere_query(const char *name);
+
+/**
+ * @brief Emit a swarm-wide postural consensus arc.
+ */
+esp_err_t goose_atmosphere_emit_posture(int8_t state, uint8_t weight);
+
 #endif
 

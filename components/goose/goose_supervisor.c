@@ -1,9 +1,16 @@
 /**
  * @file goose_supervisor.c
- * @brief Harmonic Supervisor (System Immune System)
+ * @brief Harmonic Supervisor: Autonomic Posture Regulation
  * 
- * The Supervisor regulates general system posture by perceiving disequilibrium
- * and exercising meta-agency (re-patching routes) to restore equilibrium.
+ * The Supervisor acts as the "Immune System" of the machine. It perceives
+ * disequilibrium within local and recursive manifolds and exercises 
+ * meta-agency to restore harmonic state.
+ * 
+ * Features:
+ * 1. Recursive Regulation - Monitors the health of nested holons via Field Proxies.
+ * 2. Equilibrium Check - Validates geometric reality against physical sink state.
+ * 3. Meta-Agency - Re-levels inhibited routes to restore signal flow.
+ * 4. Storm Protection - Prevents geometric oscillations via rebalance limits.
  */
 
 #include "goose.h"

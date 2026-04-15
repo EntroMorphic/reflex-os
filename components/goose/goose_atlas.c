@@ -1,3 +1,12 @@
+/**
+ * @file goose_atlas.c
+ * @brief GOOSE Atlas: Hardware Ontological Mapping
+ * 
+ * This module defines the "Root Zone" of the machine territory. It weaves
+ * primary peripherals into the Loom at boot and provides the semantic
+ * framework used by the Shadow Paging resolver to unmask the full MMIO.
+ */
+
 #include "goose.h"
 #include "esp_log.h"
 #include <stdio.h>

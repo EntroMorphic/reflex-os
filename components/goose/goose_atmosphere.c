@@ -1,3 +1,17 @@
+/**
+ * @file goose_atmosphere.c
+ * @brief GOOSE Atmosphere: Distributed Geometric Mesh
+ * 
+ * This module implements the "Shared Nervous System" of the machine.
+ * It extends the ternary Loom across physical boards via Aura-shielded ESP-NOW.
+ * 
+ * Features:
+ * 1. Global G.O.O.N.I.E.S. - Hashed name discovery across the mesh.
+ * 2. Atmospheric Arcing - Secure, real-time state synchronization.
+ * 3. Postural Consensus - Probabilistic swarm-wide agreement via Ternary Summation.
+ * 4. Aura Shield - Rate-limited and secret-keyed geometric authentication.
+ */
+
 #include "goose.h"
 #include "esp_now.h"
 #include "esp_wifi.h"
