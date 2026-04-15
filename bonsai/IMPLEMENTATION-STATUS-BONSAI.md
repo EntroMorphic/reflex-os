@@ -113,14 +113,15 @@ Reflex OS has successfully birthed the **GOOSE** paradigm (Geometric Ontologic O
 
 ### Phase 25: Postural Swarms (Geometric Hive Mind)
 -   **Status:** Done
--   **Findings:** Multi-device coordination achieved via probabilistic consensus. The machine is now a distributed organism.
+-   **Findings:** Multi-device coordination achieved via probabilistic consensus.
+-   **Discovery:** **"Distributed Resilience"**. By implementing saturating accumulators and self-arc suppression, we've created a mesh that is resistant to both accidental feedback and intentional state-locking attacks.
 
-## Current State of the "Tapestry" (v2.4 Apex)
+## Current State of the "Tapestry" (v2.5 Apex)
 -   **Mesh:** Global G.O.O.N.I.E.S. + Atmospheric Arcing.
 -   **Hierarchy:** Recursive Holons + Asynchronous Regulation.
 -   **Consensus:** Probabilistic Ternary Summation + Swarm Posture.
 -   **Discovery:** All-Seeing Atlas v2.0 (9,531 nodes).
--   **Integrity:** Sanctuary Guard + Authority Sentry + Aura Shield.
+-   **Integrity:** Sanctuary Guard + Authority Sentry + Aura Shield + **Resource Quotas**.
 -   **Speed:** Silicon ETM (40ns) + Binary Search Shadow Index ($O(log N)$).
 
 ## What Has Emerged (The Final Thesis)

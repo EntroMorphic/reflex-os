@@ -44,4 +44,11 @@ To prevent "Loom Bloat" (Resource Exhaustion attacks), the substrate implements 
 Atmospheric discovery and swarming are protected from external interference.
 - **Hashed Discovery:** `ARC_OP_QUERY` uses name-hashes to prevent passive observers from mapping the mesh's physical topology.
 - **Discovery Throttling:** Nodes rate-limit incoming queries to 10Hz, preventing Mesh Denial-of-Service (DoS) attacks.
-- **Inertial Hysteresis:** Swarm consensus requires an accumulated weight (+/- 10) before flipping local posture, preventing "Consensus Flickering" from malicious or failing nodes.
+- **Inertial Hysteresis:** Swarm consensus requires an accumulated weight (+/- 10) before flipping local posture.
+- **Accumulator Saturation:** To prevent consensus hijacking, the swarm accumulator is capped at +/- 100. This ensures the mesh remains responsive to the majority and prevents a single node from "locking" the system state indefinitely.
+- **Self-Arc Suppression:** Nodes ignore postural arcs originating from their own MAC address, preventing atmospheric feedback loops and radio saturation.
+
+## 7. Application Integrity (LoomScript Quotas)
+To protect the system from resource exhaustion at the application layer, LoomScript fragments are strictly managed.
+- **Fragment Quotas:** The system limits the number of active LoomScript fragments (max 8) and the routes per fragment (max 32).
+- **Allocation Validation:** Fragment manifests are validated before heap allocation to prevent memory exhaustion attacks.

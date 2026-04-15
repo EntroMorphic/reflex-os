@@ -254,10 +254,42 @@ typedef enum {
  */
 esp_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, reflex_tryte9_t base_coord, goose_fragment_handle_t *out_handle);
 
+// --- LoomScript Binary Fragment Format (.loom) ---
+
+#define LOOM_MAGIC 0x4D4F4F4C // "LOOM"
+
+#pragma pack(push, 1)
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t name_hash;
+    uint16_t cell_count;
+    uint16_t route_count;
+    uint16_t trans_count;
+} loom_header_t;
+
+typedef struct {
+    char name[24];
+} loom_cell_entry_t;
+
+typedef struct {
+    uint16_t src_idx;
+    uint16_t snk_idx;
+    int8_t orientation;
+    uint8_t coupling;
+} loom_route_entry_t;
+
+typedef struct {
+    uint16_t target_idx;
+    uint16_t interval_ms;
+    // TASM code snippet would go here in a full impl
+} loom_trans_entry_t;
+#pragma pack(pop)
+
 /**
- * @brief Remove a fragment from the Tapestry, restoring spatial neutral.
+ * @brief Weave a compiled LoomScript fragment into the Tapestry.
  */
-esp_err_t goose_unweave_fragment(goose_fragment_handle_t handle);
+esp_err_t goose_weave_loom(const uint8_t *buffer, size_t size);
 
 // --- Coordinate Helpers ---
 
