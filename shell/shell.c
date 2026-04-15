@@ -508,10 +508,61 @@ static void reflex_shell_loom_list(void) {
 
 static void reflex_shell_goonies_find(const char *name) {
     reflex_tryte9_t coord;
+    /* Live registry first — fastest path, and the one that reflects
+     * the currently-woven active Loom. */
     if (goonies_resolve(name, &coord) == ESP_OK) {
-        printf("GOONIES: Resolved '%s' to (%d,%d,%d)\n", name, coord.trits[0], coord.trits[3], coord.trits[6]);
-    } else {
-        printf("GOONIES: Failed to resolve '%s'\n", name);
+        printf("GOONIES: Resolved '%s' to (%d,%d,%d) [live]\n",
+               name, coord.trits[0], coord.trits[3], coord.trits[6]);
+        return;
+    }
+    /* Fall through to the shadow catalog. This lets any of the 9527
+     * MMIO names resolve without having to page a cell into the Loom
+     * first, giving the shell full-surface name queries. */
+    uint32_t addr, mask;
+    goose_cell_type_t type;
+    if (goose_shadow_resolve(name, &addr, &mask, &coord, &type) == ESP_OK) {
+        const char *type_str =
+            (type == GOOSE_CELL_HARDWARE_IN)  ? "HARDWARE_IN" :
+            (type == GOOSE_CELL_HARDWARE_OUT) ? "HARDWARE_OUT" :
+            (type == GOOSE_CELL_SYSTEM_ONLY)  ? "SYSTEM_ONLY" :
+            (type == GOOSE_CELL_VIRTUAL)      ? "VIRTUAL" : "?";
+        printf("GOONIES: Resolved '%s' [shadow] addr=0x%08lx mask=0x%08lx type=%s\n",
+               name, (unsigned long)addr, (unsigned long)mask, type_str);
+        return;
+    }
+    printf("GOONIES: Failed to resolve '%s'\n", name);
+}
+
+/* `atlas verify`: walk every entry in the shadow catalog, call
+ * goose_shadow_resolve on its name, and report any failures. This is
+ * the full-surface coverage check — proves every MMIO node in the
+ * 9527-entry shadow catalog is reachable by name. */
+static void reflex_shell_atlas_verify(void) {
+    uint32_t total = (uint32_t)shadow_map_count;
+    uint32_t ok = 0;
+    uint32_t failed = 0;
+    uint32_t first_failure_idx = UINT32_MAX;
+    for (uint32_t i = 0; i < total; i++) {
+        uint32_t addr, mask;
+        reflex_tryte9_t coord;
+        goose_cell_type_t type;
+        if (goose_shadow_resolve(shadow_map[i].name, &addr, &mask, &coord, &type) == ESP_OK
+            && addr == shadow_map[i].addr
+            && mask == shadow_map[i].bit_mask) {
+            ok++;
+        } else {
+            failed++;
+            if (first_failure_idx == UINT32_MAX) first_failure_idx = i;
+        }
+    }
+    printf("ATLAS VERIFY: total=%lu ok=%lu failed=%lu\n",
+           (unsigned long)total, (unsigned long)ok, (unsigned long)failed);
+    if (failed > 0 && first_failure_idx != UINT32_MAX) {
+        printf("  first_failure: idx=%lu name='%s'\n",
+               (unsigned long)first_failure_idx,
+               shadow_map[first_failure_idx].name);
+    } else if (failed == 0) {
+        printf("  100%% of MMIO shadow catalog resolves cleanly.\n");
     }
 }
 
@@ -543,7 +594,7 @@ static void reflex_shell_loom_bloat_test(void) {
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, sleep <s>, led status, bonsai <..>, goonies <ls|find name>, services, config <get|set>, vm info, aura setkey <hex>, heartbeat, mesh <mac|emit|query|posture|stat>\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, sleep <s>, led status, bonsai <..>, goonies <ls|find name>, atlas verify, services, config <get|set>, vm info, aura setkey <hex>, heartbeat, mesh <mac|emit|query|posture|stat>\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
     else if (strcmp(argv[0], "sleep") == 0) {
         int secs = (argc >= 2) ? atoi(argv[1]) : 3;
@@ -556,6 +607,10 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
     else if (strcmp(argv[0], "goonies") == 0) {
         if (argc >= 2 && strcmp(argv[1], "ls") == 0) reflex_shell_loom_list();
         else if (argc >= 3 && strcmp(argv[1], "find") == 0) reflex_shell_goonies_find(argv[2]);
+    }
+    else if (strcmp(argv[0], "atlas") == 0) {
+        if (argc >= 2 && strcmp(argv[1], "verify") == 0) reflex_shell_atlas_verify();
+        else printf("atlas <verify>\n");
     }
     else if (strcmp(argv[0], "led") == 0) { 
         if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off"); 

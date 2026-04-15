@@ -54,7 +54,6 @@ static uint32_t goose_lattice_hash(reflex_tryte9_t coord) {
 esp_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
     if (goonies_count >= GOOSE_FABRIC_MAX_CELLS) return ESP_ERR_NO_MEM;
     if (!name || strlen(name) < 3) return ESP_ERR_INVALID_ARG;
-    extern esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, uint32_t *out_mask, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type);
     uint32_t s_addr, s_mask; reflex_tryte9_t s_coord; goose_cell_type_t s_type;
     bool in_shadow = (goose_shadow_resolve(name, &s_addr, &s_mask, &s_coord, &s_type) == ESP_OK);
     bool is_protected = (strncmp(name, "sys.", 4) == 0 || strncmp(name, "agency.", 7) == 0 || in_shadow);
@@ -89,7 +88,6 @@ goose_cell_t* goonies_resolve_cell(const char *name) {
         reflex_tryte9_t g_coord = goose_make_coord(5, 0, (int8_t)ghost_counter++);
         return goose_fabric_alloc_cell(name, g_coord, false);
     }
-    extern esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, uint32_t *out_mask, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type);
     uint32_t addr, mask; goose_cell_type_t type;
     if (goose_shadow_resolve(name, &addr, &mask, &coord, &type) == ESP_OK) {
         goose_cell_t *c = goose_fabric_alloc_cell(name, coord, true); 

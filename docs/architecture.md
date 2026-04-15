@@ -12,10 +12,11 @@ The binary host layer (ESP-IDF) owns boot, hardware drivers, and low-level sched
 A high-performance spatial memory model residing in RTC RAM. It utilizes **Lattice Hashing** for $O(1)$ lookup of ternary cells across power cycles.
 
 ### 2. G.O.O.N.I.E.S. & Shadow Paging (The All-Seeing Atlas)
-The "Loom DNS." It provides a hierarchical naming service (`agency.led.intent`) for geometric coordinates. 
+The "Loom DNS." It provides a hierarchical naming service (`agency.led.intent`) for geometric coordinates.
 
-- **Shadow Paging:** The G.O.O.N.I.E.S. resolver autonomously "pages in" cells from Flash to RTC RAM on-demand.
-- **Loom Eviction:** A round-robin recycling policy that ensures the 256-slot RAM Loom never overflows. Unpinned shadow nodes are evicted to make room for new discoveries.
+- **Full-Surface Coverage:** the SVD-generated shadow catalog (`goose_shadow_atlas.c`, 9527 entries) covers 100% of the ESP32-C6 MMIO register + field surface. Every entry is resolvable by name via `goose_shadow_resolve`, and the shell's `goonies find` falls through from the live registry to the catalog transparently. The `atlas verify` shell command walks the entire catalog and reports `ok=9527 failed=0`.
+- **Shadow Paging:** when a cell (not just a name) is needed, the G.O.O.N.I.E.S. resolver autonomously pages in cells from the catalog to RTC RAM on demand. The bounded 256-slot live Loom is a working-set constraint, not a coverage constraint — catalog names are addressable even without a cell.
+- **Loom Eviction:** a round-robin recycling policy that ensures the 256-slot RAM Loom never overflows. Unpinned shadow nodes are evicted to make room for new discoveries.
 
 ### 4. Atmospheric Mesh (Global G.O.O.N.I.E.S.)
 Reflex OS extends the Tapestry across physical devices via ESP-NOW, implemented in `goose_atmosphere.c`.

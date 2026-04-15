@@ -27,10 +27,14 @@ Both layers build and have been revalidated on the XIAO ESP32C6 after the audit-
 - `peer.*` prefix triggers atmospheric discovery and allocates a ghost cell
 
 ### G3 — Atlas and Shadow Paging
-- Source: `goose_atlas.c`, `goose_shadow_atlas.c` (SVD-generated, 9k+ MMIO nodes)
-- Boot-time weave projects 104 high-priority MMIO cells into the active loom
+- Source: `goose_atlas.c`, `goose_shadow_atlas.c` (SVD-generated from `tools/esp32c6.svd` via `tools/goose_scraper.py`, 9527 MMIO nodes)
+- Boot-time weave projects 104 high-priority MMIO cells into the active Loom
 - On-demand paging via `goonies_resolve_cell`: unregistered names fall through to shadow resolve, allocate a cell, bind agency
-- Sanctuary Guard: `is_sanctuary_address` restricts non-system mappings to a whitelist of peripheral bases
+- **Full-surface name resolution**: `goonies find <name>` falls through from the live registry to `goose_shadow_resolve`, so every one of the 9527 catalog entries is addressable by name without pre-paging a cell. Live vs shadow hits are labeled in the shell output (`[live]` vs `[shadow]`).
+- **`atlas verify`** shell command walks the entire 9527-entry catalog via `goose_shadow_resolve` and reports pass/fail counts. Validated on-device: `total=9527 ok=9527 failed=0`.
+- Sanctuary Guard: `is_sanctuary_address` restricts non-system mappings to a whitelist of peripheral bases.
+
+The distinction between "catalog coverage" and "live Loom capacity" is load-bearing: the catalog holds 100% of the SVD, but the live Loom is bounded to `GOOSE_FABRIC_MAX_CELLS=256` by the RTC SLOW memory budget. Name resolution does not require a cell allocation; only state read/write and route establishment do.
 
 ### G4 — Atmospheric Mesh (ESP-NOW)
 - Source: `goose_atmosphere.c`
