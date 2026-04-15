@@ -3,9 +3,12 @@ archive/
 
 # ESP-IDF build output
 build/
-dependencies.lock
 *.elf
 *.map
+
+# dependencies.lock is deliberately NOT ignored — it's the ESP-IDF
+# component manager's version-pin file and must be tracked for
+# reproducible builds if external components are ever added.
 
 # Generated configuration (derived from sdkconfig.defaults)
 sdkconfig
