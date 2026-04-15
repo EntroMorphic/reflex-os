@@ -349,6 +349,16 @@ A geometric authority mechanism (e.g. Ternary Peterson Lock) that ensures the HP
 ### Definition
 A high-speed projection of a route where the OS routes the **Authority to Flow** binary data blocks, rather than routing individual trits.
 
+## 18. Silicon Agency (The ETM Matrix)
+
+### Definition
+The ultimate "Shadow Agency" where a route is manifested directly in the ESP32-C6 Event Task Matrix (ETM). It enables sub-100ns propagation by bypassing the CPU entirely.
+
+## 19. Ternary Lattice Hashing (The Spatial Index)
+
+### Definition
+A projective lookup mechanism that maps 9-trit coordinates into a 1D memory lattice in $O(1)$ time. It preserves geometric locality while eliminating the lookup friction of large manifolds.
+
 ## Relations Between Terms
 
 The current working relation is:

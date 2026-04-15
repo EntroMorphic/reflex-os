@@ -46,6 +46,11 @@ For high-bandwidth data, a Route governs the **Authority to Flow**.
 - **Mechanism:** Source Buffer -> DMA Route -> Sink Peripheral.
 - **Truth:** The Tapestry doesn't touch the data; it routes the *permission* for the data to move itself.
 
+### 3. Silicon Agency (ETM)
+The fastest form of propagation.
+- **Mechanism:** Hardware Event -> ETM Route -> Hardware Task.
+- **Truth:** The Route is manifested directly in silicon. Propagation speed is measured in nanoseconds, not cycles.
+
 ## Success Criteria
 - The system can perform "Button -> LED" interaction without a single `reflex_message_t` being sent.
 - The "Message Bus" task can be retired in favor of a "Fabric Processing" task.

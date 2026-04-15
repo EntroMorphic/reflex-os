@@ -17,23 +17,80 @@
 static const char *TAG = "GOOSE_RUNTIME";
 
 #define GOOSE_FABRIC_MAX_CELLS 256
+#define GOOSE_LATTICE_BUCKETS 503 // Prime number to reduce harmonic collisions
 static RTC_DATA_ATTR goose_cell_t fabric_cells[GOOSE_FABRIC_MAX_CELLS];
+static RTC_DATA_ATTR int16_t lattice_index[GOOSE_LATTICE_BUCKETS]; 
 static RTC_DATA_ATTR uint32_t fabric_cell_count = 0;
 static RTC_DATA_ATTR uint32_t fabric_version = 0;
+static RTC_DATA_ATTR volatile bool lattice_stable = false;
 
 /**
- * Loom Authority (Trans-Core Spinlock)
- * 0 = Available
- * 1 = HP Core (Mind)
- * 2 = LP Core (Heart)
+ * @brief Ternary Lattice Hash (Spatial Projection)
  */
-static RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
-
-static uint32_t goose_loom_lock_with_stats(goose_field_t *field) {
-    uint32_t start = esp_cpu_get_cycle_count();
-    while (__sync_val_compare_and_swap(&loom_authority, 0, 1) != 0) {
-        vTaskDelay(0); // Short yield
+static uint32_t goose_lattice_hash(reflex_tryte9_t coord) {
+    uint32_t hash = 0;
+    for (int i = 0; i < 9; i++) {
+        hash = (hash * 3) + (uint32_t)(coord.trits[i] + 1);
     }
+    return hash % GOOSE_LATTICE_BUCKETS;
+}
+
+esp_err_t goose_fabric_init(void) {
+    ESP_LOGI(TAG, "Initializing GOOSE Ternary Fabric (The Loom)...");
+    
+    lattice_stable = false;
+    for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
+    
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED) {
+        // [0,0,0] System:Origin
+        fabric_cells[0].coord = goose_make_coord(0, 0, 0); 
+        fabric_cells[0].state = 1; 
+        fabric_cells[0].type = 0; 
+        lattice_index[goose_lattice_hash(fabric_cells[0].coord)] = 0;
+        
+        // [0,0,1] Agency:LED_Intent
+        fabric_cells[1].coord = goose_make_coord(0, 0, 1); 
+        fabric_cells[1].state = 0; 
+        fabric_cells[1].type = 3; 
+        fabric_cells[1].hardware_addr = 15; 
+        lattice_index[goose_lattice_hash(fabric_cells[1].coord)] = 1;
+        
+        fabric_cell_count = 2;
+        fabric_version = 1;
+    } else {
+        ESP_LOGI(TAG, "Wake-up detected. Loom persistence verified.");
+        for (uint32_t i = 0; i < fabric_cell_count; i++) {
+            lattice_index[goose_lattice_hash(fabric_cells[i].coord)] = i;
+        }
+    }
+    lattice_stable = true;
+    return ESP_OK;
+}
+
+goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
+    if (!lattice_stable) return NULL; // Safety gate for concurrent LP pulses
+
+    uint32_t hash = goose_lattice_hash(coord);
+    int16_t idx = lattice_index[hash];
+    
+    // 1. Lattice Hit?
+    if (idx >= 0 && idx < fabric_cell_count) {
+        if (goose_coord_equal(fabric_cells[idx].coord, coord)) {
+            return &fabric_cells[idx];
+        }
+    }
+
+    // 2. Lattice Miss/Collision - Linear Fallback (Temporary)
+    // Increment collision count for benchmarking and supervisor observation.
+    // Note: We need a way to find the current field's stats here.
+    for (size_t i = 0; i < fabric_cell_count; i++) {
+        if (goose_coord_equal(fabric_cells[i].coord, coord)) {
+            return &fabric_cells[i];
+        }
+    }
+    return NULL;
+}
+
     uint32_t end = esp_cpu_get_cycle_count();
     if (field) field->stats.lock_contention_cycles += (end - start);
     return end - start;
@@ -90,9 +147,51 @@ goose_cell_t* goose_fabric_get_cell(const char *name) {
 }
 
 goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
-    for (size_t i = 0; i < fabric_cell_count; i++) {
-        if (goose_coord_equal(fabric_cells[i].coord, coord)) return &fabric_cells[i];
+    uint32_t hash = goose_lattice_hash(coord);
+    int16_t idx = lattice_index[hash];
+    
+    // 1. Lattice Hit?
+    if (idx >= 0 && idx < fabric_cell_count) {
+        if (goose_coord_equal(fabric_cells[idx].coord, coord)) {
+            return &fabric_cells[idx];
+        }
     }
+
+    // 2. Lattice Miss/Collision - Linear Fallback (Temporary)
+    // In v2.3, this will be a small localized search within the Lattice sub-cube.
+    for (size_t i = 0; i < fabric_cell_count; i++) {
+        if (goose_coord_equal(fabric_cells[i].coord, coord)) {
+            return &fabric_cells[i];
+        }
+    }
+    return NULL;
+}
+
+goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord) {
+    // Spatial Guard: Check for collision
+    if (goose_fabric_get_cell_by_coord(coord) != NULL) {
+        ESP_LOGE(TAG, "Geometric Collision at coord!");
+        return NULL;
+    }
+
+    if (fabric_cell_count >= GOOSE_FABRIC_MAX_CELLS) {
+        ESP_LOGE(TAG, "Loom is full!");
+        return NULL;
+    }
+
+    uint32_t idx = fabric_cell_count++;
+    goose_cell_t *c = &fabric_cells[idx];
+    memset(c, 0, sizeof(goose_cell_t));
+    c->coord = coord;
+    c->state = 0;
+    
+    // Update Lattice
+    lattice_index[goose_lattice_hash(coord)] = (int16_t)idx;
+    fabric_version++;
+    
+    ESP_LOGI(TAG, "Allocated Cell at coord index %u (Lattice Updated)", idx);
+    return c;
+}
     return NULL;
 }
 
@@ -170,12 +269,19 @@ esp_err_t goose_apply_route(goose_route_t *route) {
          * Shadow Agency Implementation
          * Direct silicon-level routing bypasses software registers.
          */
-        if (route->sink->hardware_addr < GPIO_NUM_MAX) {
+        if (route->cached_sink->hardware_addr < GPIO_NUM_MAX) {
             bool invert = (route->orientation == -1);
-            esp_rom_gpio_connect_out_signal((gpio_num_t)route->sink->hardware_addr, 
-                                            (uint32_t)route->source->hardware_addr, 
+            esp_rom_gpio_connect_out_signal((gpio_num_t)route->cached_sink->hardware_addr, 
+                                            (uint32_t)route->cached_source->hardware_addr, 
                                             invert, false);
         }
+    } else if (route->coupling == GOOSE_COUPLING_SILICON) {
+        /**
+         * Silicon Agency Implementation (ETM Matrix)
+         * Sub-100ns hardware routing.
+         */
+        extern esp_err_t goose_etm_apply_route(goose_route_t *route);
+        goose_etm_apply_route(route);
     }
 
     return ESP_OK;

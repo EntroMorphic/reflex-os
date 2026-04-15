@@ -22,7 +22,8 @@ typedef enum {
     GOOSE_COUPLING_SOFTWARE, ///< CPU-polled state propagation (Ternary Product Rule)
     GOOSE_COUPLING_ASYNC,    ///< Interrupt-driven evolution
     GOOSE_COUPLING_RADIO,    ///< Geometric Arcing: ESP-NOW state propagation
-    GOOSE_COUPLING_DMA       ///< Geometric Flow: Authority-led binary data transfer
+    GOOSE_COUPLING_DMA,      ///< Geometric Flow: Authority-led binary data transfer
+    GOOSE_COUPLING_SILICON   ///< Silicon Agency: Sub-100ns ETM Matrix
 } goose_coupling_t;
 
 /**
@@ -73,6 +74,7 @@ typedef struct {
     uint32_t phase_propagation_cycles;
     uint32_t tlb_miss_count;
     uint32_t lock_contention_cycles;
+    uint32_t lattice_collision_count;
 } goose_stats_t;
 
 /**
