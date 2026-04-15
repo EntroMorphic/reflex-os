@@ -109,6 +109,9 @@ typedef struct {
     goose_cell_t *cached_sink;
     goose_cell_t *cached_control;
     uint32_t cached_version;
+
+    // Hebbian plasticity (reward-gated co-activation counter)
+    int16_t hebbian_counter;
 } goose_route_t;
 
 /**

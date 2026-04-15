@@ -86,30 +86,65 @@ esp_err_t goose_supervisor_swarm_sync(void) {
     return ESP_OK;
 }
 
+/* Reward-gated co-activation Hebbian plasticity.
+ *
+ * When `sys.ai.reward` is positive, each supervised route's hebbian_counter
+ * moves by +1 if source and sink currently fire the same sign (co-active),
+ * -1 if they disagree. When the counter crosses +/-HEBBIAN_COMMIT_THRESHOLD,
+ * the sign is committed into learned_orientation and the counter resets.
+ *
+ * When `sys.ai.pain` is negative, all counters decay toward zero, which
+ * represents unlearning without catastrophically erasing state.
+ *
+ * This is the "fire-together, wire-together" rule in its cheapest honest
+ * form: accumulate co-activation under reward, decay under pain, commit at
+ * a threshold. Upgradable to STDP-lite or gradient methods later without
+ * changing the per-route field layout. */
+#define HEBBIAN_COMMIT_THRESHOLD 8
+#define HEBBIAN_COUNTER_MAX      (HEBBIAN_COMMIT_THRESHOLD * 2)
+
 esp_err_t goose_supervisor_learn_sync(void) {
     goose_cell_t *pain_cell = goonies_resolve_cell("sys.ai.pain");
     goose_cell_t *reward_cell = goonies_resolve_cell("sys.ai.reward");
-    
-    if (pain_cell && pain_cell->state == -1) {
-        for (size_t f = 0; f < supervised_field_count; f++) {
-            goose_field_t *field = supervised_fields[f];
-            if (goose_supervisor_check_equilibrium(field) != ESP_OK) {
-                for (size_t r = 0; r < field->route_count; r++) {
-                    if ((esp_random() % 10) == 0) {
-                        field->routes[r].learned_orientation = (int8_t)((esp_random() % 3) - 1);
-                    }
+
+    bool rewarded = (reward_cell && reward_cell->state == 1);
+    bool pained   = (pain_cell && pain_cell->state == -1);
+    if (!rewarded && !pained) return ESP_OK;
+
+    for (size_t f = 0; f < supervised_field_count; f++) {
+        goose_field_t *field = supervised_fields[f];
+        for (size_t r = 0; r < field->route_count; r++) {
+            goose_route_t *route = &field->routes[r];
+            if (!route->cached_source || !route->cached_sink) continue;
+
+            if (rewarded) {
+                /* Co-activation increment: same sign => +1, opposite => -1,
+                 * zero state on either end => no change (no learning signal). */
+                int s = route->cached_source->state;
+                int k = route->cached_sink->state;
+                if (s == 0 || k == 0) continue;
+                int delta = (s == k) ? 1 : -1;
+                int32_t next = (int32_t)route->hebbian_counter + delta;
+                if (next >  HEBBIAN_COUNTER_MAX) next =  HEBBIAN_COUNTER_MAX;
+                if (next < -HEBBIAN_COUNTER_MAX) next = -HEBBIAN_COUNTER_MAX;
+                route->hebbian_counter = (int16_t)next;
+
+                if (route->hebbian_counter >= HEBBIAN_COMMIT_THRESHOLD) {
+                    route->learned_orientation = REFLEX_TRIT_POS;
+                    route->hebbian_counter = 0;
+                } else if (route->hebbian_counter <= -HEBBIAN_COMMIT_THRESHOLD) {
+                    route->learned_orientation = REFLEX_TRIT_NEG;
+                    route->hebbian_counter = 0;
                 }
+            } else if (pained) {
+                /* Decay toward zero under pain signal. */
+                if (route->hebbian_counter > 0) route->hebbian_counter--;
+                else if (route->hebbian_counter < 0) route->hebbian_counter++;
             }
         }
-    } else if (reward_cell && reward_cell->state == 1) {
-        for (size_t f = 0; f < supervised_field_count; f++) {
-            goose_field_t *field = supervised_fields[f];
-            for (size_t r = 0; r < field->route_count; r++) {
-                field->routes[r].orientation = field->routes[r].learned_orientation;
-            }
-        }
-        reward_cell->state = 0;
     }
+
+    if (rewarded) reward_cell->state = 0;
     return ESP_OK;
 }
 
