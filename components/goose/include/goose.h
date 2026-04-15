@@ -322,6 +322,15 @@ reflex_tryte9_t goose_make_coord(int8_t field, int8_t region, int8_t cell);
  * cell index in trits[6] and the high byte in trits[7], giving a unique
  * 16-bit ID encoded as two trit slots. goose_coord_equal still works
  * byte-wise, so these values behave as opaque keys in the lattice.
+ *
+ * @warning Shadow atlas coords are NOT valid ternary values: trits[6]
+ * and trits[7] may hold any byte value in [0..255], not just
+ * {-1, 0, +1}. Code that iterates the full 9-trit range and does
+ * trit-semantic arithmetic (e.g., ternary sum, balanced-ternary
+ * encoding) will produce nonsense on shadow coords. Safe consumers:
+ * goose_lattice_hash (hashes bytes), goose_coord_equal (byte-wise
+ * compare), and the lattice_index lookup path. Any new iterator
+ * should gate on goose_cell_t::type or avoid shadow cells entirely.
  */
 reflex_tryte9_t goose_make_shadow_coord(int8_t field, int8_t region, int16_t cell);
 

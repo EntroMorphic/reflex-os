@@ -116,8 +116,8 @@ bool goose_loom_try_lock(goose_field_t *field) {
     while (__atomic_test_and_set(&loom_authority, __ATOMIC_ACQUIRE)) {
         if ((esp_cpu_get_cycle_count() - start) > LOOM_LOCK_TIMEOUT_CYCLES) {
             if (field) field->stats.lock_contention_cycles += LOOM_LOCK_TIMEOUT_CYCLES;
-            ESP_LOGW(TAG, "LOOM_CONTENTION_FAULT field=%s skipping pulse",
-                     field ? field->name : "?");
+            ESP_LOGW(TAG, "LOOM_CONTENTION_FAULT site=%s deferred",
+                     field ? field->name : "alloc");
             return false;
         }
         esp_rom_delay_us(1);

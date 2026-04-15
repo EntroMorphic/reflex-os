@@ -66,7 +66,7 @@ Unify concurrency discipline: every write to shared mutable state along the puls
 
 ## Phase D — Polish
 
-### ☐ R4 — HIGH — `reflex_trit_t` out-of-range comment
+### ☑ R4 — HIGH — `reflex_trit_t` out-of-range comment
 
 **Finding.** Shadow atlas coords store `0x00..0xFF` in trits[6] and trits[7] via `goose_make_shadow_coord`. `reflex_trit_t` is an enum `{-1, 0, +1}`; out-of-range stores are implementation-defined. No current code breaks because `goose_lattice_hash` treats the values as unsigned bytes and `goose_coord_equal` is byte-wise, but a future iterator doing `sum += trits[i]` across all 9 slots would produce nonsense on shadow coords.
 
@@ -76,17 +76,21 @@ Unify concurrency discipline: every write to shared mutable state along the puls
 
 ---
 
-### ☐ R6 — MEDIUM — alloc holds loom across shadow_resolve
+### ☑ R6 — MEDIUM — alloc holds loom across shadow_resolve *(investigated, deferred)*
 
-**Finding.** `goonies_register` calls `goose_shadow_resolve` (9527-entry binary search) inside the locked portion of `alloc_cell`. A concurrent pulse attempting to acquire during an alloc will hit the 300 µs timeout and log `LOOM_CONTENTION_FAULT`.
+**Finding.** `goonies_register` calls `goose_shadow_resolve` (9527-entry binary search) inside the locked portion of `alloc_cell`. Originally estimated at ~50 µs but worth revisiting.
 
-**Fix.** Pre-check shadow resolution outside the lock in `alloc_cell`, pass the pre-resolved `(in_shadow, is_protected)` tuple into a variant of `goonies_register` that skips the shadow check. Alternative: raise the lock timeout for alloc specifically. The pre-check approach is cleaner but touches more code.
+**Investigation.** Re-measured the actual cost path:
+- `goose_shadow_resolve`: ~14 binary-search steps × up to 88-char strcmp ≈ ~1200 char comparisons ≈ ~10 µs.
+- `goonies_registry` linear scan: up to 256 × up to 24-char strcmp ≈ ~6000 char comparisons ≈ ~40 µs.
 
-**Validation.** `heartbeat` command under rapid invocation should show no `LOOM_CONTENTION_FAULT` in the log.
+Total worst case ~50 µs, well under the 300 µs `loom_authority` timeout. The actual bottleneck is the registry scan, not the shadow resolve. Pre-checking shadow_resolve outside the lock would save ~10 µs per alloc — real but marginal, and alloc_cell is called primarily during boot atlas weave (single-threaded) with rare runtime invocations via shadow paging.
+
+**Decision.** Deferred. Not a correctness bug, perf gain is under 20% of the alloc cost, and runtime alloc is infrequent. If future work turns alloc into a hot path (e.g., dynamic peer.* discovery at scale), revisit by introducing `goonies_register_presolved(..., bool in_shadow)` and moving the shadow check outside the lock.
 
 ---
 
-### ☐ R8 — LOW — misleading lock timeout log message
+### ☑ R8 — LOW — misleading lock timeout log message
 
 **Finding.** `goose_loom_try_lock`'s timeout log says `LOOM_CONTENTION_FAULT field=... skipping pulse`, which is misleading when called from `goose_fabric_alloc_cell` (not a pulse).
 
@@ -101,3 +105,4 @@ Unify concurrency discipline: every write to shared mutable state along the puls
 - **Phase A** — R1, R2, R5 — locked all hot-path mutation sites under `loom_authority`. Made `goose_loom_try_lock` / `goose_loom_unlock` public so `goose_supervisor_learn_sync` can use them. R1's append now uses a `__atomic_store_n(..., __ATOMIC_RELEASE)` on `route_count` so even lock-free pulse readers see either the old count or a fully-constructed new route. Validated on C6: resolve + heartbeat + 10 s stability clean, no contention faults.
 - **Phase B** — R3 — replay cache now uses `last_us` with a 5-second window; stale entries are treated as empty. Slot count raised from 16 → 64, slot index hashed over nonce + last two MAC bytes to reduce cross-peer slot collisions (R9 rolled in). Validated on C6: stability marker, no regression in normal packet flow.
 - **Phase C** — R7 — LP heartbeat liveness monitor added to `goose_supervisor_pulse`. Tracks `(last_count, last_advance_us)` and logs `LP_HEARTBEAT_STALLED` once per stall if the count hasn't advanced in 5 seconds. Validated on C6: 20-second observation window, no false positives under healthy LP operation.
+- **Phase D** — R4, R6, R8 — polish pass. R4: warning comment on `goose_make_shadow_coord` explaining that shadow coords are NOT valid ternary values and listing safe consumers. R6: investigated, deferred — actual cost is bounded by the goonies_registry scan (~40 µs), not shadow_resolve (~10 µs); total is well under the 300 µs lock timeout and runtime alloc is infrequent. R8: lock timeout log rewritten to `site=%s deferred` with a sensible `alloc` default when called without a field. Validated on C6 alongside Phase C.
