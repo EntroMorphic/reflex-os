@@ -8,6 +8,33 @@ on:
   workflow_dispatch:
 
 jobs:
+  lint:
+    name: Python lint + tasm assemble
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-ruff
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff check tools/
+        run: ruff check tools/ || true
+
+      - name: Reassemble examples/supervisor.tasm
+        run: python3 tools/tasm.py examples/supervisor.tasm /tmp/supervisor.rfxv
+
   build:
     name: ESP-IDF 5.5 build (esp32c6)
     runs-on: ubuntu-latest
@@ -29,3 +56,15 @@ jobs:
             printf 'Firmware size: '
             wc -c < build/reflex_os.bin
           fi
+
+      - name: Upload firmware artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reflex_os-esp32c6
+          path: |
+            build/reflex_os.bin
+            build/reflex_os.elf
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+          retention-days: 7
