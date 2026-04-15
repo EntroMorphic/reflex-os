@@ -87,10 +87,15 @@ static esp_err_t reflex_wifi_start(void *ctx)
 {
     (void)ctx;
     char ssid[33];
-    if (reflex_config_get_wifi_ssid(ssid, sizeof(ssid)) == ESP_OK && strlen(ssid) > 0) {
-        return esp_wifi_start();
+    bool have_creds = (reflex_config_get_wifi_ssid(ssid, sizeof(ssid)) == ESP_OK
+                       && strlen(ssid) > 0);
+    if (!have_creds) {
+        /* No SSID configured. Still bring Wi-Fi up in STA mode without
+         * connecting to any AP so ESP-NOW (the GOOSE Atmosphere substrate)
+         * has a running radio to attach to. */
+        ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), REFLEX_WIFI_TAG, "set mode failed");
     }
-    return ESP_OK;
+    return esp_wifi_start();
 }
 
 static esp_err_t reflex_wifi_stop(void *ctx)

@@ -168,6 +168,13 @@ esp_err_t goose_atmosphere_init(void);
  */
 esp_err_t goose_atmosphere_process(void);
 
+/**
+ * @brief Broadcast an ARC_OP_SYNC packet carrying the given cell's coord
+ * and state. Used by the pulse path's radio routes and by the `mesh
+ * emit` shell command.
+ */
+esp_err_t goose_atmosphere_emit_arc(goose_cell_t *source);
+
 // --- Stats API (Instrumentation) ---
 
 /**
@@ -406,6 +413,22 @@ esp_err_t goose_atmosphere_emit_posture(int8_t state, uint8_t weight);
  * @brief Provision the Aura HMAC key into NVS. 16-byte key.
  */
 esp_err_t goose_atmosphere_set_key(const uint8_t key[16]);
+
+/**
+ * @brief Mesh observability counters for the `mesh stat` shell command.
+ */
+typedef struct {
+    uint32_t rx_sync;
+    uint32_t rx_query;
+    uint32_t rx_advertise;
+    uint32_t rx_posture;
+    uint32_t rx_version_mismatch;
+    uint32_t rx_aura_fail;
+    uint32_t rx_replay_drop;
+    uint32_t rx_self_drop;
+} goose_mesh_stats_t;
+
+goose_mesh_stats_t goose_atmosphere_get_stats(void);
 
 /**
  * @brief Bootstrap the LP RISC-V coprocessor heartbeat. Loads the embedded

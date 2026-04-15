@@ -108,6 +108,11 @@ esp_err_t goose_atmosphere_advertise(uint32_t name_hash, goose_cell_t *cell, con
 
 static uint64_t last_query_processed_us = 0;
 int32_t swarm_accumulator = 0;
+
+/* Mesh trial observability counters. Type declared in goose.h. */
+static goose_mesh_stats_t mesh_stats;
+
+goose_mesh_stats_t goose_atmosphere_get_stats(void) { return mesh_stats; }
 #define SWARM_THRESHOLD 10
 #define SWARM_ACCUM_MAX 100
 #define SWARM_WEIGHT_MAX 4  /* Cap per-packet posture weight so a single rogue
@@ -210,12 +215,16 @@ static void atmosphere_recv_cb(const esp_now_recv_info_t *recv_info, const uint8
     // Self-Arc Suppression
     uint8_t local_mac[6];
     esp_read_mac(local_mac, ESP_MAC_WIFI_STA);
-    if (memcmp(recv_info->src_addr, local_mac, 6) == 0) return;
+    if (memcmp(recv_info->src_addr, local_mac, 6) == 0) {
+        mesh_stats.rx_self_drop++;
+        return;
+    }
 
     goose_arc_packet_t *arc = (goose_arc_packet_t *)data;
 
     // Protocol version gate — log once, don't spam
     if (arc->version != GOOSE_ARC_VERSION) {
+        mesh_stats.rx_version_mismatch++;
         static uint64_t last_version_warn_us = 0;
         uint64_t now_v = esp_timer_get_time();
         if (now_v - last_version_warn_us > 5000000) {
@@ -228,19 +237,27 @@ static void atmosphere_recv_cb(const esp_now_recv_info_t *recv_info, const uint8
 
     uint32_t expected_aura = calculate_aura(arc->version, arc->op, arc->coord,
                                             arc->name_hash, arc->state, arc->nonce);
-    if (arc->aura != expected_aura) return;
+    if (arc->aura != expected_aura) {
+        mesh_stats.rx_aura_fail++;
+        return;
+    }
 
     uint64_t now = esp_timer_get_time();
 
     // Replay protection — reject packets seen within the cache window
-    if (replay_seen_or_record(recv_info->src_addr, arc->nonce, now)) return;
+    if (replay_seen_or_record(recv_info->src_addr, arc->nonce, now)) {
+        mesh_stats.rx_replay_drop++;
+        return;
+    }
 
     if (arc->op == ARC_OP_SYNC) {
+        mesh_stats.rx_sync++;
         extern goose_route_t* goose_fabric_find_radio_route_by_source_coord(reflex_tryte9_t coord);
         goose_route_t *route = goose_fabric_find_radio_route_by_source_coord(arc->coord);
         if (route && route->cached_sink) { route->cached_sink->state = arc->state; }
     }
     else if (arc->op == ARC_OP_QUERY) {
+        mesh_stats.rx_query++;
         if (now - last_query_processed_us < 100000) return;
         last_query_processed_us = now;
         extern uint32_t goonies_get_count(void);
@@ -256,9 +273,11 @@ static void atmosphere_recv_cb(const esp_now_recv_info_t *recv_info, const uint8
         }
     }
     else if (arc->op == ARC_OP_ADVERTISE) {
+        mesh_stats.rx_advertise++;
         ESP_LOGI(TAG, "Ghost Solidified for hash [0x%08lX] at " MACSTR, (unsigned long)arc->name_hash, MAC2STR(recv_info->src_addr));
     }
     else if (arc->op == ARC_OP_POSTURE) {
+        mesh_stats.rx_posture++;
         // Weight cap enforced on receive (sender cannot override).
         uint8_t wire_weight = (uint8_t)(arc->nonce & 0x0F);
         if (wire_weight > SWARM_WEIGHT_MAX) wire_weight = SWARM_WEIGHT_MAX;

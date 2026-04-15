@@ -21,6 +21,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_netif.h"
+#include "esp_mac.h"
 #include "esp_rom_gpio.h"
 #include "soc/gpio_sig_map.h"
 
@@ -542,7 +543,7 @@ static void reflex_shell_loom_bloat_test(void) {
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, led status, bonsai <..>, goonies <ls|find name>, services, config <get|set>, vm info, aura setkey <hex>, heartbeat\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, sleep <s>, led status, bonsai <..>, goonies <ls|find name>, services, config <get|set>, vm info, aura setkey <hex>, heartbeat, mesh <mac|emit|query|posture|stat>\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
     else if (strcmp(argv[0], "sleep") == 0) {
         int secs = (argc >= 2) ? atoi(argv[1]) : 3;
@@ -588,6 +589,36 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
     } else if (strcmp(argv[0], "heartbeat") == 0) {
         printf("lp_pulse_count=%lu\n", (unsigned long)goose_lp_heartbeat_count());
+    } else if (strcmp(argv[0], "mesh") == 0) {
+        if (argc >= 2 && strcmp(argv[1], "mac") == 0) {
+            uint8_t mac[6];
+            esp_read_mac(mac, ESP_MAC_WIFI_STA);
+            printf("mac=%02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        } else if (argc >= 3 && strcmp(argv[1], "emit") == 0) {
+            goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
+            if (!c) { printf("mesh emit: agency.led.intent not resolved\n"); return; }
+            c->state = (int8_t)atoi(argv[2]);
+            esp_err_t rc = goose_atmosphere_emit_arc(c);
+            printf("mesh emit: state=%d rc=0x%x\n", c->state, rc);
+        } else if (argc >= 3 && strcmp(argv[1], "query") == 0) {
+            esp_err_t rc = goose_atmosphere_query(argv[2]);
+            printf("mesh query: name=%s rc=0x%x\n", argv[2], rc);
+        } else if (argc >= 4 && strcmp(argv[1], "posture") == 0) {
+            int8_t state = (int8_t)atoi(argv[2]);
+            uint8_t weight = (uint8_t)atoi(argv[3]);
+            esp_err_t rc = goose_atmosphere_emit_posture(state, weight);
+            printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc);
+        } else if (argc >= 2 && strcmp(argv[1], "stat") == 0) {
+            goose_mesh_stats_t s = goose_atmosphere_get_stats();
+            printf("rx_sync=%lu rx_query=%lu rx_advertise=%lu rx_posture=%lu\n",
+                   (unsigned long)s.rx_sync, (unsigned long)s.rx_query,
+                   (unsigned long)s.rx_advertise, (unsigned long)s.rx_posture);
+            printf("version_mismatch=%lu aura_fail=%lu replay_drop=%lu self_drop=%lu\n",
+                   (unsigned long)s.rx_version_mismatch, (unsigned long)s.rx_aura_fail,
+                   (unsigned long)s.rx_replay_drop, (unsigned long)s.rx_self_drop);
+        } else {
+            printf("mesh <mac|emit state|query name|posture state weight|stat>\n");
+        }
     } else if (strcmp(argv[0], "aura") == 0) {
         if (argc >= 3 && strcmp(argv[1], "setkey") == 0) {
             const char *hex = argv[2];

@@ -55,7 +55,7 @@ static void manifest_demo_arc(void)
         static goose_route_t arc_in_route;
         static goose_field_t atmosphere_field;
         
-        goose_cell_t *local_intent = goose_fabric_get_cell("led_intent");
+        goose_cell_t *local_intent = goose_fabric_get_cell("agency.led.intent");
         reflex_tryte9_t ghost_coord = goose_make_coord(-1, 0, 1);
         goose_cell_t *ghost_cell = goose_fabric_alloc_cell("ghost_arc", ghost_coord, true);
 
