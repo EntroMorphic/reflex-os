@@ -111,10 +111,15 @@ esp_err_t goose_supervisor_learn_sync(void) {
     bool pained   = (pain_cell && pain_cell->state == -1);
     if (!rewarded && !pained) return ESP_OK;
 
-    /* Serialize against pulse readers. We're mutating route->hebbian_counter
-     * and route->learned_orientation, both of which the pulse path reads.
-     * Loom try_lock is non-blocking with a timeout; if contended, we skip
-     * this plasticity pass and the next supervisor tick will retry. */
+    /* Purpose-aware amplification. When the user has declared an active
+     * purpose (GOOSE_CELL_PURPOSE, set via `purpose set`), Hebbian
+     * reward increments are doubled. This is the simplest concrete
+     * expression of "awareness improves the substrate's ability to serve
+     * the user's evolving purpose" — the OS learns faster when the user
+     * tells it what they're trying to do. */
+    goose_cell_t *purpose_cell = goonies_resolve_cell("sys.purpose");
+    int purpose_multiplier = (purpose_cell && purpose_cell->state != 0) ? 2 : 1;
+
     if (!goose_loom_try_lock(NULL)) return ESP_OK;
 
     for (size_t f = 0; f < supervised_field_count; f++) {
@@ -124,12 +129,10 @@ esp_err_t goose_supervisor_learn_sync(void) {
             if (!route->cached_source || !route->cached_sink) continue;
 
             if (rewarded) {
-                /* Co-activation increment: same sign => +1, opposite => -1,
-                 * zero state on either end => no change (no learning signal). */
                 int s = route->cached_source->state;
                 int k = route->cached_sink->state;
                 if (s == 0 || k == 0) continue;
-                int delta = (s == k) ? 1 : -1;
+                int delta = ((s == k) ? 1 : -1) * purpose_multiplier;
                 int32_t next = (int32_t)route->hebbian_counter + delta;
                 if (next >  HEBBIAN_COUNTER_MAX) next =  HEBBIAN_COUNTER_MAX;
                 if (next < -HEBBIAN_COUNTER_MAX) next = -HEBBIAN_COUNTER_MAX;

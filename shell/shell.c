@@ -680,6 +680,30 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
     } else if (strcmp(argv[0], "config") == 0) {
         if (argc >= 3 && strcmp(argv[1], "get") == 0) reflex_shell_config_get(argv[2]);
         else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
+    } else if (strcmp(argv[0], "purpose") == 0) {
+        if (argc >= 3 && strcmp(argv[1], "set") == 0) {
+            goose_cell_t *p = goonies_resolve_cell("sys.purpose");
+            if (!p) {
+                reflex_tryte9_t coord = goose_make_coord(0, 0, 2);
+                p = goose_fabric_alloc_cell("sys.purpose", coord, true);
+            }
+            if (p) {
+                p->type = GOOSE_CELL_PURPOSE;
+                p->state = 1;
+                printf("purpose set: '%s' (active)\n", argv[2]);
+            } else {
+                printf("purpose set: failed to allocate cell\n");
+            }
+        } else if (argc >= 2 && strcmp(argv[1], "get") == 0) {
+            goose_cell_t *p = goonies_resolve_cell("sys.purpose");
+            printf("purpose: %s\n", (p && p->state != 0) ? "active" : "inactive");
+        } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
+            goose_cell_t *p = goonies_resolve_cell("sys.purpose");
+            if (p) p->state = 0;
+            printf("purpose: cleared\n");
+        } else {
+            printf("purpose <set name|get|clear>\n");
+        }
     } else if (strcmp(argv[0], "heartbeat") == 0) {
         printf("lp_pulse_count=%lu\n", (unsigned long)goose_lp_heartbeat_count());
     } else if (strcmp(argv[0], "mesh") == 0) {

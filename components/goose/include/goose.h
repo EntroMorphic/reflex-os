@@ -39,7 +39,8 @@ typedef enum {
     GOOSE_CELL_PINNED,       ///< Explicitly pinned: Never evicted from RTC RAM
     GOOSE_CELL_FIELD_PROXY,  ///< Recursive: Projects a sub-field into a single cell
     GOOSE_CELL_NEURON,       ///< Neural: Aggregates multiple routes via Quorum
-    GOOSE_CELL_NEED          ///< Autonomic: System mandate that triggers self-weaving
+    GOOSE_CELL_NEED,         ///< Autonomic: System mandate that triggers self-weaving
+    GOOSE_CELL_PURPOSE       ///< User-declared: current operating intent (substrate-as-interface)
 } goose_cell_type_t;
 
 /**
