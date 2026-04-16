@@ -113,6 +113,9 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - **LP core Coherent Heartbeat**: ULP RISC-V LP core runs a 1 Hz counter loop in parallel to HP; `heartbeat` shell command exposes `lp_pulse_count`; HP mirrors `agency.led.intent` into `ulp_lp_led_intent` each supervisor pulse
 - **Hebbian plasticity**: reward-gated co-activation counter per route commits to `learned_orientation` at threshold; pain signal decays counters toward zero
 - **NEURON quorum**: `GOOSE_CELL_NEURON` cells aggregate all sub-field routes via ternary sum-and-majority via `neuron_quorum`
+- **Full-surface MMIO name resolution**: the shell's `goonies find` falls through from the live registry to `goose_shadow_resolve` so every one of the 9527 SVD-documented entries is addressable by name without pre-paging a cell
+- **Atlas verify**: `atlas verify` walks the full catalog with a complete round-trip (name / addr / mask / type / coord) plus an adjacent-pair duplicate sweep; validated on Alpha with `ok=9527/9527, duplicates=0, failures=0`
+- **Three-board mesh field trial**: cross-board `ARC_OP_SYNC` propagation at ~5 Hz (317+ packets across two peers), `goonies find <peer-name>` triggers `ARC_OP_QUERY` → `ARC_OP_ADVERTISE` round-trip with `Ghost Solidified` log confirmation, `mesh posture <state> <weight>` crosses the `SWARM_THRESHOLD=10` hysteresis with three cooperating peers, and HMAC Aura rejection is observable (`aura_fail` counter climbs at the offending peer's emit rate after a deliberate key mismatch, then freezes after re-pairing)
 
 ## Current Developer Flow
 
@@ -136,13 +139,16 @@ Closed in the current remediation sweep:
 Remaining (honest limits, not regressions):
 
 - **Aura wire size**: HMAC-SHA256 truncated to 32 bits for protocol compatibility; collision resistance capped at the birthday bound (~2^16). Future protocol epoch can bump `GOOSE_ARC_VERSION` and expand the Aura field.
-- **Aura key provisioning**: factory-fresh boards share the compile-time default until an operator runs `aura setkey <hex>`. Derive-from-efuse remains a follow-up.
+- **Aura key storage**: first-boot auto-provisioning generates a unique random 16-byte key via `esp_fill_random()` and persists it to NVS under `goose/aura_key`, so factory-fresh boards do not share a key (commit `afbfddc`). The remaining honest limit is that the key is still extractable from flash or JTAG by anyone with physical access to the board. Derive-from-efuse with secure boot remains a follow-up.
 - **LP heartbeat does not drive the LED**: the onboard LED is on GPIO 15, a HP-only pin; the C6 LP core can only drive LP I/O (GPIO 0-7). The LP heartbeat is therefore a parallel counter + intent-mirror, not an LED driver. Driving the LED from the LP core would require external wiring to an LP I/O pin.
+- **Catalog ≠ silicon**: `atlas verify` confirms 100% of the *SVD-documented* MMIO surface resolves cleanly, but the SVD is Espressif's published schema — not the full silicon. Undocumented registers, eFuse bits outside the SVD field schema, and silicon-revision deltas newer than `tools/esp32c6.svd` are not covered.
 
 ## Next Steps
 
-1. **Wave 2 (mechanical)**: NEURON quorum aggregation; generic capability matching in autonomous fabrication
-2. **Wave 3 (design call required)**: plasticity rule selection (Hebbian / reward-gated / richer); MMU definition (region-check vs translating); eager vs on-demand projection of the 9k-node shadow atlas
-3. **Atmosphere hardening**: replay cache; derived key material; optional expansion of wire Aura beyond 32 bits
-4. **Advanced I/O**: expose I2C and SPI buses to the Ternary Fabric
-5. **Multi-VM contexts**: support concurrent execution of multiple ternary task images
+The pre-audit "Wave 2 / Wave 3 / Atmosphere hardening" items from earlier revisions of this document all shipped across the remediation arc. See `CHANGELOG.md` for the per-commit record and `docs/strategy.md` for the forward roadmap (Phase 29 onward). Near-term concrete work:
+
+1. **Intent as a first-class cell type** (`GOOSE_CELL_PURPOSE`) alongside `GOOSE_CELL_NEED`, letting the user — human or AI — declare the machine's current purpose and have the supervisor route toward it. This is the step-change the maintainer articulated for the substrate-as-interface vision and the natural consumer of the current Hebbian plasticity layer.
+2. **Phase 29 — Tapestry Snapshots**: persist `learned_orientation` and Hebbian counters to NVS so plasticity survives cold boot. Prerequisite for Phase 31 and for any long-horizon user-purpose modeling.
+3. **Advanced I/O on the fabric**: expose I2C and SPI buses through GOOSE cells, so external sensors become addressable via G.O.O.N.I.E.S. names (`perception.i2c0.bme280.temperature`) and the plasticity / fabrication layers have a real environment to learn from.
+4. **Multi-VM contexts**: support concurrent execution of multiple ternary task images so a single board can host more than one independent program.
+5. **Aura key derivation from efuse** + secure-boot integration to close the remaining honest limit on Aura key extraction.
