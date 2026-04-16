@@ -1,4 +1,4 @@
-# Reflex OS
+# Reflex OS v2.6.0
 
 [![Build](https://github.com/EntroMorphic/reflex-os/actions/workflows/build.yml/badge.svg)](https://github.com/EntroMorphic/reflex-os/actions/workflows/build.yml)
 

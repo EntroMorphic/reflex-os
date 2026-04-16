@@ -7,6 +7,8 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-04-15
+
 ### Added
 - **Coherent Heartbeat** — LP RISC-V coprocessor program that ticks in parallel to HP at 1 Hz via `ULP_LP_CORE_WAKEUP_SOURCE_LP_TIMER`. HP mirrors `agency.led.intent` into LP-local globals each supervisor pulse. New `heartbeat` shell command reads the LP pulse counter.
 - **HMAC-SHA256 Aura** — replaces the custom rolling-hash keyed signature on atmospheric arc packets. Computed over `(version, op, coord, name_hash, state, nonce)`, truncated to 32 bits for wire compatibility, stack-allocated mbedtls context (no per-packet heap alloc).
