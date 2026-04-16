@@ -17,6 +17,7 @@
 #include "reflex_service.h"
 #include "reflex_led_service.h"
 #include "reflex_button_service.h"
+#include "reflex_temp_service.h"
 #include "reflex_wifi.h"
 #include "reflex_shell.h"
 #include "reflex_cache.h"
@@ -146,6 +147,7 @@ void app_main(void)
     reflex_service_manager_init();
     reflex_led_service_register();
     reflex_button_service_register();
+    reflex_temp_service_register();
     reflex_wifi_service_register();
     
     // 8. Ternary VM

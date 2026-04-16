@@ -33,6 +33,7 @@
 #include "reflex_button.h"
 #include "reflex_led.h"
 #include "reflex_cache.h"
+#include "reflex_temp_service.h"
 #include "reflex_fabric.h"
 #include "reflex_ternary.h"
 #include "reflex_vm.h"
@@ -680,6 +681,10 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
     } else if (strcmp(argv[0], "config") == 0) {
         if (argc >= 3 && strcmp(argv[1], "get") == 0) reflex_shell_config_get(argv[2]);
         else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
+    } else if (strcmp(argv[0], "temp") == 0) {
+        float c = reflex_temp_get_celsius();
+        goose_cell_t *cell = goonies_resolve_cell("perception.temp.reading");
+        printf("temp=%.1fC state=%d\n", c, cell ? cell->state : 0);
     } else if (strcmp(argv[0], "snapshot") == 0) {
         if (argc >= 2 && strcmp(argv[1], "save") == 0) {
             esp_err_t rc = goose_snapshot_save();
