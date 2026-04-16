@@ -501,6 +501,17 @@ void goose_lp_heartbeat_sync(void);
  */
 uint32_t goose_lp_heartbeat_count(void);
 
+// --- Purpose API (Phase 29.5+) ---
+
+/** @brief Store the purpose name and persist to NVS. Max 15 chars. */
+esp_err_t goose_purpose_set_name(const char *name);
+
+/** @brief Return the current purpose name (empty string if none). */
+const char *goose_purpose_get_name(void);
+
+/** @brief Clear the purpose name from memory and NVS. */
+esp_err_t goose_purpose_clear(void);
+
 // --- Tapestry Snapshots API (Phase 29) ---
 
 /** @brief Persist learned_orientation + hebbian_counter from all supervised routes to NVS. */

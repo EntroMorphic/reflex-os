@@ -708,16 +708,23 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
             if (p) {
                 p->type = GOOSE_CELL_PURPOSE;
                 p->state = 1;
-                printf("purpose: active (name '%s' noted but not persisted in the cell — Phase 29 follow-up)\n", argv[2]);
+                goose_purpose_set_name(argv[2]);
+                printf("purpose: active, name=\"%s\" (persisted to NVS)\n", goose_purpose_get_name());
             } else {
                 printf("purpose set: failed to allocate cell\n");
             }
         } else if (argc >= 2 && strcmp(argv[1], "get") == 0) {
             goose_cell_t *p = goonies_resolve_cell("sys.purpose");
-            printf("purpose: %s\n", (p && p->state != 0) ? "active (name not stored in cell)" : "inactive");
+            const char *name = goose_purpose_get_name();
+            if (p && p->state != 0) {
+                printf("purpose: active, name=\"%s\"\n", name[0] ? name : "(unnamed)");
+            } else {
+                printf("purpose: inactive\n");
+            }
         } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
             goose_cell_t *p = goonies_resolve_cell("sys.purpose");
             if (p) p->state = 0;
+            goose_purpose_clear();
             printf("purpose: cleared\n");
         } else {
             printf("purpose <set name|get|clear>\n");

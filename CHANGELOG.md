@@ -8,6 +8,8 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 ## [Unreleased]
 
 ### Added
+- **Purpose name persistence** — `goose_purpose_set_name` persists the user-declared purpose name (max 15 chars) to NVS under `goose/purpose`. `goose_fabric_init` restores it on boot, re-allocating the `sys.purpose` cell. `purpose get` now reports the stored name. `purpose clear` erases from both memory and NVS.
+- **Purpose-modulated routing in `weave_sync`** — when a purpose is active, autonomous fabrication preferentially routes needs to sinks whose name contains the purpose domain as a segment boundary (e.g., `purpose set sensor` biases toward cells with `.sensor.` in their name). Falls back to generic suffix matching when no domain candidate exists. Purpose now has two effects: faster learning (Hebbian 2×) and directional routing.
 - **`GOOSE_CELL_PURPOSE` (intent cells)** — first-class cell type for user-declared operating intent. `purpose set/get/clear` shell commands. When active, Hebbian reward increments are doubled — the OS learns faster when the user tells it what they're trying to do.
 - **Phase 29 Tapestry Snapshots** — `goose_snapshot_save/load/clear` serialize and restore `learned_orientation` + `hebbian_counter` from supervised routes to NVS. `snapshot save/load/clear` shell commands.
 - **Internal temperature sensor service** — the ESP32-C6 die temperature is projected into the fabric as `perception.temp.reading`, a live cell updated every 5 seconds with ternary state cold (-1, <40C) / normal (0, 40-55C) / warm (+1, >55C). `temp` shell command reads raw celsius + ternary state. First real perception on the substrate.

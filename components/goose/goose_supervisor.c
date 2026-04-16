@@ -290,8 +290,10 @@ esp_err_t goose_snapshot_clear(void) {
     esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
     if (rc != ESP_OK) return rc;
     for (size_t f = 0; f < supervised_field_count; f++) {
+        uint32_t kh = 0x811c9dc5;
+        for (int ki = 0; supervised_fields[f]->name[ki]; ki++) { kh ^= (uint32_t)supervised_fields[f]->name[ki]; kh *= 0x01000193; }
         char key[16];
-        snprintf(key, sizeof(key), "snap_%.10s", supervised_fields[f]->name);
+        snprintf(key, sizeof(key), "s_%08lx", (unsigned long)kh);
         nvs_erase_key(h, key);
     }
     nvs_commit(h);

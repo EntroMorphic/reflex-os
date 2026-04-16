@@ -25,6 +25,7 @@ Reflex OS has moved from a binary-hosted VM to a hardened, geometric substrate. 
 - **Phase 28:** Autonomous Fabrication. (Completed — `goose_supervisor_weave_sync` wires `GOOSE_CELL_NEED` cells to capability-matched sinks using a generic last-segment resolver.)
 - **Phase 29:** Tapestry Snapshots. (Completed — `goose_snapshot_save/load/clear` serialize supervised-route plasticity to NVS; `snapshot save/load/clear` shell commands.)
 - **Phase 29.5:** `GOOSE_CELL_PURPOSE` — intent as a first-class cell type. (Completed — `purpose set/get/clear` shell commands; learn_sync doubles Hebbian reward increments when a purpose is active.)
+- **Phase 29.7:** Purpose name persistence + purpose-modulated routing. (Completed — purpose name persisted to NVS, restored on boot; `weave_sync` biases routing toward the purpose domain via segment-bounded matching.)
 - **Phase 29.6:** First real perception — internal temperature sensor projected as `perception.temp.reading` on the GOOSE fabric. (Completed.)
 - **Phase 30:** Substrate Visualization (Loom Viewer).
 - **Phase 31:** Metabolic Regulation (vitals-gated plasticity).

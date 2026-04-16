@@ -43,9 +43,9 @@ A clean checkout regenerates `sdkconfig` from `sdkconfig.defaults`. The target i
 | `goonies find <name>` | Resolve a name: live registry first, then fall through to the 9527-entry shadow catalog. Output is labeled `[live]` or `[shadow]`. |
 | `atlas verify` | Walk the entire SVD-documented MMIO shadow catalog (full round-trip + duplicate sweep). Prints progress dots; reports `ok=N/N, duplicates=D, failures=F`. |
 | `temp` | Read the internal die temperature (ternary state: cold/normal/warm) |
-| `purpose set <name>` | Declare the current operating purpose (amplifies Hebbian plasticity) |
-| `purpose get` | Report whether a purpose is active |
-| `purpose clear` | Clear the active purpose |
+| `purpose set <name>` | Declare the current operating purpose; persists name to NVS. Amplifies Hebbian plasticity and biases `weave_sync` routing toward the named domain. |
+| `purpose get` | Report the active purpose name (or "inactive") |
+| `purpose clear` | Clear the active purpose and erase from NVS |
 | `snapshot save` | Persist supervised-route plasticity (learned_orientation + hebbian_counter) to NVS |
 | `snapshot load` | Restore plasticity from the last snapshot |
 | `snapshot clear` | Erase all snapshot blobs from NVS |

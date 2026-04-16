@@ -118,6 +118,8 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - **Three-board mesh field trial**: cross-board `ARC_OP_SYNC` propagation at ~5 Hz (317+ packets across two peers), `goonies find <peer-name>` triggers `ARC_OP_QUERY` → `ARC_OP_ADVERTISE` round-trip with `Ghost Solidified` log confirmation, `mesh posture <state> <weight>` crosses the `SWARM_THRESHOLD=10` hysteresis with three cooperating peers, and HMAC Aura rejection is observable (`aura_fail` counter climbs at the offending peer's emit rate after a deliberate key mismatch, then freezes after re-pairing)
 - **Internal temperature sensor**: `perception.temp.reading` reads the C6 die at ~50-55°C, projecting live ternary state (cold/normal/warm) into the fabric; `temp` shell command reports raw celsius + state
 - **`GOOSE_CELL_PURPOSE`**: `purpose set/get/clear` creates, queries, and clears a user-declared intent cell; learn_sync observably doubles Hebbian reward increments when active
+- **Purpose name persistence**: `purpose set sensor` persists `"sensor"` to NVS; reboot restores both the name and the active cell (`purpose restored from NVS: "sensor"` in boot log); `purpose get` reports the name; `purpose clear` + reboot → `inactive`
+- **Purpose-modulated routing**: `weave_sync` uses segment-bounded domain matching (`.<purpose>.` or trailing `.<purpose>`) to bias capability resolution when a purpose is active, falling back to generic suffix match when no domain candidate exists
 - **Tapestry Snapshots**: `snapshot save/load/clear` exercised on Alpha with NVS read/write paths returning `ESP_OK`; 0 routes persisted (correct — no active plasticity scenario at boot without external stimulus)
 
 ## Current Developer Flow
@@ -158,8 +160,8 @@ Items 1–5 from the previous TODO all shipped in the current session:
 
 Near-term TODO (forward from the current state):
 
-1. **Purpose-modulated capability matching in `weave_sync`** — when a PURPOSE cell is active, bias autonomous fabrication toward routes that serve the declared purpose's domain. Current first-slice is a bare 2× Hebbian amplifier; next slice gives purpose a routing effect.
-2. **Purpose name persistence** — store the purpose name (not just the active/inactive bit) in NVS or as a goose cell attribute so `purpose get` can report WHAT the purpose is, not just that one exists.
+1. ~~**Purpose-modulated capability matching in `weave_sync`**~~ — shipped. When a PURPOSE cell is active, `weave_sync` biases autonomous fabrication toward sinks matching the purpose domain via segment-bounded name matching (`.domain.` or trailing `.domain`), falling back to generic suffix match.
+2. ~~**Purpose name persistence**~~ — shipped. `goose_purpose_set_name` persists to NVS (`goose/purpose`); `goose_fabric_init` restores it on boot, re-allocating the `sys.purpose` cell with `state=1`. `purpose get` reports the stored name.
 3. **External I2C sensor on the fabric** — expose a BME280 (or similar I2C peripheral) as addressable GOOSE cells under `perception.i2c0.bme280.*`. The internal temp sensor proves the architecture; an external sensor proves the extensibility.
 4. **Automatic snapshot cadence** — call `goose_snapshot_save` on a supervisor-driven timer (e.g., every 60 seconds after the stability marker) rather than requiring an explicit `snapshot save` from the shell.
 5. **Multi-VM contexts** — support concurrent execution of multiple ternary task images.

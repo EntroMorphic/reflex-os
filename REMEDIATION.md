@@ -1,128 +1,192 @@
-# Remediation Plan — Atlas Coverage Red-Team
+# Remediation Plan: Purpose-Modulated Routing + Purpose Name Persistence
 
-Tracks execution of the nine findings from the red-team review of commit `6bb1f0a` (`feat(atlas): full-surface MMIO name resolution + atlas verify`).
-
-**Status legend:** ☐ pending · ◐ in progress · ☑ done
-
-**Pre-flight (completed before plan finalized):**
-- Zero duplicate names in `goose_shadow_atlas.c` (`grep | sort | uniq -d` → 0)
-- Catalog rows already sorted in `LC_ALL=C` byte order (`sort -c` → silent, clean)
-- 9527 rows match `shadow_map_count`
-
-These results mean Phases A+B are *hardening* (instrumentation + future-regression gates), not *bug fixing*. The only unverified property from my original red-team is the type+coord round-trip — Phase A closes that.
+**Scope:** TODO items 1 and 2 from `docs/implementation-status.md`
+**Status:** Complete
 
 ---
 
-## Phase A — Verify correctness + honest language
+## Context
 
-Close R1, R2, R3 in one commit. These together form "make `atlas verify` actually verify what the output claims."
+Reflex OS's `GOOSE_CELL_PURPOSE` (shipped in Phase 29.5) currently has one concrete effect: when active, `learn_sync` doubles Hebbian reward increments. The purpose cell is a boolean flag — the user-provided name string is acknowledged by the shell but not stored in the substrate. This means:
 
-### ☑ R1 — HIGH — verify type+coord round-trip, not just addr+mask
+- The substrate cannot answer "what is the purpose?" — only "is there one?"
+- `weave_sync` (autonomous fabrication) cannot orient its routing toward the declared purpose's domain
+- Purpose does not survive reboot
 
-**Finding.** `atlas verify`'s pass check is `resolve(name) == ESP_OK && addr_matches && mask_matches`. Type and coord are never compared. A scraper bug where (say) a `GOOSE_CELL_HARDWARE_IN` entry is emitted as `GOOSE_CELL_SYSTEM_ONLY` would silently pass.
-
-**Fix.** Add two more equality checks in the verify loop:
-- `type == shadow_map[i].type`
-- `goose_coord_equal(coord, goose_make_shadow_coord(shadow_map[i].f, shadow_map[i].r, shadow_map[i].c))`
-
-**Validation.** Re-run `atlas verify` on Alpha. Expected: `ok=9527 failed=0` still. If anything fails, that's a real bug — stop and investigate.
-
-### ☑ R2 — HIGH — duplicate-name detection
-
-**Finding.** Binary search silently consolidates duplicate names — both would "resolve" but only to one entry. `atlas verify` can't catch it.
-
-**Fix.** Add a sweep loop before the resolve loop: iterate `i = 1..count` and check `strcmp(shadow_map[i-1].name, shadow_map[i].name) != 0`. Since the catalog is sorted by name, any duplicate is adjacent. Count duplicates separately from resolve failures.
-
-**Validation.** Pre-flight already showed 0 dupes. Verify reports `duplicates=0`. This is a regression gate for future scraper changes.
-
-### ☑ R3 — HIGH — "100% of MMIO" overclaims
-
-**Finding.** Both the `atlas verify` success line and the docs claim *"100% MMIO coverage"*. What I can actually prove is *"100% of the SVD-documented MMIO catalog"*. The SVD doesn't include undocumented registers, eFuse bits outside SVD field schema, test-mode registers, or silicon-revision deltas.
-
-**Fix.** Change wording in three places:
-- `reflex_shell_atlas_verify` success line
-- `docs/architecture.md` §2 G.O.O.N.I.E.S. & Shadow Paging
-- `docs/implementation-status.md` G3 Atlas and Shadow Paging
-
-From *"100% of MMIO shadow catalog"* to *"100% of the SVD-documented MMIO catalog"*.
-
-**Validation.** Visual review of updated strings; no hardware validation needed for doc-only changes.
+These two items are tightly coupled: purpose needs a stored name before `weave_sync` can use its domain for routing bias.
 
 ---
 
-## Phase B — Scraper invariants
+## What Exists Today
 
-Close R5, R6. These harden the scraper against future changes that could silently break the binary-search resolver.
-
-### ☑ R5 — MEDIUM — assert ASCII + explicit byte-order sort
-
-**Finding.** Python's default `sort()` uses Unicode code-point ordering. `goose_shadow_resolve` uses `strcmp` (byte order). These match for pure ASCII but diverge on non-ASCII. The current SVD is pure ASCII — safe today, undefined tomorrow.
-
-**Fix.** In `tools/goose_scraper.py`:
-1. Assert every name is pure ASCII before sorting: `assert n["name"].isascii(), f"non-ASCII name: {n['name']}"`.
-2. Sort explicitly with a byte-key: `shadow_nodes.sort(key=lambda x: x["name"].encode("ascii"))`.
-
-The sort output is byte-identical for ASCII-only input (pre-flight confirmed), so the regenerated `goose_shadow_atlas.c` should match the current committed state exactly.
-
-**Validation.** Regenerate the catalog; diff against committed; expect no changes. Build clean.
-
-### ☑ R6 — MEDIUM — scraper ↔ header struct sync discipline
-
-**Finding.** `tools/goose_scraper.py` emits positional C initializers (`{"name", addr, mask, f, r, c, type}`) whose order depends on `shadow_node_t`'s field layout in `goose.h`. If someone reorders the struct without updating the scraper, the regenerated file fails to compile.
-
-**Fix.** Add reciprocal comments:
-- In `goose_scraper.py`, at the emit block: *"Positional initializer order must match `shadow_node_t` in `components/goose/include/goose.h`"*.
-- In `goose.h` above `shadow_node_t`: *"Field order is consumed by `tools/goose_scraper.py` — update both together or regeneration will break."*
-
-**Validation.** Doc-only. No build changes.
+| Component | Current State |
+|---|---|
+| `purpose set <name>` (shell) | Allocates `sys.purpose` cell, sets `state=1`, **discards name** |
+| `purpose get` (shell) | Reports "active" or "inactive" — cannot report the name |
+| `purpose clear` (shell) | Zeros `sys.purpose.state` |
+| `weave_sync` | Matches `GOOSE_CELL_NEED` → capability sinks via generic last-segment suffix (e.g., `sys.need.led` → `.led` → any cell ending in `.led`) |
+| `learn_sync` | 2x Hebbian amplification when `sys.purpose.state != 0` |
+| Persistence | None — purpose is lost on reboot |
 
 ---
 
-## Phase C — Verify UX polish
+## Proposed Changes
 
-Close R4, R9. These make the verify output nicer for humans without changing its correctness properties.
+### A. Purpose Name Storage (Structural)
 
-### ☑ R4 — MEDIUM — no progress indication / ~100 ms shell monopoly
+1. Add `static char purpose_name[16]` in `goose_runtime.c` alongside `autonomy_field`
+2. `goose_purpose_set_name(const char *name)` — copies name, persists to NVS (`goose/purpose`)
+3. `goose_purpose_get_name()` — returns pointer to the static buffer (read-only)
+4. `goose_purpose_clear()` — zeros buffer, erases NVS key
+5. Load from NVS at `goose_fabric_init` time (before supervisor starts)
+6. Shell `purpose set <name>` calls `goose_purpose_set_name` and sets cell state
+7. Shell `purpose get` reports the stored name
+8. Shell `purpose clear` calls `goose_purpose_clear` and zeros cell state
 
-**Finding.** `atlas verify` processes 9527 entries in a tight loop with no output until completion. On a slow terminal or a scripted capture with a short window, the user might think the shell hung. Also: the entire verification holds the shell task for ~100 ms (no scheduler yield), though it doesn't take `loom_authority` so it doesn't starve the supervisor pulse.
+### B. Purpose-Modulated Capability Matching in `weave_sync` (Routing Effect)
 
-**Fix.** Two tiny changes:
-1. Yield every 1000 entries: `if ((i % 1000) == 0) vTaskDelay(0);` — lets FreeRTOS schedule higher-priority tasks between chunks.
-2. Emit a progress dot every 1000 entries: `if ((i % 1000) == 0) { putchar('.'); fflush(stdout); }`.
+When PURPOSE is active and `purpose_name` is non-empty, `weave_sync` uses a **two-pass capability search**:
 
-**Validation.** Run `atlas verify` on Alpha; observe dots followed by summary.
+1. **Domain-biased pass**: resolve the capability with the purpose name as a domain hint. For a need named `sys.need.led` with purpose `"sensor"`, prefer sinks whose name contains the purpose domain (e.g., `perception.sensor.led` over `agency.led.intent`).
 
-### ☑ R9 — LOW — redundant output line *(absorbed into Phase A output rewrite)*
+2. **Fallback pass**: if the biased pass finds nothing, use the existing generic suffix match. Purpose never prevents a need from being wired — it only biases which sink is chosen.
 
-**Finding.** The two-line verify output *"total=9527 ok=9527 failed=0"* followed by *"100% of MMIO shadow catalog resolves cleanly."* is redundant AND R3 says the second line is wrongly worded anyway.
+Implementation: add `goonies_resolve_by_capability_in_domain(const char *suffix, const char *domain)` that filters candidates to those whose name contains the domain substring before falling back to the zone-priority scan.
 
-**Fix.** Single-line summary that's correct per R3: *"ATLAS VERIFY: ok=9527/9527 (100% of SVD-documented MMIO catalog); duplicates=0, failures=0"*. Folds R3's wording and R2's dup count into one line.
+### C. Same-Commit Documentation Updates
 
-**Validation.** Visual review of updated output on Alpha.
-
----
-
-## Phase D — Docs
-
-Close R7, R8. These record the behavior changes from commit `6bb1f0a` so the next reader (including future-me) is not surprised.
-
-### ☑ R7 — LOW — shell output schema change in CHANGELOG
-
-**Finding.** `goonies find` now emits `[live]` or `[shadow]` labels, and the shadow form has a completely different format (`addr=0x... mask=0x... type=...`). Any regex-parser of the old output breaks. Nobody is currently parsing, but the schema change is real.
-
-**Fix.** Add an entry under `## [Unreleased]` → `### Changed` in `CHANGELOG.md` describing the new output schema.
-
-### ☑ R8 — LOW — serial shell information surface expansion in SECURITY.md
-
-**Finding.** `goonies find` now reveals the MMIO address + bit mask + ontological type for 9527 SVD-documented registers, not just the ~104 pre-woven atlas cells. The serial shell is already trust-equivalent to JTAG so this isn't a new attack surface, but it IS a broader information surface accessible through a single interactive command.
-
-**Fix.** Add a paragraph to `SECURITY.md` §1 (The Sanctuary Guard) documenting that the serial shell exposes full SVD-documented MMIO information via `goonies find`, and that the shell itself is a trusted interface — not a defect, but honest scope documentation.
+- `docs/architecture.md` §6 — document the routing effect
+- `docs/implementation-status.md` — move items 1-2 from TODO to completed; add to Hardware-Validated Behaviors
+- README shell table — update `purpose` entry
+- CHANGELOG.md — new entry
 
 ---
 
-## Execution log
+## What Does NOT Change
 
-- **Phase A** — R1, R2, R3, R9 — `atlas verify` now does full round-trip (name + addr + mask + type + coord via `goose_make_shadow_coord`) and sweeps for adjacent-name duplicates in a separate pass. Output rewritten to a single line that absorbs R3's honest "SVD-documented" wording and R9's dedup. `docs/architecture.md` §2 and `docs/implementation-status.md` G3 both updated with the narrower coverage claim. Validated on Alpha: `ok=9527/9527 (100% of SVD-documented MMIO catalog); duplicates=0, failures=0`.
-- **Phase B** — R5, R6 — scraper now asserts every name is pure ASCII at scrape time and sorts via explicit `encode("ascii")` byte key; reciprocal sync-discipline comments added to both `tools/goose_scraper.py` (emit block) and `shadow_node_t` in `goose.h`. Regenerated catalog diff is limited to the new header comment block — the 9527 data rows are byte-identical to the prior state, confirming that (a) Python default sort and byte-order sort coincide for the current ASCII-only catalog, and (b) the ASCII invariant is satisfied today.
-- **Phase C** — R4 — `atlas verify` emits a progress dot every 1000 entries and calls `vTaskDelay(0)` between chunks so higher-priority tasks run. Validated on Alpha: exactly ten dots (9527/1000 → ceil(10)) followed by the summary line; no regression.
-- **Phase D** — R7, R8 — `CHANGELOG.md` Unreleased section gains explicit entries for the atlas-coverage additions (Added: full-surface name resolution, `atlas verify`, public shadow catalog API, scraper ASCII invariant) and a Changed entry describing the new `goonies find` output schema with `[live]` / `[shadow]` labels. `SECURITY.md` §1 gains a "Serial shell information surface" paragraph honestly documenting what `goonies find` now exposes through the shell and noting that the shell is trust-equivalent to JTAG. Doc-only; no hardware validation needed.
+- `learn_sync` 2x amplifier — stays. Purpose now has two effects: faster learning AND biased routing
+- `GOOSE_CELL_PURPOSE` enum value — already exists
+- Snapshot format — purpose name is metadata, not route plasticity
+- Lock discipline — purpose name read is outside `loom_authority` (read-only, single-writer)
+
+---
+
+## Red-Team Concerns
+
+| # | Concern | Assessment |
+|---|---|---|
+| 1 | **`purpose_name` concurrency** | Shell writes (main task), `weave_sync` reads (supervisor pulse task). Worst case: half-written name → garbled suffix → no domain hit → generic fallback. No crash, no wrong route. Safe by construction. |
+| 2 | **NVS wear** | `purpose set` writes to NVS. Users won't cycle purpose rapidly. NVS wear-leveling handles it. |
+| 3 | **Domain match ambiguity** | First match in biased pass wins, same priority ordering as existing scan. Deterministic. |
+| 4 | **16-byte name limit** | Matches cell name limit used everywhere. Sufficient for domain tokens (`sensor`, `motor`, `comm`). |
+| 5 | **Empty name + active cell** | Domain pass skipped when name is empty. Clean degradation to current behavior. |
+| 6 | **Purpose loaded before supervisor** | NVS load in `goose_fabric_init` runs before supervisor pulse starts. No race on startup. |
+| 7 | **Purpose name vs. purpose cell lifetime** | Cell may be evicted (though PURPOSE is eviction-guarded). Name lives in a static buffer independent of cell lifetime — the name outlives the cell if eviction somehow occurs. |
+
+---
+
+## Validation Plan
+
+1. **Build**: clean `idf.py build` with no warnings in goose_runtime.c or goose_supervisor.c
+2. **Boot**: cold boot on Alpha, confirm `purpose get` reports "inactive" (no NVS key yet)
+3. **Set + Get**: `purpose set sensor` → `purpose get` reports `sensor`
+4. **Reboot persistence**: `reboot` → `purpose get` still reports `sensor`
+5. **Routing bias**: create a NEED cell that has matching sinks in multiple domains; confirm `weave_sync` prefers the purpose-domain sink when purpose is active, and falls back to generic when cleared
+6. **Clear + reboot**: `purpose clear` → `reboot` → `purpose get` reports "inactive"
+7. **Doc audit**: every shell command change reflected in same commit docs
+
+---
+
+## LMM Analysis
+
+### RAW
+
+What's actually happening here? I'm looking at a substrate that already has a concept of purpose — it knows *that* it has one — but can't say *what* it is. The purpose cell is a light switch: on or off. The name the user provides vanishes the moment it leaves the shell parser's `argv[2]`.
+
+That's a deeper gap than it looks. The whole thesis of Reflex OS is "substrate-as-interface" — the machine's awareness of itself and its user's intent exists to make it a better interface. But right now, the awareness is content-free. The substrate knows it should care more (2x Hebbian amplification), but it doesn't know *about what*. It's attention without object.
+
+The purpose name isn't just metadata. It's the first piece of semantic information the user gives the machine about *why they're using it*. If I get this right, the substrate genuinely orients toward what the user is trying to do. If I get it wrong — over-engineer it, make it too clever, add a matching heuristic that fires incorrectly — the substrate will actively mislead its own routing, which is worse than having no purpose at all.
+
+There's tension between making the domain match powerful enough to matter and simple enough to be predictable. A substring match (`"sensor"` matches any name containing `"sensor"`) is easy to reason about but could match spuriously. A zone-prefix match (`"sensor"` only matches names in `perception.sensor.*`) is more precise but assumes the user knows the naming hierarchy. The user typing `purpose set sensor` probably means "I'm doing sensor work" — they don't mean "only route through names in the perception zone that have a second segment called sensor."
+
+The two-pass approach (try domain-biased, fall back to generic) is the right structural choice because it makes purpose *additive*. Purpose can only help, never hurt. A wrong domain match just means the substrate misses the bias and falls through to the same behavior it has today. That's the safety property I need to preserve.
+
+Another tension: where does the purpose name live? I proposed a static buffer in `goose_runtime.c`. That's simple and it works. But it means purpose is a singleton — one machine, one purpose. That's correct for now (the C6 is a single-user device), but it's worth being honest that this is a design choice, not an accident. Multi-purpose would require purpose to be a cell attribute or a per-field annotation, which is a different architecture entirely.
+
+The NVS persistence is straightforward but carries a subtle implication: the machine remembers what it was for across power cycles. That's actually meaningful for the project's vision. Two boards running the same firmware will diverge not just in their learned routes (Tapestry Snapshots) but in their declared purpose. The machine's identity grows from use.
+
+### NODES
+
+1. **Purpose name storage**: singleton static buffer + NVS persistence. Simple, correct for a single-user device, honest about the singleton constraint.
+
+2. **Domain-biased routing**: two-pass search in `weave_sync`. Domain match first, generic fallback second. Purpose is additive — never blocks a route that would otherwise succeed.
+
+3. **Domain match semantics**: the critical design decision. Substring vs. zone-prefix vs. segment match. Must be predictable to the user and safe against false positives.
+
+4. **Concurrency safety**: single-writer (shell task), single-reader (`weave_sync` in supervisor pulse). Worst-case torn read falls through to generic match. No lock needed.
+
+5. **`goonies_resolve_by_capability_in_domain`**: new function. Filters the existing zone-priority scan by requiring the candidate name to contain the domain. This is the only new code in the hot path.
+
+6. **API surface**: three new public functions (`goose_purpose_set_name`, `goose_purpose_get_name`, `goose_purpose_clear`) declared in `goose.h`.
+
+7. **Validation challenge**: routing bias is harder to test than plasticity amplification. I need a scenario where two valid sinks exist for the same need, and the domain-biased one wins only when purpose is active.
+
+### REFLECT
+
+The deepest architectural question is: **what does "domain" mean in this substrate?**
+
+The GOONIES naming hierarchy has implicit semantic zones: `agency.*` is output, `perception.*` is input, `sys.*` is system. Within those zones, the second segment often names a subsystem (`agency.led`, `perception.gpio_in`, `sys.pmu`). The purpose name maps most naturally to this second segment — it's the part that says *what kind of thing* the cell is about.
+
+So the domain match should be: "does the candidate name contain `.<purpose>.` as a segment boundary?" Not a raw substring (too loose), not a zone prefix (too rigid). A segment-bounded match: `"sensor"` matches `perception.sensor.reading` and `agency.sensor.ctrl` but not `sys.sensors_disabled`.
+
+Wait — that's clever but fragile. What if the user types `purpose set led`? Then `agency.led.intent` matches (contains `.led.`), and so does any other cell with `.led.` in its name. That's actually correct behavior — the user said "I'm doing LED work" and the substrate preferentially routes toward LED-related cells.
+
+The segment-bounded approach (`.domain.`) is better than raw substring because it won't match partial words. `purpose set temp` won't accidentally match `sys.template.config` — it'll only match names with `.temp.` as a whole segment.
+
+But I need to handle the edge case where the domain appears as the *last* segment (no trailing dot). `perception.temp` should match when purpose is `"temp"`. So the match is: name contains `.<domain>.` OR name ends with `.<domain>`.
+
+This is still a simple `strstr`-class operation. No regex, no allocations, no parsing overhead.
+
+The real leverage point is that this matching rule naturally aligns with the GOONIES naming convention the project already uses. Users who name their cells well get better purpose routing. The naming convention becomes load-bearing in a new way — it's not just human-readable, it's machine-navigable.
+
+One more thing: the existing `goonies_resolve_by_capability` already scans in zone priority order (agency, perception, sys). The domain-biased variant should preserve this ordering — within the domain-filtered candidates, agency still beats perception still beats sys. Purpose biases *which candidates* are considered, not *which zone wins*.
+
+### SYNTHESIZE
+
+**Key decisions:**
+
+1. **Domain match rule**: segment-bounded. Match candidates whose name contains `.<purpose>.` or ends with `.<purpose>`. Simple, predictable, aligned with GOONIES naming convention.
+
+2. **Two-pass with zone priority preserved**: domain-biased pass scans zone-by-zone (agency → perception → sys) but only considers candidates matching the domain. Fallback pass is identical to today's generic scan.
+
+3. **Singleton purpose name**: `static char purpose_name[16]` in `goose_runtime.c`, persisted to NVS `goose/purpose`. Honest about the singleton constraint in docs.
+
+4. **API**: `goose_purpose_set_name`, `goose_purpose_get_name`, `goose_purpose_clear` in `goose.h`. Shell calls these; `weave_sync` reads via `goose_purpose_get_name`.
+
+5. **No lock for purpose name**: single-writer, single-reader, worst-case torn read degrades to generic match. Adding a lock would be ceremony without safety gain.
+
+**Action steps:**
+
+1. Add purpose name storage + NVS persistence + three API functions to `goose_runtime.c`
+2. Declare the three functions in `goose.h`
+3. Add `goonies_resolve_by_capability_in_domain` to `goose_runtime.c`
+4. Modify `weave_sync` to call the domain-biased resolver when purpose is active
+5. Update shell `purpose set/get/clear` to use the new API
+6. Load purpose name from NVS in `goose_fabric_init`
+7. Update docs in same commit (architecture.md, implementation-status.md, README, CHANGELOG)
+8. Build → flash → validate on Alpha (cold boot, set/get, reboot persistence, routing bias, clear)
+
+**Success criteria:**
+
+- `purpose set sensor` + `purpose get` → reports `"sensor"`
+- Reboot → `purpose get` → still `"sensor"`
+- `weave_sync` with an active purpose demonstrably prefers domain-matching sinks over generic matches
+- `purpose clear` + reboot → `purpose get` → `"inactive"`
+- Clean build, no warnings, no regressions in existing shell commands or supervisor behavior
+- All doc files updated in the same commit as the code changes
+
+**Resolved tensions:**
+
+- Substring vs. segment match → segment-bounded (`.domain.` or trailing `.domain`) — precise enough to avoid false positives, loose enough that users don't need to know zone prefixes
+- Singleton vs. multi-purpose → singleton, honestly documented as a design choice
+- Purpose as acceleration vs. direction → both: learn_sync amplifies (acceleration), weave_sync biases (direction)

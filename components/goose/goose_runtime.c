@@ -11,6 +11,7 @@
 #include "esp_rom_gpio.h"
 #include "soc/gpio_sig_map.h"
 #include "esp_sleep.h"
+#include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
@@ -127,6 +128,45 @@ bool goose_loom_try_lock(goose_field_t *field) {
 
 void goose_loom_unlock(void) { __atomic_clear(&loom_authority, __ATOMIC_RELEASE); }
 
+static char purpose_name[16] = {0};
+
+static void purpose_load_from_nvs(void) {
+    nvs_handle_t h;
+    if (nvs_open("goose", NVS_READONLY, &h) != ESP_OK) return;
+    size_t len = sizeof(purpose_name);
+    if (nvs_get_str(h, "purpose", purpose_name, &len) != ESP_OK)
+        purpose_name[0] = '\0';
+    nvs_close(h);
+}
+
+esp_err_t goose_purpose_set_name(const char *name) {
+    if (!name) return ESP_ERR_INVALID_ARG;
+    strncpy(purpose_name, name, sizeof(purpose_name) - 1);
+    purpose_name[sizeof(purpose_name) - 1] = '\0';
+    nvs_handle_t h;
+    esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
+    if (rc != ESP_OK) return rc;
+    rc = nvs_set_str(h, "purpose", purpose_name);
+    nvs_commit(h);
+    nvs_close(h);
+    return rc;
+}
+
+const char *goose_purpose_get_name(void) {
+    return purpose_name;
+}
+
+esp_err_t goose_purpose_clear(void) {
+    purpose_name[0] = '\0';
+    nvs_handle_t h;
+    esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
+    if (rc != ESP_OK) return rc;
+    nvs_erase_key(h, "purpose");
+    nvs_commit(h);
+    nvs_close(h);
+    return rc;
+}
+
 esp_err_t goose_fabric_init(void) {
     lattice_stable = false; goonies_count = 0;
     /* Clear loom_authority unconditionally. On cold boot it starts at 0
@@ -153,6 +193,17 @@ esp_err_t goose_fabric_init(void) {
      * into the (zeroed) goonies_registry via the post-Item-2 fix. */
     goose_fabric_alloc_cell("sys.origin", goose_make_coord(0, 0, 0), true);
     goose_fabric_alloc_cell("agency.led.intent", goose_make_coord(0, 0, 1), true);
+
+    purpose_load_from_nvs();
+    if (purpose_name[0]) {
+        goose_cell_t *pc = goose_fabric_alloc_cell("sys.purpose", goose_make_coord(0, 0, 2), true);
+        if (pc) {
+            pc->type = GOOSE_CELL_PURPOSE;
+            pc->state = 1;
+        }
+        ESP_LOGI(TAG, "purpose restored from NVS: \"%s\"", purpose_name);
+    }
+
     return ESP_OK;
 }
 
@@ -253,7 +304,42 @@ goose_cell_t* goonies_resolve_by_capability(const char *suffix) {
             const char *name = goonies_registry[i].name;
             if (strncmp(name, trusted_zones[p], strlen(trusted_zones[p])) == 0) {
                 size_t nlen = strlen(name); size_t slen = strlen(suffix);
-                if (nlen >= slen && strcmp(name + (nlen - slen), suffix) == 0) { return goose_fabric_get_cell_by_coord(goonies_registry[i].coord); }
+                if (nlen >= slen && strcmp(name + (nlen - slen), suffix) == 0) {
+                    goose_cell_t *c = goose_fabric_get_cell_by_coord(goonies_registry[i].coord);
+                    if (c && c->type == GOOSE_CELL_NEED) continue;
+                    return c;
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
+static bool name_contains_domain(const char *name, const char *domain) {
+    size_t dlen = strlen(domain);
+    const char *p = name;
+    while ((p = strstr(p, domain)) != NULL) {
+        bool left_ok  = (p > name && *(p - 1) == '.');
+        bool right_ok = (p[dlen] == '.' || p[dlen] == '\0');
+        if (left_ok && right_ok) return true;
+        p++;
+    }
+    return false;
+}
+
+static goose_cell_t* goonies_resolve_by_capability_in_domain(const char *suffix, const char *domain) {
+    if (!suffix || !domain || !domain[0]) return NULL;
+    const char* trusted_zones[] = {"agency.", "perception.", "sys."};
+    for (int p = 0; p < 3; p++) {
+        for (uint32_t i = 0; i < goonies_count; i++) {
+            const char *name = goonies_registry[i].name;
+            if (strncmp(name, trusted_zones[p], strlen(trusted_zones[p])) != 0) continue;
+            if (!name_contains_domain(name, domain)) continue;
+            size_t nlen = strlen(name); size_t slen = strlen(suffix);
+            if (nlen >= slen && strcmp(name + (nlen - slen), suffix) == 0) {
+                goose_cell_t *c = goose_fabric_get_cell_by_coord(goonies_registry[i].coord);
+                if (c && c->type == GOOSE_CELL_NEED) continue;
+                return c;
             }
         }
     }
@@ -294,11 +380,16 @@ esp_err_t goose_supervisor_weave_sync(void) {
                                 strncmp(need_name, "agency.", 7) == 0);
         if (!is_trusted_need) continue;
 
-        /* Generic capability match: take everything from the last '.' of the
-         * need name as the capability suffix. "sys.need.led" -> ".led". */
         const char *suffix = strrchr(need_name, '.');
         if (!suffix) continue;
-        goose_cell_t *cap = goonies_resolve_by_capability(suffix);
+
+        goose_cell_t *cap = NULL;
+        if (purpose_name[0]) {
+            cap = goonies_resolve_by_capability_in_domain(suffix, purpose_name);
+        }
+        if (!cap) {
+            cap = goonies_resolve_by_capability(suffix);
+        }
         if (!cap) continue;
 
         /* Serialize against the autonomy_field's own pulse task.
