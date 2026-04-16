@@ -8,9 +8,10 @@
  *
  * The cell `perception.temp.reading` is allocated at service init and
  * updated every 5 seconds by a background FreeRTOS task. The ternary
- * state is mapped as: cold (<25C) = -1, normal (25-35C) = 0, warm (>35C) = +1.
- * The raw float reading is tracked separately for the shell's `temp`
- * command.
+ * state is mapped as: cold (<40C) = -1, normal (40-55C) = 0, warm (>55C) = +1.
+ * Thresholds are calibrated for die temperature (the C6 die runs at
+ * ~50-55C under normal USB operation). The raw float reading is tracked
+ * separately for the shell's `temp` command.
  */
 
 #include "goose.h"
@@ -23,12 +24,15 @@
 
 #define TEMP_TAG "reflex.temp"
 #define TEMP_POLL_MS 5000
-#define TEMP_COLD_THRESHOLD  25.0f
-#define TEMP_WARM_THRESHOLD  35.0f
+/* Die-temperature thresholds. The C6 die runs at ~50-55C under normal
+ * USB operation, so the ambient-sensor defaults (25/35) would pin the
+ * state permanently at +1. These are calibrated for die reality. */
+#define TEMP_COLD_THRESHOLD  40.0f
+#define TEMP_WARM_THRESHOLD  55.0f
 
 static temperature_sensor_handle_t s_temp_handle = NULL;
 static goose_cell_t *s_temp_cell = NULL;
-static float s_last_reading = 0.0f;
+static volatile float s_last_reading = 0.0f;
 static TaskHandle_t s_task_handle = NULL;
 
 float reflex_temp_get_celsius(void) { return s_last_reading; }
@@ -63,11 +67,13 @@ static esp_err_t temp_service_init(void *ctx) {
         return rc;
     }
 
+    /* The internal temp sensor is a driver API, not an MMIO register —
+     * it has no hardware address to bind via set_agency. Allocate the
+     * cell as system-pinned (is_system_weaving=true → GOOSE_CELL_PINNED,
+     * never evicted) and leave hardware_addr=0. The temp_poll_task
+     * writes cell state directly. */
     reflex_tryte9_t coord = goose_make_coord(-1, 4, 0);
     s_temp_cell = goose_fabric_alloc_cell("perception.temp.reading", coord, true);
-    if (s_temp_cell) {
-        goose_fabric_set_agency(s_temp_cell, 0, GOOSE_CELL_HARDWARE_IN);
-    }
     return ESP_OK;
 }
 

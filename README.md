@@ -42,6 +42,13 @@ A clean checkout regenerates `sdkconfig` from `sdkconfig.defaults`. The target i
 | `goonies ls` | List the hierarchical hardware DNS registry |
 | `goonies find <name>` | Resolve a name: live registry first, then fall through to the 9527-entry shadow catalog. Output is labeled `[live]` or `[shadow]`. |
 | `atlas verify` | Walk the entire SVD-documented MMIO shadow catalog (full round-trip + duplicate sweep). Prints progress dots; reports `ok=N/N, duplicates=D, failures=F`. |
+| `temp` | Read the internal die temperature (ternary state: cold/normal/warm) |
+| `purpose set <name>` | Declare the current operating purpose (amplifies Hebbian plasticity) |
+| `purpose get` | Report whether a purpose is active |
+| `purpose clear` | Clear the active purpose |
+| `snapshot save` | Persist supervised-route plasticity (learned_orientation + hebbian_counter) to NVS |
+| `snapshot load` | Restore plasticity from the last snapshot |
+| `snapshot clear` | Erase all snapshot blobs from NVS |
 | `vm info` | Inspect the ternary VM state |
 | `vm loadhex <HEX>` | Load a CRC32-verified packed image |
 | `heartbeat` | Read the LP core's parallel pulse counter |

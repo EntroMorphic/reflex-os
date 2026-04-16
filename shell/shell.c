@@ -633,7 +633,7 @@ static void reflex_shell_loom_bloat_test(void) {
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, sleep <s>, led status, bonsai <..>, goonies <ls|find name>, atlas verify, services, config <get|set>, vm info, aura setkey <hex>, heartbeat, mesh <mac|emit|query|posture|stat>\n");
+    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, sleep <s>, led status, temp, bonsai <..>, goonies <ls|find name>, atlas verify, services, config <get|set>, vm info, aura setkey <hex>, heartbeat, mesh <..>, snapshot <save|load|clear>, purpose <set|get|clear>\n");
     else if (strcmp(argv[0], "reboot") == 0) esp_restart();
     else if (strcmp(argv[0], "sleep") == 0) {
         int secs = (argc >= 2) ? atoi(argv[1]) : 3;
