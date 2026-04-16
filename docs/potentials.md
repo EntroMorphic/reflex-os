@@ -14,9 +14,9 @@ The transition from a flat "Message Fabric" to a coherent **"Geometric Tapestry"
 
 ## Future Phases: The Biological Frontier (v3.0+)
 
-### Phase 29: Geometric Persistence (Tapestry Snapshots)
+### Phase 29: Geometric Persistence (Tapestry Snapshots) — Realized
 **Goal:** Saving the learned/fabricated state to Non-Volatile Storage (NVS).
-- **Potential:** The machine currently "forgets" its mind and shape on every cold boot. We need a way to "Snapshot" the current active Loom (Cells, Routes, and Learned Orientations) so that identity and knowledge survive power cycles.
+- **[Realized]** `goose_snapshot_save/load/clear` serialize supervised-route plasticity (`learned_orientation` + `hebbian_counter`) to NVS under FNV-hashed keys, with `loom_authority` held for consistency. Shell commands: `snapshot save/load/clear`. The infrastructure is in place; it persists data as soon as the plasticity layer has active routes (requires environmental stimulus or reward/pain signals). Full loom-wide snapshots (all cell states, all routes, purpose metadata) remain a follow-up.
 
 ### Phase 30: Substrate Visualization (The Loom Viewer)
 **Goal:** A real-time graphical interface to "see" the Tapestry.

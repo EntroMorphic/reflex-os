@@ -116,6 +116,9 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - **Full-surface MMIO name resolution**: the shell's `goonies find` falls through from the live registry to `goose_shadow_resolve` so every one of the 9527 SVD-documented entries is addressable by name without pre-paging a cell
 - **Atlas verify**: `atlas verify` walks the full catalog with a complete round-trip (name / addr / mask / type / coord) plus an adjacent-pair duplicate sweep; validated on Alpha with `ok=9527/9527, duplicates=0, failures=0`
 - **Three-board mesh field trial**: cross-board `ARC_OP_SYNC` propagation at ~5 Hz (317+ packets across two peers), `goonies find <peer-name>` triggers `ARC_OP_QUERY` → `ARC_OP_ADVERTISE` round-trip with `Ghost Solidified` log confirmation, `mesh posture <state> <weight>` crosses the `SWARM_THRESHOLD=10` hysteresis with three cooperating peers, and HMAC Aura rejection is observable (`aura_fail` counter climbs at the offending peer's emit rate after a deliberate key mismatch, then freezes after re-pairing)
+- **Internal temperature sensor**: `perception.temp.reading` reads the C6 die at ~50-55°C, projecting live ternary state (cold/normal/warm) into the fabric; `temp` shell command reports raw celsius + state
+- **`GOOSE_CELL_PURPOSE`**: `purpose set/get/clear` creates, queries, and clears a user-declared intent cell; learn_sync observably doubles Hebbian reward increments when active
+- **Tapestry Snapshots**: `snapshot save/load/clear` exercised on Alpha with NVS read/write paths returning `ESP_OK`; 0 routes persisted (correct — no active plasticity scenario at boot without external stimulus)
 
 ## Current Developer Flow
 
@@ -145,12 +148,19 @@ Remaining (honest limits, not regressions):
 
 ## Next Steps
 
-The pre-audit "Wave 2 / Wave 3 / Atmosphere hardening" items from earlier revisions of this document all shipped across the remediation arc. See `CHANGELOG.md` for the per-commit record and `docs/strategy.md` for the forward roadmap (Phase 29 onward). Near-term ordered TODO:
+Items 1–5 from the previous TODO all shipped in the current session:
 
-1. **Cut a `v2.6.0` release tag.** Move `CHANGELOG.md`'s `[Unreleased]` content under a dated `## [2.6.0]` heading and tag the commit that represents the full audit+housekeeping+atlas-coverage state. Closing ritual for the current arc and the citable anchor any future work branches from.
-2. **Write the Reflex OS session essay.** A 2–4 k word systems writeup of the substrate-as-interface vision, the two audit arcs, the three-board mesh trial, and the catalog-vs-live-loom distinction. The raw material lives in commit messages and is perishable — writing it while the context is fresh is much cheaper than reconstructing it later. Publicly visible narrative is the project's biggest missing second-order asset.
-3. **`GOOSE_CELL_PURPOSE` — intent as a first-class cell type.** The step-change articulated in-session: let the user (human or AI) declare the machine's current purpose and have the supervisor route toward it. Starts with a design document (how does `weave_sync` treat PURPOSE cells vs NEED cells? does `learn_sync` weight Hebbian updates by purpose agreement? does the shell expose `purpose get/set`? what's the data model — single global, per-field, or stack?) and proceeds to implementation across at least two sessions.
-4. **Phase 29 — Tapestry Snapshots.** Persist `learned_orientation` and Hebbian counters to NVS on a supervisor-driven cadence; restore at boot. Known-shape engineering work. Natural prerequisite for item 3 — purpose learned over sessions needs to survive reboots.
-5. **Advanced I/O on the fabric — first real sensor.** Expose a BME280 (or similar I2C sensor) as addressable GOOSE cells under `perception.i2c0.bme280.*`. The moment real environmental data enters the fabric, the plasticity layer has something to learn from and the substrate-as-interface vision stops being a demo and starts being a real embedded system.
+- ~~v2.6.0 release tag~~ — tagged as `v2.6.0` at `61deaad`.
+- ~~Session essay~~ — published at `docs/essay-substrate-as-interface.md`.
+- ~~`GOOSE_CELL_PURPOSE`~~ — first slice shipped: `purpose set/get/clear` + Hebbian amplification.
+- ~~Phase 29 Tapestry Snapshots~~ — `snapshot save/load/clear` + NVS serialization + loom_authority locking.
+- ~~First real sensor~~ — internal temperature sensor as `perception.temp.reading`.
 
-Additional longer-horizon items previously listed here (multi-VM contexts, Aura key derivation from efuse + secure boot) remain valid but are not on the immediate TODO.
+Near-term TODO (forward from the current state):
+
+1. **Purpose-modulated capability matching in `weave_sync`** — when a PURPOSE cell is active, bias autonomous fabrication toward routes that serve the declared purpose's domain. Current first-slice is a bare 2× Hebbian amplifier; next slice gives purpose a routing effect.
+2. **Purpose name persistence** — store the purpose name (not just the active/inactive bit) in NVS or as a goose cell attribute so `purpose get` can report WHAT the purpose is, not just that one exists.
+3. **External I2C sensor on the fabric** — expose a BME280 (or similar I2C peripheral) as addressable GOOSE cells under `perception.i2c0.bme280.*`. The internal temp sensor proves the architecture; an external sensor proves the extensibility.
+4. **Automatic snapshot cadence** — call `goose_snapshot_save` on a supervisor-driven timer (e.g., every 60 seconds after the stability marker) rather than requiring an explicit `snapshot save` from the shell.
+5. **Multi-VM contexts** — support concurrent execution of multiple ternary task images.
+6. **Aura key derivation from efuse** + secure-boot integration.

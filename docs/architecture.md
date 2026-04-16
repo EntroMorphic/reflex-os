@@ -40,7 +40,12 @@ An autonomic regulation pass in `goose_supervisor.c`. The supervisor runs on a 1
 - **learn_sync (Hebbian Plasticity):** reward-gated co-activation rule. Under `sys.ai.reward`, each supervised route's `hebbian_counter` moves by +1 on source/sink agreement and -1 on disagreement. On threshold crossing, the counter commits its sign into `learned_orientation`. Under `sys.ai.pain`, counters decay toward zero (unlearning without reset).
 - **swarm_sync:** decays the `swarm_accumulator` toward zero when no atmospheric postures are arriving.
 
-### 6. Coherent Heartbeat (LP RISC-V)
+### 6. Purpose and Perception
+- **`GOOSE_CELL_PURPOSE`:** a user-declared intent cell (`sys.purpose`) that tells the substrate what the machine is currently being used for. When active, `learn_sync` doubles Hebbian reward increments — the OS learns faster when the user tells it what they're trying to do. Shell: `purpose set/get/clear`.
+- **Internal Temperature Sensor:** the first real perception cell. `perception.temp.reading` reads the C6 die temperature every 5 seconds via the ESP-IDF `temperature_sensor` driver and maps it to ternary state: cold (<40°C), normal (40–55°C), warm (>55°C). Shell: `temp`.
+- **Tapestry Snapshots (Phase 29):** `goose_snapshot_save/load/clear` serialize and restore supervised-route plasticity (`learned_orientation` + `hebbian_counter`) to NVS. Save and load hold `loom_authority` for consistency with `learn_sync`. NVS keys use FNV-1a hashes of full field names to avoid truncation collisions.
+
+### 7. Coherent Heartbeat (LP RISC-V)
 A parallel heartbeat program running on the ESP32-C6 LP coprocessor (`components/goose/ulp/lp_pulse.c`). Loaded and started from `goose_lp_heartbeat_init` at boot; HP mirrors `agency.led.intent` state into `ulp_lp_led_intent` each supervisor pulse via `goose_lp_heartbeat_sync`. LP ticks at ~1 Hz via `ULP_LP_CORE_WAKEUP_SOURCE_LP_TIMER` and increments `ulp_lp_pulse_count`, which HP reads via the `heartbeat` shell command as a liveness indicator.
 
 ## Module Layout

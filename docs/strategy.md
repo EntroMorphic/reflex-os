@@ -8,7 +8,7 @@ Reflex OS has moved from a binary-hosted VM to a hardened, geometric substrate. 
 
 - **Ternary Native Supervisor:** the regulation pass in `goose_supervisor.c` is still C code. Rewriting it as a woven TASM fragment would let the supervisor evolve at the same plasticity level as the fields it watches.
 - **LRU Eviction:** shadow cell eviction is round-robin. A "warmth factor" (most-recently-accessed) pinning model would reduce churn when access patterns are hot.
-- **Tapestry Snapshots:** learned geometry (`learned_orientation`, Hebbian counters) does not persist across cold boot. All plasticity resets on power cycle.
+- **Tapestry Snapshot scope:** `goose_snapshot_save/load` persists route plasticity to NVS (shipped), but only for supervised fields. Full loom-wide snapshots (all cell states + learned geometry + purpose) remain a follow-up.
 - **Alloc-under-lock perf:** `goose_fabric_alloc_cell` holds `loom_authority` across `goonies_register`, which does a ~40 µs linear scan of the goonies registry. Pre-checking shadow and goonies state outside the lock would reduce the worst-case alloc cost. Deferred (see `REMEDIATION.md` R6 rationale — the perf gap is real but sub-threshold on current workloads).
 
 ### 2. Money on the Table (Unfair Advantages)
@@ -23,7 +23,9 @@ Reflex OS has moved from a binary-hosted VM to a hardened, geometric substrate. 
 - **Phase 26:** LoomScript DSL (Geometric High-level Language). (Completed)
 - **Phase 27:** Geometric AI (Ternary Neural Manifolds — `neuron_quorum` + Hebbian plasticity). (Completed)
 - **Phase 28:** Autonomous Fabrication. (Completed — `goose_supervisor_weave_sync` wires `GOOSE_CELL_NEED` cells to capability-matched sinks using a generic last-segment resolver.)
-- **Phase 29:** Tapestry Snapshots — NVS-backed persistence of learned geometry across cold boot.
+- **Phase 29:** Tapestry Snapshots. (Completed — `goose_snapshot_save/load/clear` serialize supervised-route plasticity to NVS; `snapshot save/load/clear` shell commands.)
+- **Phase 29.5:** `GOOSE_CELL_PURPOSE` — intent as a first-class cell type. (Completed — `purpose set/get/clear` shell commands; learn_sync doubles Hebbian reward increments when a purpose is active.)
+- **Phase 29.6:** First real perception — internal temperature sensor projected as `perception.temp.reading` on the GOOSE fabric. (Completed.)
 - **Phase 30:** Substrate Visualization (Loom Viewer).
 - **Phase 31:** Metabolic Regulation (vitals-gated plasticity).
 - **Phase 32:** Collective Unconscious (mesh-shared plasticity deltas).
