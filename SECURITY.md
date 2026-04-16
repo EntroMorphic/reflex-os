@@ -9,6 +9,10 @@ The Sanctuary Guard prevents non-system ternary cells from mapping to critical h
 -   **The Sanctuary:** Access to the PMU (Power Management), EFUSE, MMU, and Interrupt Matrix is restricted to `sys.` zone cells woven by the core OS.
 -   **Enforcement:** `goose_fabric_set_agency` rejects any mapping that attempts to bridge a user-level cell to a Sanctuary address.
 
+### Serial shell information surface
+
+The serial shell (`shell/shell.c`) is a trusted administrative interface — it runs with full host privileges and is trust-equivalent to JTAG. After the atlas coverage work in `6bb1f0a` / `c5ee5c6`, the shell's `goonies find <name>` command falls through from the live registry to `goose_shadow_resolve` and reports the MMIO address, bit mask, and ontological type of any of the 9527 SVD-documented registers. This is an intentional expansion of the shell's information surface in service of developer ergonomics; it does not bypass the Sanctuary Guard (the Guard enforces *agency mapping*, not *name resolution*), and anyone with shell access already has equivalent or stronger access to the same information through JTAG/flash read. Future deployments that expose the shell over a less-trusted transport (remote serial, network relay) should gate `goonies find` — or the entire shell — behind an additional authentication layer.
+
 ## 2. The Authority Sentry (Deadlock Observability)
 To ensure system durability, the `loom_authority` spinlock is monitored by a cycle-accurate watchdog.
 

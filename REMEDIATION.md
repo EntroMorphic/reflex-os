@@ -106,13 +106,13 @@ Close R4, R9. These make the verify output nicer for humans without changing its
 
 Close R7, R8. These record the behavior changes from commit `6bb1f0a` so the next reader (including future-me) is not surprised.
 
-### ☐ R7 — LOW — shell output schema change in CHANGELOG
+### ☑ R7 — LOW — shell output schema change in CHANGELOG
 
 **Finding.** `goonies find` now emits `[live]` or `[shadow]` labels, and the shadow form has a completely different format (`addr=0x... mask=0x... type=...`). Any regex-parser of the old output breaks. Nobody is currently parsing, but the schema change is real.
 
 **Fix.** Add an entry under `## [Unreleased]` → `### Changed` in `CHANGELOG.md` describing the new output schema.
 
-### ☐ R8 — LOW — serial shell information surface expansion in SECURITY.md
+### ☑ R8 — LOW — serial shell information surface expansion in SECURITY.md
 
 **Finding.** `goonies find` now reveals the MMIO address + bit mask + ontological type for 9527 SVD-documented registers, not just the ~104 pre-woven atlas cells. The serial shell is already trust-equivalent to JTAG so this isn't a new attack surface, but it IS a broader information surface accessible through a single interactive command.
 
@@ -125,3 +125,4 @@ Close R7, R8. These record the behavior changes from commit `6bb1f0a` so the nex
 - **Phase A** — R1, R2, R3, R9 — `atlas verify` now does full round-trip (name + addr + mask + type + coord via `goose_make_shadow_coord`) and sweeps for adjacent-name duplicates in a separate pass. Output rewritten to a single line that absorbs R3's honest "SVD-documented" wording and R9's dedup. `docs/architecture.md` §2 and `docs/implementation-status.md` G3 both updated with the narrower coverage claim. Validated on Alpha: `ok=9527/9527 (100% of SVD-documented MMIO catalog); duplicates=0, failures=0`.
 - **Phase B** — R5, R6 — scraper now asserts every name is pure ASCII at scrape time and sorts via explicit `encode("ascii")` byte key; reciprocal sync-discipline comments added to both `tools/goose_scraper.py` (emit block) and `shadow_node_t` in `goose.h`. Regenerated catalog diff is limited to the new header comment block — the 9527 data rows are byte-identical to the prior state, confirming that (a) Python default sort and byte-order sort coincide for the current ASCII-only catalog, and (b) the ASCII invariant is satisfied today.
 - **Phase C** — R4 — `atlas verify` emits a progress dot every 1000 entries and calls `vTaskDelay(0)` between chunks so higher-priority tasks run. Validated on Alpha: exactly ten dots (9527/1000 → ceil(10)) followed by the summary line; no regression.
+- **Phase D** — R7, R8 — `CHANGELOG.md` Unreleased section gains explicit entries for the atlas-coverage additions (Added: full-surface name resolution, `atlas verify`, public shadow catalog API, scraper ASCII invariant) and a Changed entry describing the new `goonies find` output schema with `[live]` / `[shadow]` labels. `SECURITY.md` §1 gains a "Serial shell information surface" paragraph honestly documenting what `goonies find` now exposes through the shell and noting that the shell is trust-equivalent to JTAG. Doc-only; no hardware validation needed.

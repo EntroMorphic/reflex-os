@@ -21,6 +21,10 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 - **Public loom lock API** — `goose_loom_try_lock` / `goose_loom_unlock` are now exported from `goose.h` so any module outside `goose_runtime.c` can serialize hot-path mutation sites against the pulse reader.
 - **`sleep <secs>` shell command** — thin wrapper around `esp_deep_sleep_start` with an LP-timer wakeup for on-device wake-path testing.
 - **GitHub Actions build workflow** — `.github/workflows/build.yml` runs `idf.py build` on every push and pull request against `main`.
+- **Full-surface MMIO name resolution** — the shell's `goonies find <name>` now falls through from the live `goonies_registry` to `goose_shadow_resolve`, so every one of the 9527 SVD-documented entries is addressable by name without having to page a cell into the active Loom first. Live vs shadow hits are labeled in the output (`[live]` vs `[shadow]`).
+- **`atlas verify` shell command** — walks the entire shadow catalog with a full round-trip equality check (name, addr, bit_mask, type, and coord via `goose_make_shadow_coord`) plus an adjacent-pair duplicate sweep. Emits a progress dot every 1000 entries and yields via `vTaskDelay(0)` between chunks. Validated on Alpha: `ok=9527/9527 (100% of SVD-documented MMIO catalog); duplicates=0, failures=0`.
+- **Public shadow catalog API** — `shadow_node_t`, `shadow_map`, `shadow_map_count`, and `goose_shadow_resolve` are now public in `goose.h` instead of reached via inline `extern` declarations inside `goose_runtime.c` functions. The scraper no longer emits its own local typedef.
+- **Scraper ASCII invariant** — `tools/goose_scraper.py` now asserts every catalog name is pure ASCII at scrape time and sorts via an explicit `encode("ascii")` byte key, matching `goose_shadow_resolve`'s `strcmp` byte ordering. Reciprocal sync-discipline comments added to both the scraper and `shadow_node_t` in `goose.h` so struct-layout drift can't silently break regeneration.
 
 ### Fixed
 - **Silent lock break** — `goose_loom_lock_with_stats` used to force-clear a held lock on timeout and then silently continue running unsynchronized. Replaced with `goose_loom_try_lock`, which skips the affected pulse and logs `LOOM_CONTENTION_FAULT`.
@@ -47,6 +51,7 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 - **Version framing** — README narrowed "MMU-backed shared ternary memory" to "region-protected shared ternary memory" to match the actual `vm/mmu.c` bounds-checker; "9,531 atomic intents" reframed as a 9,531-node shadow catalog with 104 pre-woven at boot and the remainder paged on demand.
 - **SECURITY.md §2 Authority Sentry** — wording now matches the skip-and-log behavior (no longer claims to force-break a held lock).
 - **SECURITY.md §3 Atmospheric Aura** — rewritten around HMAC-SHA256, replay cache, per-board provisioning, and an honest "Known Limits" paragraph.
+- **Shell `goonies find` output schema** — previously emitted a single line `GOONIES: Resolved '<name>' to (f,r,c)` on hit. Now emits either `GOONIES: Resolved '<name>' to (f,r,c) [live]` on a live-registry hit or `GOONIES: Resolved '<name>' [shadow] addr=0x... mask=0x... type=<TYPE>` on a shadow-catalog fall-through. Any external script parsing the old format should be updated to handle both forms and the `[live]` / `[shadow]` label.
 
 ### Archived
 - `DO_THIS_NEXT.md`, `NEXT_ACTIONS.md`, `OS-BACKLOG.md` — pre-audit planning docs, superseded by the current `docs/implementation-status.md`, `docs/strategy.md`, and `docs/potentials.md`.
