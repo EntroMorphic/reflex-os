@@ -54,7 +54,7 @@ From *"100% of MMIO shadow catalog"* to *"100% of the SVD-documented MMIO catalo
 
 Close R5, R6. These harden the scraper against future changes that could silently break the binary-search resolver.
 
-### ☐ R5 — MEDIUM — assert ASCII + explicit byte-order sort
+### ☑ R5 — MEDIUM — assert ASCII + explicit byte-order sort
 
 **Finding.** Python's default `sort()` uses Unicode code-point ordering. `goose_shadow_resolve` uses `strcmp` (byte order). These match for pure ASCII but diverge on non-ASCII. The current SVD is pure ASCII — safe today, undefined tomorrow.
 
@@ -66,7 +66,7 @@ The sort output is byte-identical for ASCII-only input (pre-flight confirmed), s
 
 **Validation.** Regenerate the catalog; diff against committed; expect no changes. Build clean.
 
-### ☐ R6 — MEDIUM — scraper ↔ header struct sync discipline
+### ☑ R6 — MEDIUM — scraper ↔ header struct sync discipline
 
 **Finding.** `tools/goose_scraper.py` emits positional C initializers (`{"name", addr, mask, f, r, c, type}`) whose order depends on `shadow_node_t`'s field layout in `goose.h`. If someone reorders the struct without updating the scraper, the regenerated file fails to compile.
 
@@ -123,3 +123,4 @@ Close R7, R8. These record the behavior changes from commit `6bb1f0a` so the nex
 ## Execution log
 
 - **Phase A** — R1, R2, R3, R9 — `atlas verify` now does full round-trip (name + addr + mask + type + coord via `goose_make_shadow_coord`) and sweeps for adjacent-name duplicates in a separate pass. Output rewritten to a single line that absorbs R3's honest "SVD-documented" wording and R9's dedup. `docs/architecture.md` §2 and `docs/implementation-status.md` G3 both updated with the narrower coverage claim. Validated on Alpha: `ok=9527/9527 (100% of SVD-documented MMIO catalog); duplicates=0, failures=0`.
+- **Phase B** — R5, R6 — scraper now asserts every name is pure ASCII at scrape time and sorts via explicit `encode("ascii")` byte key; reciprocal sync-discipline comments added to both `tools/goose_scraper.py` (emit block) and `shadow_node_t` in `goose.h`. Regenerated catalog diff is limited to the new header comment block — the 9527 data rows are byte-identical to the prior state, confirming that (a) Python default sort and byte-order sort coincide for the current ASCII-only catalog, and (b) the ASCII invariant is satisfied today.

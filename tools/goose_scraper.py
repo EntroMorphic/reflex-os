@@ -87,7 +87,19 @@ def scrape_svd(svd_path, zones_path, output_path):
                 )
                 cell_idx += 1
 
-    shadow_nodes.sort(key=lambda x: x["name"])
+    # Invariant: every name must be pure ASCII so Python's sort and
+    # C's strcmp produce the same ordering. goose_shadow_resolve relies
+    # on this for its binary-search correctness. An SVD or scraper
+    # change that introduced a non-ASCII byte into a name would
+    # silently break the resolver for entries past the divergence
+    # point; assert loudly instead.
+    for n in shadow_nodes:
+        assert n["name"].isascii(), f"non-ASCII name in scrape output: {n['name']!r}"
+
+    # Sort by raw bytes, not by Python's default Unicode ordering.
+    # For pure ASCII the two are identical, but we make the invariant
+    # explicit so a future non-ASCII regression fails at scrape time.
+    shadow_nodes.sort(key=lambda x: x["name"].encode("ascii"))
 
     with open(output_path, "w") as f:
         f.write('#include "goose.h"\n')
@@ -98,11 +110,17 @@ def scrape_svd(svd_path, zones_path, output_path):
             " * The shadow_node_t type, shadow_map / shadow_map_count declarations,\n"
             " * and goose_shadow_resolve prototype all live in components/goose/include/goose.h\n"
             " * so other modules can walk the catalog directly.\n"
+            " *\n"
+            " * NOTE: the positional initializer order below must match the field\n"
+            " * order of shadow_node_t in components/goose/include/goose.h. If you\n"
+            " * reorder one, regenerate the other — the build will break if they drift.\n"
             " */\n\n"
         )
 
         f.write("const shadow_node_t shadow_map[] = {\n")
         for n in shadow_nodes:
+            # Positional initializer order: name, addr, bit_mask, f, r, c, type.
+            # Must match shadow_node_t in components/goose/include/goose.h.
             f.write(
                 f'    {{"{n["name"]}", 0x{n["addr"]:08X}, 0x{n["mask"]:08X}, {n["f"]}, {n["r"]}, {n["c"]}, {n["type"]}}},\n'
             )

@@ -8,6 +8,10 @@
  * The shadow_node_t type, shadow_map / shadow_map_count declarations,
  * and goose_shadow_resolve prototype all live in components/goose/include/goose.h
  * so other modules can walk the catalog directly.
+ *
+ * NOTE: the positional initializer order below must match the field
+ * order of shadow_node_t in components/goose/include/goose.h. If you
+ * reorder one, regenerate the other — the build will break if they drift.
  */
 
 const shadow_node_t shadow_map[] = {
