@@ -24,36 +24,36 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /** @brief Seed the config namespace with first-boot defaults if empty. */
-esp_err_t reflex_config_init_defaults(void);
+reflex_err_t reflex_config_init_defaults(void);
 
 /** @brief Human-friendly device name used by the banner and telemetry. */
-esp_err_t reflex_config_get_device_name(char *out, size_t out_len);
-esp_err_t reflex_config_set_device_name(const char *value);
+reflex_err_t reflex_config_get_device_name(char *out, size_t out_len);
+reflex_err_t reflex_config_set_device_name(const char *value);
 
 /** @brief Persisted log-level token read by #reflex_log_init. */
-esp_err_t reflex_config_get_log_level(int32_t *out);
-esp_err_t reflex_config_set_log_level(int32_t value);
+reflex_err_t reflex_config_get_log_level(int32_t *out);
+reflex_err_t reflex_config_set_log_level(int32_t value);
 
 /** @brief Wi-Fi STA credentials. Empty SSID = "no creds, LP+ESP-NOW only". */
-esp_err_t reflex_config_get_wifi_ssid(char *out, size_t out_len);
-esp_err_t reflex_config_set_wifi_ssid(const char *value);
-esp_err_t reflex_config_get_wifi_password(char *out, size_t out_len);
-esp_err_t reflex_config_set_wifi_password(const char *value);
+reflex_err_t reflex_config_get_wifi_ssid(char *out, size_t out_len);
+reflex_err_t reflex_config_set_wifi_ssid(const char *value);
+reflex_err_t reflex_config_get_wifi_password(char *out, size_t out_len);
+reflex_err_t reflex_config_set_wifi_password(const char *value);
 
 /** @brief Crash-loop detector: if true at boot, main.c enters safe mode. */
-esp_err_t reflex_config_get_safe_mode(bool *out);
-esp_err_t reflex_config_set_safe_mode(bool value);
+reflex_err_t reflex_config_get_safe_mode(bool *out);
+reflex_err_t reflex_config_set_safe_mode(bool value);
 
 /** @brief Crash-loop detector: incremented on each boot, reset after stability. */
-esp_err_t reflex_config_get_boot_count(int32_t *out);
-esp_err_t reflex_config_set_boot_count(int32_t value);
+reflex_err_t reflex_config_get_boot_count(int32_t *out);
+reflex_err_t reflex_config_set_boot_count(int32_t value);
 
 #ifdef __cplusplus
 }

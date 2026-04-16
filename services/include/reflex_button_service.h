@@ -10,14 +10,14 @@
  * they can be consumed by a VM task or routed via the supervisor.
  */
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /** @brief Register the button service with the service manager. */
-esp_err_t reflex_button_service_register(void);
+reflex_err_t reflex_button_service_register(void);
 
 #ifdef __cplusplus
 }

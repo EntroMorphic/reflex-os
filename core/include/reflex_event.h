@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,15 +31,15 @@ typedef struct {
 
 typedef void (*reflex_event_handler_t)(const reflex_event_t *event, void *ctx);
 
-esp_err_t reflex_event_bus_init(void);
-esp_err_t reflex_event_subscribe(reflex_event_type_t type, reflex_event_handler_t handler, void *ctx);
-esp_err_t reflex_event_publish(reflex_event_type_t type, void *data, size_t data_len);
+reflex_err_t reflex_event_bus_init(void);
+reflex_err_t reflex_event_subscribe(reflex_event_type_t type, reflex_event_handler_t handler, void *ctx);
+reflex_err_t reflex_event_publish(reflex_event_type_t type, void *data, size_t data_len);
 
 /**
  * @brief Process pending events. 
  * This is now handled by an internal task, but exposed for lifecycle management.
  */
-esp_err_t reflex_event_bus_start(void);
+reflex_err_t reflex_event_bus_start(void);
 
 #ifdef __cplusplus
 }

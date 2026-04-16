@@ -12,7 +12,7 @@
  * (reflex_button_service.h).
  */
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,7 +22,7 @@ extern "C" {
 #define REFLEX_BUTTON_PIN 9
 
 /** @brief Configure the button pin as an input with the correct pull. */
-esp_err_t reflex_button_init(void);
+reflex_err_t reflex_button_init(void);
 
 #ifdef __cplusplus
 }

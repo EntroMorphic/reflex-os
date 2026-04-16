@@ -18,7 +18,7 @@
 
 #include <stdbool.h>
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,13 +28,13 @@ extern "C" {
 #define REFLEX_LED_PIN 15
 
 /** @brief Configure the LED pin as a push-pull output, initial level low. */
-esp_err_t reflex_led_init(void);
+reflex_err_t reflex_led_init(void);
 
 /** @brief Drive the LED to @p on (true = lit, false = off). */
-esp_err_t reflex_led_set(bool on);
+reflex_err_t reflex_led_set(bool on);
 
 /** @brief Flip the LED state. */
-esp_err_t reflex_led_toggle(void);
+reflex_err_t reflex_led_toggle(void);
 
 /** @brief Read the last commanded LED state. Not a GPIO sample. */
 bool reflex_led_get(void);

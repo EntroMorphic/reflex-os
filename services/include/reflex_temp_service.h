@@ -11,14 +11,14 @@
  * warm (+1, >35C). The raw float is accessible via reflex_temp_get_celsius.
  */
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /** @brief Register the temperature sensor service with the service manager. */
-esp_err_t reflex_temp_service_register(void);
+reflex_err_t reflex_temp_service_register(void);
 
 /** @brief Read the last polled temperature in degrees Celsius. */
 float reflex_temp_get_celsius(void);

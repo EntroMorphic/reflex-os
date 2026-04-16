@@ -12,14 +12,14 @@
  * AP connection. See net/wifi.c.
  */
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /** @brief Register the Wi-Fi service with the service manager. */
-esp_err_t reflex_wifi_service_register(void);
+reflex_err_t reflex_wifi_service_register(void);
 
 #ifdef __cplusplus
 }

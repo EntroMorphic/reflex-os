@@ -22,7 +22,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,31 +44,31 @@ typedef enum {
  */
 typedef struct reflex_service_desc {
     const char *name;
-    esp_err_t (*init)(void *ctx);
-    esp_err_t (*start)(void *ctx);
-    esp_err_t (*stop)(void *ctx);
+    reflex_err_t (*init)(void *ctx);
+    reflex_err_t (*start)(void *ctx);
+    reflex_err_t (*stop)(void *ctx);
     reflex_service_status_t (*status)(void *ctx);
     void *context;
 } reflex_service_desc_t;
 
 /** @brief Zero the internal service table. Call once at boot. */
-esp_err_t reflex_service_manager_init(void);
+reflex_err_t reflex_service_manager_init(void);
 
 /**
  * @brief Record @p service in the manager. The descriptor pointer
  * itself is stored — the caller is responsible for keeping it
  * live (typical pattern: a static/global reflex_service_desc_t).
  */
-esp_err_t reflex_service_register(const reflex_service_desc_t *service);
+reflex_err_t reflex_service_register(const reflex_service_desc_t *service);
 
 /**
  * @brief Call init() then start() on every registered service in
  * registration order. Aborts on the first failure.
  */
-esp_err_t reflex_service_start_all(void);
+reflex_err_t reflex_service_start_all(void);
 
 /** @brief Call stop() on every registered service in reverse order. */
-esp_err_t reflex_service_stop_all(void);
+reflex_err_t reflex_service_stop_all(void);
 
 /** @brief Count of registered services (for shell iteration). */
 size_t reflex_service_get_count(void);

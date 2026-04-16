@@ -1,7 +1,9 @@
 #include "reflex_boot.h"
-
 #include "reflex_log.h"
 
+/* Platform-specific: boot banner queries chip info, flash, and reset
+ * reason. This is the one file in core/ that legitimately needs
+ * vendor headers. It should move to platform/ in a future cleanup. */
 #include "sdkconfig.h"
 #include "esp_app_desc.h"
 #include "esp_chip_info.h"

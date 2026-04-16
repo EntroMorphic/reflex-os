@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "esp_err.h"
+#include "reflex_types.h"
 #include "reflex_ternary.h"
 
 #ifdef __cplusplus
@@ -39,18 +39,18 @@ typedef struct {
     reflex_word18_t payload;
 } reflex_message_t;
 
-esp_err_t reflex_fabric_init(void);
+reflex_err_t reflex_fabric_init(void);
 
 /**
  * @brief Send a message to the fabric.
  * This is non-blocking and lock-free where possible.
  */
-esp_err_t reflex_fabric_send(const reflex_message_t *msg);
+reflex_err_t reflex_fabric_send(const reflex_message_t *msg);
 
 /**
  * @brief Receive a message from the fabric for a specific node.
  */
-esp_err_t reflex_fabric_recv(uint8_t node_id, reflex_message_t *out_msg);
+reflex_err_t reflex_fabric_recv(uint8_t node_id, reflex_message_t *out_msg);
 
 #ifdef __cplusplus
 }

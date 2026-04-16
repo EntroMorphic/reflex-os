@@ -33,6 +33,12 @@ reflex_err_t reflex_kv_get_blob(reflex_kv_handle_t h, const char *key,
 reflex_err_t reflex_kv_set_blob(reflex_kv_handle_t h, const char *key,
                                 const void *buf, size_t len);
 
+reflex_err_t reflex_kv_get_i32(reflex_kv_handle_t h, const char *key, int32_t *out);
+reflex_err_t reflex_kv_set_i32(reflex_kv_handle_t h, const char *key, int32_t val);
+
+reflex_err_t reflex_kv_get_u8(reflex_kv_handle_t h, const char *key, uint8_t *out);
+reflex_err_t reflex_kv_set_u8(reflex_kv_handle_t h, const char *key, uint8_t val);
+
 reflex_err_t reflex_kv_erase(reflex_kv_handle_t h, const char *key);
 reflex_err_t reflex_kv_commit(reflex_kv_handle_t h);
 

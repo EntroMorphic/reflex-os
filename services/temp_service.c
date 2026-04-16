@@ -1,3 +1,6 @@
+#include "reflex_hal.h"
+#include "reflex_task.h"
+#include "driver/temperature_sensor.h"
 /**
  * @file temp_service.c
  * @brief Temperature sensor service — first real perception on the fabric.
@@ -17,9 +20,9 @@
 #include "goose.h"
 #include "reflex_log.h"
 #include "reflex_service.h"
-#include "driver/temperature_sensor.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+
+
+
 #include <stdio.h>
 
 #define TEMP_TAG "reflex.temp"
@@ -33,7 +36,7 @@
 static temperature_sensor_handle_t s_temp_handle = NULL;
 static goose_cell_t *s_temp_cell = NULL;
 static volatile float s_last_reading = 0.0f;
-static TaskHandle_t s_task_handle = NULL;
+static reflex_task_handle_t s_task_handle = NULL;
 
 float reflex_temp_get_celsius(void) { return s_last_reading; }
 
@@ -41,7 +44,7 @@ static void temp_poll_task(void *arg) {
     (void)arg;
     while (1) {
         float celsius;
-        if (temperature_sensor_get_celsius(s_temp_handle, &celsius) == ESP_OK) {
+        if (temperature_sensor_get_celsius(s_temp_handle, &celsius) == REFLEX_OK) {
             s_last_reading = celsius;
             if (s_temp_cell) {
                 if (celsius < TEMP_COLD_THRESHOLD)       s_temp_cell->state = -1;
@@ -49,20 +52,20 @@ static void temp_poll_task(void *arg) {
                 else                                      s_temp_cell->state =  0;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(TEMP_POLL_MS));
+        reflex_task_delay_ms(TEMP_POLL_MS);
     }
 }
 
-static esp_err_t temp_service_init(void *ctx) {
+static reflex_err_t temp_service_init(void *ctx) {
     (void)ctx;
     temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 50);
-    esp_err_t rc = temperature_sensor_install(&cfg, &s_temp_handle);
-    if (rc != ESP_OK) {
+    reflex_err_t rc = temperature_sensor_install(&cfg, &s_temp_handle);
+    if (rc != REFLEX_OK) {
         REFLEX_LOGE(TEMP_TAG, "temp sensor install failed rc=0x%x", rc);
         return rc;
     }
     rc = temperature_sensor_enable(s_temp_handle);
-    if (rc != ESP_OK) {
+    if (rc != REFLEX_OK) {
         REFLEX_LOGE(TEMP_TAG, "temp sensor enable failed rc=0x%x", rc);
         return rc;
     }
@@ -74,20 +77,20 @@ static esp_err_t temp_service_init(void *ctx) {
      * writes cell state directly. */
     reflex_tryte9_t coord = goose_make_coord(-1, 4, 0);
     s_temp_cell = goose_fabric_alloc_cell("perception.temp.reading", coord, true);
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
-static esp_err_t temp_service_start(void *ctx) {
+static reflex_err_t temp_service_start(void *ctx) {
     (void)ctx;
-    if (!s_temp_handle) return ESP_ERR_INVALID_STATE;
-    xTaskCreate(temp_poll_task, "temp-poll", 2048, NULL, 5, &s_task_handle);
-    return ESP_OK;
+    if (!s_temp_handle) return REFLEX_ERR_INVALID_STATE;
+    reflex_task_create(temp_poll_task, "temp-poll", 2048, NULL, 5, &s_task_handle);
+    return REFLEX_OK;
 }
 
-static esp_err_t temp_service_stop(void *ctx) {
+static reflex_err_t temp_service_stop(void *ctx) {
     (void)ctx;
-    if (s_task_handle) { vTaskDelete(s_task_handle); s_task_handle = NULL; }
-    return ESP_OK;
+    if (s_task_handle) { reflex_task_delete(s_task_handle); s_task_handle = NULL; }
+    return REFLEX_OK;
 }
 
 static reflex_service_status_t temp_service_status(void *ctx) {
@@ -95,7 +98,7 @@ static reflex_service_status_t temp_service_status(void *ctx) {
     return s_task_handle ? REFLEX_SERVICE_STATUS_STARTED : REFLEX_SERVICE_STATUS_STOPPED;
 }
 
-esp_err_t reflex_temp_service_register(void) {
+reflex_err_t reflex_temp_service_register(void) {
     static reflex_service_desc_t desc = {
         .name = "temp",
         .init = temp_service_init,

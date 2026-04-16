@@ -13,14 +13,14 @@
 
 #include <stdbool.h>
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /** @brief Open the NVS flash partition. Idempotent. */
-esp_err_t reflex_storage_init(void);
+reflex_err_t reflex_storage_init(void);
 
 /** @brief True if NVS has been initialized this boot. */
 bool reflex_storage_is_ready(void);

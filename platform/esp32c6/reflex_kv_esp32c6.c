@@ -49,6 +49,22 @@ reflex_err_t reflex_kv_set_blob(reflex_kv_handle_t h, const char *key,
     return (reflex_err_t)nvs_set_blob((nvs_handle_t)(uintptr_t)h, key, buf, len);
 }
 
+reflex_err_t reflex_kv_get_i32(reflex_kv_handle_t h, const char *key, int32_t *out) {
+    return (reflex_err_t)nvs_get_i32((nvs_handle_t)(uintptr_t)h, key, out);
+}
+
+reflex_err_t reflex_kv_set_i32(reflex_kv_handle_t h, const char *key, int32_t val) {
+    return (reflex_err_t)nvs_set_i32((nvs_handle_t)(uintptr_t)h, key, val);
+}
+
+reflex_err_t reflex_kv_get_u8(reflex_kv_handle_t h, const char *key, uint8_t *out) {
+    return (reflex_err_t)nvs_get_u8((nvs_handle_t)(uintptr_t)h, key, out);
+}
+
+reflex_err_t reflex_kv_set_u8(reflex_kv_handle_t h, const char *key, uint8_t val) {
+    return (reflex_err_t)nvs_set_u8((nvs_handle_t)(uintptr_t)h, key, val);
+}
+
 reflex_err_t reflex_kv_erase(reflex_kv_handle_t h, const char *key) {
     return (reflex_err_t)nvs_erase_key((nvs_handle_t)(uintptr_t)h, key);
 }

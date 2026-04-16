@@ -1,12 +1,12 @@
+#include "reflex_hal.h"
+#include "reflex_task.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_err.h"
-#include "esp_log.h"
-#include "esp_system.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "reflex_types.h"
+
+
 
 #include "reflex_boot.h"
 #include "reflex_log.h"
@@ -34,16 +34,16 @@ static void goose_supervisor_task(void *arg)
 {
     while (1) {
         goose_supervisor_pulse();
-        vTaskDelay(pdMS_TO_TICKS(100)); // 10Hz Pulse
+        reflex_task_delay_ms(100); // 10Hz Pulse
     }
 }
 
 static void reflex_stability_task(void *arg)
 {
-    vTaskDelay(pdMS_TO_TICKS(REFLEX_STABILITY_MS));
+    reflex_task_delay_ms(REFLEX_STABILITY_MS);
     reflex_config_set_boot_count(0);
     REFLEX_LOGI(REFLEX_BOOT_TAG, "system_stable=confirmed");
-    vTaskDelete(NULL);
+    reflex_task_delete(NULL);
 }
 
 static void manifest_demo_arc(void)
@@ -51,7 +51,7 @@ static void manifest_demo_arc(void)
     /**
      * Phase 15: Atmospheric Arcing (Self-Arc Loopback Demo)
      */
-    if (goose_atmosphere_init() == ESP_OK) {
+    if (goose_atmosphere_init() == REFLEX_OK) {
         static goose_route_t arc_out_route;
         static goose_route_t arc_in_route;
         static goose_field_t atmosphere_field;
@@ -103,7 +103,7 @@ void app_main(void)
     reflex_boot_print_banner();
     
     // 1. Init Storage
-    if (reflex_storage_init() != ESP_OK) {
+    if (reflex_storage_init() != REFLEX_OK) {
         REFLEX_LOGE(REFLEX_BOOT_TAG, "storage init failed");
         reflex_shell_run();
         return;
@@ -126,11 +126,11 @@ void app_main(void)
     reflex_config_set_boot_count(boot_count + 1);
     
     // 3. Substrate Startup
-    if (reflex_event_bus_init() != ESP_OK || reflex_event_bus_start() != ESP_OK) {
+    if (reflex_event_bus_init() != REFLEX_OK || reflex_event_bus_start() != REFLEX_OK) {
         reflex_shell_run(); return;
     }
 
-    if (reflex_fabric_init() != ESP_OK || goose_fabric_init() != ESP_OK) {
+    if (reflex_fabric_init() != REFLEX_OK || goose_fabric_init() != REFLEX_OK) {
         reflex_shell_run(); return;
     }
 
@@ -141,7 +141,7 @@ void app_main(void)
     goose_lp_heartbeat_init();  // LP RISC-V Coherent Heartbeat
 
     // 6. Background Regulation
-    xTaskCreate(goose_supervisor_task, "goose-super", 4096, NULL, 20, NULL);
+    reflex_task_create(goose_supervisor_task, "goose-super", 4096, NULL, 20, NULL);
     
     // 7. Binary Services
     reflex_service_manager_init();
@@ -156,7 +156,7 @@ void app_main(void)
     system_vm.vm.cache = (struct reflex_cache*)&system_cache;
     reflex_vm_task_register_service(&system_vm, "system-vm");
     
-    if (reflex_service_start_all() != ESP_OK) {
+    if (reflex_service_start_all() != REFLEX_OK) {
         reflex_shell_run(); return;
     }
 
@@ -164,7 +164,7 @@ void app_main(void)
     manifest_demo_arc();
 
     // 9. Stability & Shell
-    xTaskCreate(reflex_stability_task, "reflex-stable", 2048, NULL, 5, NULL);
+    reflex_task_create(reflex_stability_task, "reflex-stable", 2048, NULL, 5, NULL);
     reflex_event_publish(REFLEX_EVENT_BOOT_COMPLETE, NULL, 0);
 
     // Self-checks

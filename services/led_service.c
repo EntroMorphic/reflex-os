@@ -1,8 +1,11 @@
+#include "reflex_hal.h"
+#include "reflex_task.h"
+#include <string.h>
 #include "reflex_led_service.h"
 
-#include "esp_check.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+
+
+
 
 #include "reflex_led.h"
 #include "reflex_service.h"
@@ -23,8 +26,8 @@ static void reflex_led_task(void *arg)
     goose_cell_t *led_phys = goose_fabric_alloc_cell("led_phys", phys_coord, true);
 
     if (!led_intent || !led_phys) {
-        ESP_LOGE("LED_SERVICE", "Failed to manifest LED in Fabric!");
-        vTaskDelete(NULL);
+        REFLEX_LOGE("LED_SERVICE", "Failed to manifest LED in Fabric!");
+        reflex_task_delete(NULL);
         return;
     }
 
@@ -51,22 +54,22 @@ static void reflex_led_task(void *arg)
     // Start regional high-speed pulse (100Hz)
     goose_field_start_pulse(&led_agency_field);
 
-    vTaskDelete(NULL);
+    reflex_task_delete(NULL);
 }
 
-static esp_err_t reflex_led_service_init(void *ctx)
+static reflex_err_t reflex_led_service_init(void *ctx)
 {
     (void)ctx;
     return reflex_led_init();
 }
 
-static esp_err_t reflex_led_service_start(void *ctx)
+static reflex_err_t reflex_led_service_start(void *ctx)
 {
     (void)ctx;
-    if (xTaskCreate(reflex_led_task, "reflex-led", 4096, NULL, 5, NULL) != pdPASS) {
-        return ESP_FAIL;
+    if (reflex_task_create(reflex_led_task, "reflex-led", 4096, NULL, 5, NULL) != REFLEX_OK) {
+        return REFLEX_FAIL;
     }
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
 static reflex_service_status_t reflex_led_service_status(void *ctx)
@@ -75,7 +78,7 @@ static reflex_service_status_t reflex_led_service_status(void *ctx)
     return REFLEX_SERVICE_STATUS_STARTED;
 }
 
-esp_err_t reflex_led_service_register(void)
+reflex_err_t reflex_led_service_register(void)
 {
     static reflex_service_desc_t desc = {
         .name = "led",

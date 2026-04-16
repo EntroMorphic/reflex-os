@@ -12,14 +12,14 @@
  * hardware-validated path.
  */
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /** @brief Register the LED service with the service manager. */
-esp_err_t reflex_led_service_register(void);
+reflex_err_t reflex_led_service_register(void);
 
 #ifdef __cplusplus
 }

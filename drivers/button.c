@@ -1,7 +1,9 @@
+#include "reflex_hal.h"
+#include "driver/gpio.h"
 #include "reflex_button.h"
 
-#include "driver/gpio.h"
-#include "esp_check.h"
+
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -35,7 +37,7 @@ static void reflex_button_task(void* arg)
     }
 }
 
-esp_err_t reflex_button_init(void)
+reflex_err_t reflex_button_init(void)
 {
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << REFLEX_BUTTON_PIN),
@@ -44,12 +46,12 @@ esp_err_t reflex_button_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE, // Using polling task for reliability
     };
-    ESP_RETURN_ON_ERROR(gpio_config(&io_conf), "reflex.btn", "config failed");
+    REFLEX_RETURN_ON_ERROR(gpio_config(&io_conf), "reflex.btn", "config failed");
 
     if (xTaskCreate(reflex_button_task, "reflex-btn", 2048, NULL, 12, NULL) != pdPASS) {
         return ESP_FAIL;
     }
 
     REFLEX_LOGI(REFLEX_BOOT_TAG, "button_hal=ready (gpio%d)", REFLEX_BUTTON_PIN);
-    return ESP_OK;
+    return REFLEX_OK;
 }

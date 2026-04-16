@@ -16,7 +16,9 @@
 #include "freertos/task.h"
 
 #include "esp_app_desc.h"
-#include "esp_check.h"
+#include "reflex_types.h"
+#include "reflex_hal.h"
+#include "reflex_task.h"
 #include "esp_heap_caps.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -130,24 +132,24 @@ static void reflex_shell_config_get(const char *key)
 {
     if (strcmp(key, "device_name") == 0) {
         char name[32];
-        if (reflex_config_get_device_name(name, sizeof(name)) == ESP_OK) printf("device_name=%s\n", name);
+        if (reflex_config_get_device_name(name, sizeof(name)) == REFLEX_OK) printf("device_name=%s\n", name);
     } else if (strcmp(key, "log_level") == 0) {
         int32_t level;
-        if (reflex_config_get_log_level(&level) == ESP_OK) printf("log_level=%ld\n", (long)level);
+        if (reflex_config_get_log_level(&level) == REFLEX_OK) printf("log_level=%ld\n", (long)level);
     } else if (strcmp(key, "boot_count") == 0) {
         int32_t count;
-        if (reflex_config_get_boot_count(&count) == ESP_OK) printf("boot_count=%ld\n", (long)count);
+        if (reflex_config_get_boot_count(&count) == REFLEX_OK) printf("boot_count=%ld\n", (long)count);
     } else printf("unknown key: %s\n", key);
 }
 
 static void reflex_shell_config_set(const char *key, const char *value)
 {
-    esp_err_t err = ESP_FAIL;
+    reflex_err_t err = REFLEX_FAIL;
     if (strcmp(key, "device_name") == 0) err = reflex_config_set_device_name(value);
     else if (strcmp(key, "log_level") == 0) err = reflex_config_set_log_level(atoi(value));
     else if (strcmp(key, "boot_count") == 0) err = reflex_config_set_boot_count(atoi(value));
     
-    if (err == ESP_OK) printf("config set %s ok\n", key);
+    if (err == REFLEX_OK) printf("config set %s ok\n", key);
     else printf("config set %s failed\n", key);
 }
 
@@ -161,7 +163,7 @@ static void reflex_shell_bonsai_exp1_task(void *arg) {
         else if (l < s->last_level) { s->last_edge = REFLEX_BONSAI_EDGE_NEG; s->falling_edges++; reflex_led_set(false); }
         else { s->last_edge = REFLEX_BONSAI_EDGE_ZERO; s->stable_samples++; }
         s->last_level = l; s->current_level = l;
-        vTaskDelay(pdMS_TO_TICKS(25));
+        reflex_task_delay_ms(25);
     }
     s->handle = NULL; vTaskDelete(NULL);
 }
@@ -169,12 +171,12 @@ static void reflex_shell_bonsai_exp1_task(void *arg) {
 static void reflex_shell_bonsai_exp2_task(void *arg) {
     reflex_bonsai_exp2_state_t *s = (reflex_bonsai_exp2_state_t *)arg;
     while (s->running) {
-        s->last_tick_us = esp_timer_get_time();
+        s->last_tick_us = reflex_hal_time_us();
         s->phase = reflex_shell_bonsai_next_phase(s->phase);
         s->phase_steps++;
         if (s->phase == REFLEX_BONSAI_EDGE_NEG) reflex_led_set(false);
         else if (s->phase == REFLEX_BONSAI_EDGE_POS) reflex_led_set(true);
-        vTaskDelay(pdMS_TO_TICKS(400));
+        reflex_task_delay_ms(400);
     }
     s->handle = NULL; vTaskDelete(NULL);
 }
@@ -191,7 +193,7 @@ static void reflex_shell_bonsai_exp3a_task(void *arg) {
         if (s->output == REFLEX_BONSAI_EDGE_POS) reflex_led_set(true);
         else if (s->output == REFLEX_BONSAI_EDGE_NEG) { static bool b; b = !b; reflex_led_set(b); }
         else reflex_led_set(false);
-        vTaskDelay(pdMS_TO_TICKS(250));
+        reflex_task_delay_ms(250);
     }
     s->handle = NULL; vTaskDelete(NULL);
 }
@@ -247,11 +249,11 @@ static void reflex_shell_bonsai_exp4_route(int orient) {
 static void reflex_shell_bonsai_exp5_run(void) {
     pcnt_unit_config_t ucfg = { .low_limit = -1000, .high_limit = 1000 };
     pcnt_unit_handle_t pcnt = NULL;
-    if (pcnt_new_unit(&ucfg, &pcnt) != ESP_OK) return;
+    if (pcnt_new_unit(&ucfg, &pcnt) != REFLEX_OK) return;
     
     pcnt_chan_config_t ch = { .edge_gpio_num = 4, .level_gpio_num = 6 };
     pcnt_channel_handle_t p_ch;
-    if (pcnt_new_channel(pcnt, &ch, &p_ch) != ESP_OK) { pcnt_del_unit(pcnt); return; }
+    if (pcnt_new_channel(pcnt, &ch, &p_ch) != REFLEX_OK) { pcnt_del_unit(pcnt); return; }
     pcnt_channel_set_edge_action(p_ch, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_HOLD);
     pcnt_unit_enable(pcnt);
     pcnt_unit_start(pcnt);
@@ -265,7 +267,7 @@ static void reflex_shell_bonsai_exp5_run(void) {
         .flags.io_loop_back = 1,
     };
     rmt_channel_handle_t rmt_ch = NULL;
-    if (rmt_new_tx_channel(&rcfg, &rmt_ch) != ESP_OK) { pcnt_unit_stop(pcnt); pcnt_unit_disable(pcnt); pcnt_del_unit(pcnt); return; }
+    if (rmt_new_tx_channel(&rcfg, &rmt_ch) != REFLEX_OK) { pcnt_unit_stop(pcnt); pcnt_unit_disable(pcnt); pcnt_del_unit(pcnt); return; }
     rmt_enable(rmt_ch);
 
     gpio_config_t io = { .pin_bit_mask = (1ULL << 6), .mode = GPIO_MODE_OUTPUT };
@@ -285,7 +287,7 @@ static void reflex_shell_bonsai_exp5_run(void) {
     rmt_new_copy_encoder(&ecfg, &encoder);
     rmt_transmit(rmt_ch, encoder, pulses, 10, &tcfg);
 
-    vTaskDelay(pdMS_TO_TICKS(100));
+    reflex_task_delay_ms(100);
 
     int count = 0;
     pcnt_unit_get_count(pcnt, &count);
@@ -352,7 +354,7 @@ static void reflex_shell_bonsai_runtime_test(void) {
     printf("Field [%s] created.\n", field.name);
     for(int i=0; i<50; i++) {
         goose_process_transitions(&field);
-        vTaskDelay(pdMS_TO_TICKS(100));
+        reflex_task_delay_ms(100);
     }
     printf("Runtime test complete.\n");
 }
@@ -397,7 +399,7 @@ static void reflex_shell_bonsai_heal_test(void) {
 
     printf("Created field [%s]. Signal=POS, Route=INHIBIT, Sink=NEG.\n", field.name);
     
-    if (goose_supervisor_pulse() == ESP_OK) { // Simplified for shell test
+    if (goose_supervisor_pulse() == REFLEX_OK) { // Simplified for shell test
         printf("Pulse complete. Check logs for rebalance action.\n");
     }
 }
@@ -428,7 +430,7 @@ static void reflex_shell_bonsai_gvm_test(void) {
         .private_memory_count = 0
     };
 
-    if (reflex_vm_load_image(&gvm, &image) != ESP_OK) {
+    if (reflex_vm_load_image(&gvm, &image) != REFLEX_OK) {
         printf("Error: Failed to load GVM image.\n");
         return;
     }
@@ -451,7 +453,7 @@ static void reflex_shell_bonsai_deep_sleep(void) {
     printf("The HP Mind will sleep. The LP Heart will maintain the LED heartbeat.\n");
     printf("Wake-up via JTAG/Serial in 10 seconds.\n");
     
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    reflex_task_delay_ms(1000);
     
     // Configure wake up timer
     esp_sleep_enable_timer_wakeup(10 * 1000000);
@@ -471,13 +473,13 @@ static void reflex_shell_bonsai_weave_test(void) {
     goose_fragment_handle_t h1, h2;
 
     // Test 1: Multiple independent weavings
-    if (goose_weave_fragment(GOOSE_FRAGMENT_HEARTBEAT, "heart1", base1, &h1) == ESP_OK &&
-        goose_weave_fragment(GOOSE_FRAGMENT_HEARTBEAT, "heart2", base2, &h2) == ESP_OK) {
+    if (goose_weave_fragment(GOOSE_FRAGMENT_HEARTBEAT, "heart1", base1, &h1) == REFLEX_OK &&
+        goose_weave_fragment(GOOSE_FRAGMENT_HEARTBEAT, "heart2", base2, &h2) == REFLEX_OK) {
         printf("Success: Wove two independent Heartbeats.\n");
     }
 
     // Test 2: Collision Detection
-    if (goose_weave_fragment(GOOSE_FRAGMENT_GATE, "clash", base1, NULL) != ESP_OK) {
+    if (goose_weave_fragment(GOOSE_FRAGMENT_GATE, "clash", base1, NULL) != REFLEX_OK) {
         printf("Success: Weaver prevented coordinate collision.\n");
     } else {
         printf("Error: Weaver failed to detect collision!\n");
@@ -511,7 +513,7 @@ static void reflex_shell_goonies_find(const char *name) {
     reflex_tryte9_t coord;
     /* Live registry first — fastest path, and the one that reflects
      * the currently-woven active Loom. */
-    if (goonies_resolve(name, &coord) == ESP_OK) {
+    if (goonies_resolve(name, &coord) == REFLEX_OK) {
         printf("GOONIES: Resolved '%s' to (%d,%d,%d) [live]\n",
                name, coord.trits[0], coord.trits[3], coord.trits[6]);
         return;
@@ -521,7 +523,7 @@ static void reflex_shell_goonies_find(const char *name) {
      * first, giving the shell full-surface name queries. */
     uint32_t addr, mask;
     goose_cell_type_t type;
-    if (goose_shadow_resolve(name, &addr, &mask, &coord, &type) == ESP_OK) {
+    if (goose_shadow_resolve(name, &addr, &mask, &coord, &type) == REFLEX_OK) {
         const char *type_str =
             (type == GOOSE_CELL_HARDWARE_IN)  ? "HARDWARE_IN" :
             (type == GOOSE_CELL_HARDWARE_OUT) ? "HARDWARE_OUT" :
@@ -576,7 +578,7 @@ static void reflex_shell_atlas_verify(void) {
         goose_cell_type_t type;
         reflex_tryte9_t expected_coord = goose_make_shadow_coord(
             shadow_map[i].f, shadow_map[i].r, shadow_map[i].c);
-        if (goose_shadow_resolve(shadow_map[i].name, &addr, &mask, &coord, &type) == ESP_OK
+        if (goose_shadow_resolve(shadow_map[i].name, &addr, &mask, &coord, &type) == REFLEX_OK
             && addr == shadow_map[i].addr
             && mask == shadow_map[i].bit_mask
             && type == shadow_map[i].type
@@ -634,7 +636,7 @@ static void reflex_shell_loom_bloat_test(void) {
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
     if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, sleep <s>, led status, temp, bonsai <..>, goonies <ls|find name>, atlas verify, services, config <get|set>, vm info, aura setkey <hex>, heartbeat, mesh <..>, snapshot <save|load|clear>, purpose <set|get|clear>\n");
-    else if (strcmp(argv[0], "reboot") == 0) esp_restart();
+    else if (strcmp(argv[0], "reboot") == 0) reflex_hal_reboot();
     else if (strcmp(argv[0], "sleep") == 0) {
         int secs = (argc >= 2) ? atoi(argv[1]) : 3;
         if (secs < 1) secs = 1;
@@ -687,13 +689,13 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         printf("temp=%.1fC state=%d\n", c, cell ? cell->state : 0);
     } else if (strcmp(argv[0], "snapshot") == 0) {
         if (argc >= 2 && strcmp(argv[1], "save") == 0) {
-            esp_err_t rc = goose_snapshot_save();
+            reflex_err_t rc = goose_snapshot_save();
             printf("snapshot save: rc=0x%x\n", rc);
         } else if (argc >= 2 && strcmp(argv[1], "load") == 0) {
-            esp_err_t rc = goose_snapshot_load();
+            reflex_err_t rc = goose_snapshot_load();
             printf("snapshot load: rc=0x%x\n", rc);
         } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
-            esp_err_t rc = goose_snapshot_clear();
+            reflex_err_t rc = goose_snapshot_clear();
             printf("snapshot clear: rc=0x%x\n", rc);
         } else {
             printf("snapshot <save|load|clear>\n");
@@ -752,15 +754,15 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
              * reads from it. */
             goose_cell_t tx = *c;
             tx.state = (int8_t)req;
-            esp_err_t rc = goose_atmosphere_emit_arc(&tx);
+            reflex_err_t rc = goose_atmosphere_emit_arc(&tx);
             printf("mesh emit: state=%d rc=0x%x\n", (int)tx.state, rc);
         } else if (argc >= 3 && strcmp(argv[1], "query") == 0) {
-            esp_err_t rc = goose_atmosphere_query(argv[2]);
+            reflex_err_t rc = goose_atmosphere_query(argv[2]);
             printf("mesh query: name=%s rc=0x%x\n", argv[2], rc);
         } else if (argc >= 4 && strcmp(argv[1], "posture") == 0) {
             int8_t state = (int8_t)atoi(argv[2]);
             uint8_t weight = (uint8_t)atoi(argv[3]);
-            esp_err_t rc = goose_atmosphere_emit_posture(state, weight);
+            reflex_err_t rc = goose_atmosphere_emit_posture(state, weight);
             printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc);
         } else if (argc >= 2 && strcmp(argv[1], "stat") == 0) {
             goose_mesh_stats_t s = goose_atmosphere_get_stats();
@@ -782,7 +784,7 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
                 char p[3] = {hex[i*2], hex[i*2+1], 0};
                 key[i] = (uint8_t)strtoul(p, NULL, 16);
             }
-            if (goose_atmosphere_set_key(key) == ESP_OK) printf("aura: key provisioned\n");
+            if (goose_atmosphere_set_key(key) == REFLEX_OK) printf("aura: key provisioned\n");
             else printf("aura: provisioning failed\n");
         } else {
             printf("aura setkey <32 hex chars>\n");
@@ -792,7 +794,7 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         else if (argc >= 3 && strcmp(argv[1], "loadhex") == 0) {
             size_t blen = strlen(argv[2]) / 2; uint8_t *b = malloc(blen);
             for(size_t i=0; i<blen; i++) { char p[3]={argv[2][i*2], argv[2][i*2+1], 0}; b[i]=(uint8_t)strtoul(p,NULL,16); }
-            if(reflex_vm_load_binary(&reflex_shell_vm, b, blen)==ESP_OK) { reflex_shell_vm_loaded=true; printf("vm loaded\n"); } else printf("vm load failed\n");
+            if(reflex_vm_load_binary(&reflex_shell_vm, b, blen)==REFLEX_OK) { reflex_shell_vm_loaded=true; printf("vm loaded\n"); } else printf("vm load failed\n");
             free(b);
         }
     }
@@ -805,7 +807,7 @@ void reflex_shell_run(void) {
     printf("reflex> "); fflush(stdout);
     while (1) {
         uint8_t ch; int r = usb_serial_jtag_read_bytes(&ch, 1, pdMS_TO_TICKS(50));
-        if (r <= 0) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }
+        if (r <= 0) { reflex_task_delay_ms(50); continue; }
         if (ch == '\n') {
             line[len] = 0; char *argv[8]; int argc = 0;
             char *t = strtok(line, " "); while(t && argc < 8) { argv[argc++] = t; t = strtok(NULL, " "); }

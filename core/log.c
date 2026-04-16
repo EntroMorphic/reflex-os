@@ -1,19 +1,13 @@
 #include "reflex_log.h"
 
-static esp_log_level_t s_reflex_log_level = ESP_LOG_INFO;
+static int s_reflex_log_level = REFLEX_LOG_LEVEL_INFO;
 
-void reflex_log_init(void)
-{
-    esp_log_level_set("reflex.*", s_reflex_log_level);
-}
+void reflex_log_init(void) {}
 
-void reflex_log_set_level(esp_log_level_t level)
-{
+void reflex_log_set_level(int level) {
     s_reflex_log_level = level;
-    esp_log_level_set("reflex.*", s_reflex_log_level);
 }
 
-esp_log_level_t reflex_log_get_level(void)
-{
+int reflex_log_get_level(void) {
     return s_reflex_log_level;
 }
