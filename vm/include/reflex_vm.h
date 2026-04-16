@@ -11,7 +11,7 @@
  * executed one step at a time (#reflex_vm_step) or in a bounded
  * batch (#reflex_vm_run). Long-running VM programs usually live
  * inside a reflex_vm_task_runtime_t (see reflex_vm_task.h) which
- * hosts a FreeRTOS task around the interpreter.
+ * hosts a platform task around the interpreter.
  *
  * Syscalls from ternary code into host services go through a
  * swappable handler installed via #reflex_vm_set_syscall_handler.
@@ -21,10 +21,9 @@
 
 #include <stdint.h>
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #include "reflex_vm_state.h"
-#include "reflex_vm_task.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -79,7 +78,7 @@ void reflex_vm_use_default_syscalls(reflex_vm_state_t *vm);
  * error encountered; subsequent calls return without making
  * progress until the caller resets the VM.
  */
-esp_err_t reflex_vm_step(reflex_vm_state_t *vm);
+reflex_err_t reflex_vm_step(reflex_vm_state_t *vm);
 
 /**
  * @brief Execute up to @p max_steps instructions or until the VM
@@ -90,17 +89,17 @@ esp_err_t reflex_vm_step(reflex_vm_state_t *vm);
  * interpreter is expected to return control on each syscall or
  * inter-step boundary so the host can preempt.
  */
-esp_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps);
+reflex_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps);
 
 /**
  * @brief Boot-time self-check that exercises the interpreter
  * against a small canned program and known-bad inputs.
  *
  * Logs diagnostic ERROR messages for the known-bad paths (by
- * design — they're intentional negative cases). Returns ESP_OK if
+ * design — they're intentional negative cases). Returns REFLEX_OK if
  * every positive path produces the expected result.
  */
-esp_err_t reflex_vm_self_check(void);
+reflex_err_t reflex_vm_self_check(void);
 
 #ifdef __cplusplus
 }

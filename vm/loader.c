@@ -1,6 +1,6 @@
 #include "reflex_vm_loader.h"
 
-#include "esp_check.h"
+#include "reflex_types.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -80,46 +80,46 @@ static bool reflex_vm_loader_instruction_fields_valid(const reflex_vm_instructio
     }
 }
 
-esp_err_t reflex_vm_validate_image(const reflex_vm_image_t *image)
+reflex_err_t reflex_vm_validate_image(const reflex_vm_image_t *image)
 {
-    ESP_RETURN_ON_FALSE(image != NULL, ESP_ERR_INVALID_ARG, "vm_loader", "image is required");
-    ESP_RETURN_ON_FALSE(image->magic == REFLEX_VM_IMAGE_MAGIC,
-                        ESP_ERR_INVALID_RESPONSE,
+    REFLEX_RETURN_ON_FALSE(image != NULL, REFLEX_ERR_INVALID_ARG, "vm_loader", "image is required");
+    REFLEX_RETURN_ON_FALSE(image->magic == REFLEX_VM_IMAGE_MAGIC,
+                        REFLEX_ERR_INVALID_RESPONSE,
                         "vm_loader",
                         "invalid image magic");
     
     // Support both v1 and v2 for backward compat during v2 migration
-    ESP_RETURN_ON_FALSE(image->version == 1 || image->version == 2,
-                        ESP_ERR_INVALID_VERSION,
+    REFLEX_RETURN_ON_FALSE(image->version == 1 || image->version == 2,
+                        REFLEX_ERR_INVALID_VERSION,
                         "vm_loader",
                         "unsupported image version");
 
-    ESP_RETURN_ON_FALSE(image->instructions != NULL,
-                        ESP_ERR_INVALID_ARG,
+    REFLEX_RETURN_ON_FALSE(image->instructions != NULL,
+                        REFLEX_ERR_INVALID_ARG,
                         "vm_loader",
                         "instructions are required");
-    ESP_RETURN_ON_FALSE(image->instruction_count > 0,
-                        ESP_ERR_INVALID_SIZE,
+    REFLEX_RETURN_ON_FALSE(image->instruction_count > 0,
+                        REFLEX_ERR_INVALID_SIZE,
                         "vm_loader",
                         "instruction count is required");
-    ESP_RETURN_ON_FALSE(image->entry_ip < image->instruction_count,
-                        ESP_ERR_INVALID_ARG,
+    REFLEX_RETURN_ON_FALSE(image->entry_ip < image->instruction_count,
+                        REFLEX_ERR_INVALID_ARG,
                         "vm_loader",
                         "entry point out of range");
-    ESP_RETURN_ON_FALSE(image->private_memory != NULL || image->private_memory_count == 0,
-                        ESP_ERR_INVALID_ARG,
+    REFLEX_RETURN_ON_FALSE(image->private_memory != NULL || image->private_memory_count == 0,
+                        REFLEX_ERR_INVALID_ARG,
                         "vm_loader",
                         "private memory pointer missing");
 
     for (size_t i = 0; i < image->instruction_count; ++i) {
         const reflex_vm_instruction_t *instruction = &image->instructions[i];
 
-        ESP_RETURN_ON_FALSE(reflex_vm_loader_opcode_valid(instruction->opcode),
-                            ESP_ERR_INVALID_RESPONSE,
+        REFLEX_RETURN_ON_FALSE(reflex_vm_loader_opcode_valid(instruction->opcode),
+                            REFLEX_ERR_INVALID_RESPONSE,
                             "vm_loader",
                             "invalid opcode in image");
-        ESP_RETURN_ON_FALSE(reflex_vm_loader_instruction_fields_valid(instruction),
-                            ESP_ERR_INVALID_ARG,
+        REFLEX_RETURN_ON_FALSE(reflex_vm_loader_instruction_fields_valid(instruction),
+                            REFLEX_ERR_INVALID_ARG,
                             "vm_loader",
                             "invalid register fields in image");
 
@@ -127,27 +127,27 @@ esp_err_t reflex_vm_validate_image(const reflex_vm_image_t *image)
             instruction->opcode == REFLEX_VM_OPCODE_TBRNEG ||
             instruction->opcode == REFLEX_VM_OPCODE_TBRZERO ||
             instruction->opcode == REFLEX_VM_OPCODE_TBRPOS) {
-            ESP_RETURN_ON_FALSE(reflex_vm_loader_target_in_range(instruction->imm, image->instruction_count),
-                                ESP_ERR_INVALID_ARG,
+            REFLEX_RETURN_ON_FALSE(reflex_vm_loader_target_in_range(instruction->imm, image->instruction_count),
+                                REFLEX_ERR_INVALID_ARG,
                                 "vm_loader",
                                 "branch target out of range");
         }
 
         if (instruction->opcode == REFLEX_VM_OPCODE_TSYS) {
-            ESP_RETURN_ON_FALSE(reflex_vm_loader_syscall_valid(instruction->imm),
-                                ESP_ERR_INVALID_ARG,
+            REFLEX_RETURN_ON_FALSE(reflex_vm_loader_syscall_valid(instruction->imm),
+                                REFLEX_ERR_INVALID_ARG,
                                 "vm_loader",
                                 "invalid syscall selector in image");
         }
     }
 
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
-esp_err_t reflex_vm_load_image(reflex_vm_state_t *vm, const reflex_vm_image_t *image)
+reflex_err_t reflex_vm_load_image(reflex_vm_state_t *vm, const reflex_vm_image_t *image)
 {
-    ESP_RETURN_ON_FALSE(vm != NULL, ESP_ERR_INVALID_ARG, "vm_loader", "vm is required");
-    ESP_RETURN_ON_ERROR(reflex_vm_validate_image(image), "vm_loader", "image validation failed");
+    REFLEX_RETURN_ON_FALSE(vm != NULL, REFLEX_ERR_INVALID_ARG, "vm_loader", "vm is required");
+    REFLEX_RETURN_ON_ERROR(reflex_vm_validate_image(image), "vm_loader", "image validation failed");
 
     reflex_vm_unload(vm);
 
@@ -159,7 +159,7 @@ esp_err_t reflex_vm_load_image(reflex_vm_state_t *vm, const reflex_vm_image_t *i
     
     reflex_vm_mmu_init(&vm->mmu);
     if (image->private_memory_count > 0) {
-        ESP_RETURN_ON_ERROR(reflex_vm_mmu_add_region(&vm->mmu,
+        REFLEX_RETURN_ON_ERROR(reflex_vm_mmu_add_region(&vm->mmu,
                                                      image->private_memory,
                                                      image->private_memory_count,
                                                      REFLEX_MEM_PRIVATE,
@@ -170,15 +170,15 @@ esp_err_t reflex_vm_load_image(reflex_vm_state_t *vm, const reflex_vm_image_t *i
 
     reflex_vm_reset(vm);
     vm->ip = image->entry_ip;
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
-esp_err_t reflex_vm_crc32(const uint8_t *data, size_t len, uint32_t *out_crc)
+reflex_err_t reflex_vm_crc32(const uint8_t *data, size_t len, uint32_t *out_crc)
 {
     uint32_t crc = 0xFFFFFFFFu;
 
-    ESP_RETURN_ON_FALSE(data != NULL || len == 0, ESP_ERR_INVALID_ARG, "vm_loader", "data required");
-    ESP_RETURN_ON_FALSE(out_crc != NULL, ESP_ERR_INVALID_ARG, "vm_loader", "crc output required");
+    REFLEX_RETURN_ON_FALSE(data != NULL || len == 0, REFLEX_ERR_INVALID_ARG, "vm_loader", "data required");
+    REFLEX_RETURN_ON_FALSE(out_crc != NULL, REFLEX_ERR_INVALID_ARG, "vm_loader", "crc output required");
 
     for (size_t i = 0; i < len; ++i) {
         crc ^= data[i];
@@ -189,19 +189,19 @@ esp_err_t reflex_vm_crc32(const uint8_t *data, size_t len, uint32_t *out_crc)
     }
 
     *out_crc = ~crc;
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
-esp_err_t reflex_vm_load_binary(reflex_vm_state_t *vm, const uint8_t *buffer, size_t len)
+reflex_err_t reflex_vm_load_binary(reflex_vm_state_t *vm, const uint8_t *buffer, size_t len)
 {
     reflex_vm_instruction_t *instrs = NULL;
     reflex_word18_t *data_words = NULL;
     reflex_vm_image_t image = {0};
-    esp_err_t err = ESP_OK;
+    reflex_err_t err = REFLEX_OK;
 
-    ESP_RETURN_ON_FALSE(vm != NULL, ESP_ERR_INVALID_ARG, "vm_loader", "vm required");
-    ESP_RETURN_ON_FALSE(buffer != NULL, ESP_ERR_INVALID_ARG, "vm_loader", "buffer required");
-    ESP_RETURN_ON_FALSE(len >= 16, ESP_ERR_INVALID_SIZE, "vm_loader", "image header too small");
+    REFLEX_RETURN_ON_FALSE(vm != NULL, REFLEX_ERR_INVALID_ARG, "vm_loader", "vm required");
+    REFLEX_RETURN_ON_FALSE(buffer != NULL, REFLEX_ERR_INVALID_ARG, "vm_loader", "buffer required");
+    REFLEX_RETURN_ON_FALSE(len >= 16, REFLEX_ERR_INVALID_SIZE, "vm_loader", "image header too small");
 
     // Pre-unload existing program to prevent leaks
     reflex_vm_unload(vm);
@@ -213,8 +213,8 @@ esp_err_t reflex_vm_load_binary(reflex_vm_state_t *vm, const uint8_t *buffer, si
     uint32_t checksum;
     memcpy(&checksum, buffer + 6, 4);
     
-    ESP_RETURN_ON_FALSE(magic == REFLEX_VM_IMAGE_MAGIC, ESP_ERR_INVALID_RESPONSE, "vm_loader", "bad magic");
-    ESP_RETURN_ON_FALSE(version == 2, ESP_ERR_INVALID_VERSION, "vm_loader", "unsupported version");
+    REFLEX_RETURN_ON_FALSE(magic == REFLEX_VM_IMAGE_MAGIC, REFLEX_ERR_INVALID_RESPONSE, "vm_loader", "bad magic");
+    REFLEX_RETURN_ON_FALSE(version == 2, REFLEX_ERR_INVALID_VERSION, "vm_loader", "unsupported version");
 
     uint16_t entry_ip;
     memcpy(&entry_ip, buffer + 10, 2);
@@ -225,14 +225,14 @@ esp_err_t reflex_vm_load_binary(reflex_vm_state_t *vm, const uint8_t *buffer, si
 
     size_t payload_len = (instr_count * 4) + (data_count * 5);
     size_t required_len = 16 + payload_len;
-    ESP_RETURN_ON_FALSE(len >= required_len, ESP_ERR_INVALID_SIZE, "vm_loader", "image payload too small");
+    REFLEX_RETURN_ON_FALSE(len >= required_len, REFLEX_ERR_INVALID_SIZE, "vm_loader", "image payload too small");
 
     uint32_t calc_crc = 0;
-    ESP_RETURN_ON_ERROR(reflex_vm_crc32(buffer + 16, payload_len, &calc_crc), "vm_loader", "crc failed");
-    ESP_RETURN_ON_FALSE(calc_crc == checksum, ESP_ERR_INVALID_CRC, "vm_loader", "image checksum failed");
+    REFLEX_RETURN_ON_ERROR(reflex_vm_crc32(buffer + 16, payload_len, &calc_crc), "vm_loader", "crc failed");
+    REFLEX_RETURN_ON_FALSE(calc_crc == checksum, REFLEX_ERR_INVALID_CRC, "vm_loader", "image checksum failed");
 
     instrs = malloc(sizeof(reflex_vm_instruction_t) * instr_count);
-    ESP_RETURN_ON_FALSE(instrs != NULL, ESP_ERR_NO_MEM, "vm_loader", "malloc failed");
+    REFLEX_RETURN_ON_FALSE(instrs != NULL, REFLEX_ERR_NO_MEM, "vm_loader", "malloc failed");
 
     const uint8_t *instr_stream = buffer + 16;
     for (size_t i = 0; i < instr_count; i++) {
@@ -256,11 +256,11 @@ esp_err_t reflex_vm_load_binary(reflex_vm_state_t *vm, const uint8_t *buffer, si
         const uint8_t *data_stream = instr_stream + (instr_count * 4);
 
         data_words = calloc(data_count, sizeof(reflex_word18_t));
-        ESP_RETURN_ON_FALSE(data_words != NULL, ESP_ERR_NO_MEM, "vm_loader", "data alloc failed");
+        REFLEX_RETURN_ON_FALSE(data_words != NULL, REFLEX_ERR_NO_MEM, "vm_loader", "data alloc failed");
 
         for (size_t i = 0; i < data_count; ++i) {
             err = reflex_word18_unpack(data_stream + (i * REFLEX_PACKED_WORD18_BYTES), &data_words[i]);
-            if (err != ESP_OK) {
+            if (err != REFLEX_OK) {
                 goto fail;
             }
         }
@@ -274,14 +274,14 @@ esp_err_t reflex_vm_load_binary(reflex_vm_state_t *vm, const uint8_t *buffer, si
     image.private_memory = data_words;
     image.private_memory_count = data_count;
     err = reflex_vm_validate_image(&image);
-    if (err != ESP_OK) {
+    if (err != REFLEX_OK) {
         goto fail;
     }
 
     reflex_vm_mmu_init(&vm->mmu);
     if (data_count > 0) {
         err = reflex_vm_mmu_add_region(&vm->mmu, data_words, data_count, REFLEX_MEM_PRIVATE, 0);
-        if (err != ESP_OK) {
+        if (err != REFLEX_OK) {
             goto fail;
         }
     }
@@ -295,7 +295,7 @@ esp_err_t reflex_vm_load_binary(reflex_vm_state_t *vm, const uint8_t *buffer, si
     reflex_vm_reset(vm);
     vm->ip = entry_ip;
 
-    return ESP_OK;
+    return REFLEX_OK;
 
 fail:
     free(instrs);
@@ -305,7 +305,7 @@ fail:
 }
 
 
-esp_err_t reflex_vm_loader_self_check(void)
+reflex_err_t reflex_vm_loader_self_check(void)
 {
     static const reflex_vm_instruction_t valid_program[] = {
         {.opcode = REFLEX_VM_OPCODE_TLDI, .dst = 0, .imm = 1},
@@ -353,30 +353,30 @@ esp_err_t reflex_vm_loader_self_check(void)
     };
     static reflex_vm_state_t vm;
 
-    ESP_RETURN_ON_ERROR(reflex_vm_validate_image(&valid_image), "vm_loader", "valid image rejected");
-    ESP_RETURN_ON_ERROR(reflex_vm_load_image(&vm, &valid_image), "vm_loader", "valid image failed to load");
-    ESP_RETURN_ON_FALSE(vm.program == valid_program, ESP_FAIL, "vm_loader", "program pointer not loaded");
-    ESP_RETURN_ON_FALSE(vm.program_length == 2, ESP_FAIL, "vm_loader", "program length not loaded");
-    ESP_RETURN_ON_FALSE(vm.ip == 0, ESP_FAIL, "vm_loader", "entry point not loaded");
-    ESP_RETURN_ON_FALSE(vm.status == REFLEX_VM_STATUS_READY, ESP_FAIL, "vm_loader", "vm must be ready after load");
+    REFLEX_RETURN_ON_ERROR(reflex_vm_validate_image(&valid_image), "vm_loader", "valid image rejected");
+    REFLEX_RETURN_ON_ERROR(reflex_vm_load_image(&vm, &valid_image), "vm_loader", "valid image failed to load");
+    REFLEX_RETURN_ON_FALSE(vm.program == valid_program, REFLEX_FAIL, "vm_loader", "program pointer not loaded");
+    REFLEX_RETURN_ON_FALSE(vm.program_length == 2, REFLEX_FAIL, "vm_loader", "program length not loaded");
+    REFLEX_RETURN_ON_FALSE(vm.ip == 0, REFLEX_FAIL, "vm_loader", "entry point not loaded");
+    REFLEX_RETURN_ON_FALSE(vm.status == REFLEX_VM_STATUS_READY, REFLEX_FAIL, "vm_loader", "vm must be ready after load");
 
     invalid_magic_image.magic = 0;
-    ESP_RETURN_ON_FALSE(reflex_vm_validate_image(&invalid_magic_image) == ESP_ERR_INVALID_RESPONSE,
-                        ESP_FAIL,
+    REFLEX_RETURN_ON_FALSE(reflex_vm_validate_image(&invalid_magic_image) == REFLEX_ERR_INVALID_RESPONSE,
+                        REFLEX_FAIL,
                         "vm_loader",
                         "invalid magic must be rejected");
-    ESP_RETURN_ON_FALSE(reflex_vm_validate_image(&invalid_register_image) == ESP_ERR_INVALID_ARG,
-                        ESP_FAIL,
+    REFLEX_RETURN_ON_FALSE(reflex_vm_validate_image(&invalid_register_image) == REFLEX_ERR_INVALID_ARG,
+                        REFLEX_FAIL,
                         "vm_loader",
                         "invalid register image must be rejected");
-    ESP_RETURN_ON_FALSE(reflex_vm_validate_image(&invalid_branch_image) == ESP_ERR_INVALID_ARG,
-                        ESP_FAIL,
+    REFLEX_RETURN_ON_FALSE(reflex_vm_validate_image(&invalid_branch_image) == REFLEX_ERR_INVALID_ARG,
+                        REFLEX_FAIL,
                         "vm_loader",
                         "invalid branch image must be rejected");
-    ESP_RETURN_ON_FALSE(reflex_vm_validate_image(&invalid_syscall_image) == ESP_ERR_INVALID_ARG,
-                        ESP_FAIL,
+    REFLEX_RETURN_ON_FALSE(reflex_vm_validate_image(&invalid_syscall_image) == REFLEX_ERR_INVALID_ARG,
+                        REFLEX_FAIL,
                         "vm_loader",
                         "invalid syscall image must be rejected");
 
-    return ESP_OK;
+    return REFLEX_OK;
 }

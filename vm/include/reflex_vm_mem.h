@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#include "esp_err.h"
+#include "reflex_types.h"
 #include "reflex_ternary.h"
 
 #ifdef __cplusplus
@@ -31,12 +31,12 @@ typedef struct {
 } reflex_vm_mmu_t;
 
 void reflex_vm_mmu_init(reflex_vm_mmu_t *mmu);
-esp_err_t reflex_vm_mmu_add_region(reflex_vm_mmu_t *mmu, reflex_word18_t *buffer, size_t length, reflex_mem_type_t type, uint32_t base);
+reflex_err_t reflex_vm_mmu_add_region(reflex_vm_mmu_t *mmu, reflex_word18_t *buffer, size_t length, reflex_mem_type_t type, uint32_t base);
 
 /**
  * @brief Map a VM address to a host pointer using the MMU.
  */
-esp_err_t reflex_vm_mmu_translate(const reflex_vm_mmu_t *mmu, uint32_t vm_addr, reflex_word18_t **out_host_ptr);
+reflex_err_t reflex_vm_mmu_translate(const reflex_vm_mmu_t *mmu, uint32_t vm_addr, reflex_word18_t **out_host_ptr);
 
 #ifdef __cplusplus
 }

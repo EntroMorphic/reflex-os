@@ -37,33 +37,33 @@ void reflex_cache_init(reflex_cache_t *cache);
 /**
  * @brief Load a word from cache or host.
  */
-esp_err_t reflex_cache_load(reflex_vm_state_t *vm, uint32_t addr, reflex_word18_t *out);
+reflex_err_t reflex_cache_load(reflex_vm_state_t *vm, uint32_t addr, reflex_word18_t *out);
 
 /**
  * @brief Store a word to cache (write-back).
  */
-esp_err_t reflex_cache_store(reflex_vm_state_t *vm, uint32_t addr, const reflex_word18_t *in);
+reflex_err_t reflex_cache_store(reflex_vm_state_t *vm, uint32_t addr, const reflex_word18_t *in);
 
 /**
  * @brief Flush a specific address (write-back if dirty).
  */
-esp_err_t reflex_cache_flush(reflex_vm_state_t *vm, uint32_t addr);
+reflex_err_t reflex_cache_flush(reflex_vm_state_t *vm, uint32_t addr);
 
 /**
  * @brief Invalidate a specific address.
  */
-esp_err_t reflex_cache_invalidate(reflex_vm_state_t *vm, uint32_t addr);
+reflex_err_t reflex_cache_invalidate(reflex_vm_state_t *vm, uint32_t addr);
 
 /**
  * @brief Flush the entire cache.
  */
-esp_err_t reflex_cache_flush_all(reflex_vm_state_t *vm);
+reflex_err_t reflex_cache_flush_all(reflex_vm_state_t *vm);
 
 /**
  * @brief Host-side write proxy. 
  * Updates host RAM and invalidates VM cache to maintain coherency.
  */
-esp_err_t reflex_vm_host_write(reflex_vm_state_t *vm, uint32_t addr, const reflex_word18_t *in);
+reflex_err_t reflex_vm_host_write(reflex_vm_state_t *vm, uint32_t addr, const reflex_word18_t *in);
 
 #ifdef __cplusplus
 }

@@ -14,7 +14,7 @@
  * word). Packed forms exist for storage and wire transmission —
  * each trit takes 2 bits in the packed form (REFLEX_PACKED_TRIT_BITS).
  *
- * Every arithmetic and comparison helper returns an esp_err_t so
+ * Every arithmetic and comparison helper returns a reflex_err_t so
  * the ternary layer can be boundary-checked at its edges without
  * relying on ad-hoc sentinel values. Callers MUST check the return
  * code — a failed op leaves `out` unspecified.
@@ -29,7 +29,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "esp_err.h"
+#include "reflex_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,22 +80,22 @@ bool reflex_word18_equal(const reflex_word18_t *lhs, const reflex_word18_t *rhs)
  * @brief Balanced-ternary compare, writing the sign (-1/0/+1) into
  * @p out.
  */
-esp_err_t reflex_word18_compare(const reflex_word18_t *lhs,
+reflex_err_t reflex_word18_compare(const reflex_word18_t *lhs,
                                 const reflex_word18_t *rhs,
                                 reflex_trit_t *out);
 
 /**
  * @brief Balanced-ternary addition with overflow detection.
- * Returns ESP_ERR_INVALID_STATE on overflow past 18 trits.
+ * Returns REFLEX_ERR_INVALID_STATE on overflow past 18 trits.
  */
-esp_err_t reflex_word18_add(const reflex_word18_t *lhs,
+reflex_err_t reflex_word18_add(const reflex_word18_t *lhs,
                             const reflex_word18_t *rhs,
                             reflex_word18_t *out);
 
 /**
  * @brief Balanced-ternary subtraction with overflow detection.
  */
-esp_err_t reflex_word18_subtract(const reflex_word18_t *lhs,
+reflex_err_t reflex_word18_subtract(const reflex_word18_t *lhs,
                                  const reflex_word18_t *rhs,
                                  reflex_word18_t *out);
 
@@ -103,7 +103,7 @@ esp_err_t reflex_word18_subtract(const reflex_word18_t *lhs,
  * @brief Three-way select: picks @p negative, @p zero, or @p
  * positive based on @p selector. Backs the TSEL opcode.
  */
-esp_err_t reflex_word18_select(reflex_trit_t selector,
+reflex_err_t reflex_word18_select(reflex_trit_t selector,
                                const reflex_word18_t *negative,
                                const reflex_word18_t *zero,
                                const reflex_word18_t *positive,
@@ -111,33 +111,33 @@ esp_err_t reflex_word18_select(reflex_trit_t selector,
 
 /**
  * @brief Convert a signed 32-bit integer to a word18.
- * Fails with ESP_ERR_INVALID_ARG if the value is outside the
+ * Fails with REFLEX_ERR_INVALID_ARG if the value is outside the
  * representable 18-trit range (±(3^18-1)/2).
  */
-esp_err_t reflex_word18_from_int32(int32_t value, reflex_word18_t *out);
+reflex_err_t reflex_word18_from_int32(int32_t value, reflex_word18_t *out);
 
 /** @brief Inverse of reflex_word18_from_int32. */
-esp_err_t reflex_word18_to_int32(const reflex_word18_t *value, int32_t *out);
+reflex_err_t reflex_word18_to_int32(const reflex_word18_t *value, int32_t *out);
 
 /**
  * @brief Pack a tryte9 into 3 bytes (2 bits per trit).
  */
-esp_err_t reflex_tryte9_pack(const reflex_tryte9_t *value,
+reflex_err_t reflex_tryte9_pack(const reflex_tryte9_t *value,
                              uint8_t out[REFLEX_PACKED_TRYTE9_BYTES]);
 
 /** @brief Unpack 3 bytes into a tryte9. */
-esp_err_t reflex_tryte9_unpack(const uint8_t in[REFLEX_PACKED_TRYTE9_BYTES],
+reflex_err_t reflex_tryte9_unpack(const uint8_t in[REFLEX_PACKED_TRYTE9_BYTES],
                                reflex_tryte9_t *out);
 
 /**
  * @brief Pack a word18 into 5 bytes (2 bits per trit, with 4
  * trailing bits unused and zeroed).
  */
-esp_err_t reflex_word18_pack(const reflex_word18_t *value,
+reflex_err_t reflex_word18_pack(const reflex_word18_t *value,
                              uint8_t out[REFLEX_PACKED_WORD18_BYTES]);
 
 /** @brief Unpack 5 bytes into a word18. */
-esp_err_t reflex_word18_unpack(const uint8_t in[REFLEX_PACKED_WORD18_BYTES],
+reflex_err_t reflex_word18_unpack(const uint8_t in[REFLEX_PACKED_WORD18_BYTES],
                                reflex_word18_t *out);
 
 /**
@@ -146,7 +146,7 @@ esp_err_t reflex_word18_unpack(const uint8_t in[REFLEX_PACKED_WORD18_BYTES],
  * known-bad inputs. Like reflex_vm_self_check, the intentional
  * negative cases produce ERROR log entries by design.
  */
-esp_err_t reflex_ternary_self_check(void);
+reflex_err_t reflex_ternary_self_check(void);
 
 #ifdef __cplusplus
 }

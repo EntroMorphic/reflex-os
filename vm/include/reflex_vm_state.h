@@ -17,7 +17,15 @@
 #include "reflex_ternary.h"
 #include "reflex_vm_opcode.h"
 #include "reflex_vm_mem.h"
+
+#ifdef REFLEX_VM_STANDALONE
+/* Host-side / standalone build: GOOSE types are stubbed so the VM
+ * core compiles without the substrate. TROUTE and TBIAS become no-ops
+ * in interpreter.c when the route manifest is opaque bytes. */
+typedef struct { char _pad[64]; } goose_route_t;
+#else
 #include "goose.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,7 +68,7 @@ struct reflex_cache;
  * @param out          output word18 value (handler writes)
  * @param context      opaque context passed at install time
  */
-typedef esp_err_t (*reflex_vm_syscall_handler_t)(struct reflex_vm_state *vm,
+typedef reflex_err_t (*reflex_vm_syscall_handler_t)(struct reflex_vm_state *vm,
                                                  reflex_vm_syscall_t syscall_id,
                                                  const reflex_word18_t *src_a,
                                                  const reflex_word18_t *src_b,

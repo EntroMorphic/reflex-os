@@ -2,7 +2,8 @@
 
 #include <string.h>
 
-#include "esp_check.h"
+#include "reflex_types.h"
+#include "reflex_task.h"
 
 #include "reflex_fabric.h"
 #include "reflex_vm.h"
@@ -41,18 +42,18 @@ static void reflex_vm_task_entry(void *arg)
             break;
         }
 
-        if (reflex_vm_run(&runtime->vm, runtime->config.steps_per_slice) == ESP_ERR_TIMEOUT) {
-            vTaskDelay(pdMS_TO_TICKS(runtime->config.delay_ms));
+        if (reflex_vm_run(&runtime->vm, runtime->config.steps_per_slice) == REFLEX_ERR_TIMEOUT) {
+            reflex_task_delay_ms(runtime->config.delay_ms);
             continue;
         }
 
         if (runtime->vm.status == REFLEX_VM_STATUS_READY) {
-            vTaskDelay(pdMS_TO_TICKS(runtime->config.delay_ms));
+            reflex_task_delay_ms(runtime->config.delay_ms);
         }
     }
 
     runtime->handle = NULL;
-    vTaskDelete(NULL);
+    reflex_task_delete(NULL);
 }
 
 void reflex_vm_task_runtime_init(reflex_vm_task_runtime_t *runtime)
@@ -64,16 +65,16 @@ void reflex_vm_task_runtime_init(reflex_vm_task_runtime_t *runtime)
     memset(runtime, 0, sizeof(*runtime));
 }
 
-esp_err_t reflex_vm_task_start(reflex_vm_task_runtime_t *runtime,
+reflex_err_t reflex_vm_task_start(reflex_vm_task_runtime_t *runtime,
                                const reflex_vm_image_t *image,
                                const reflex_vm_task_config_t *config)
 {
     reflex_vm_task_config_t effective_config;
 
-    ESP_RETURN_ON_FALSE(runtime != NULL, ESP_ERR_INVALID_ARG, "vm_task", "runtime is required");
-    ESP_RETURN_ON_FALSE(image != NULL, ESP_ERR_INVALID_ARG, "vm_task", "image is required");
-    ESP_RETURN_ON_FALSE(!runtime->running, ESP_ERR_INVALID_STATE, "vm_task", "runtime already running");
-    ESP_RETURN_ON_ERROR(reflex_vm_validate_image(image), "vm_task", "image validation failed");
+    REFLEX_RETURN_ON_FALSE(runtime != NULL, REFLEX_ERR_INVALID_ARG, "vm_task", "runtime is required");
+    REFLEX_RETURN_ON_FALSE(image != NULL, REFLEX_ERR_INVALID_ARG, "vm_task", "image is required");
+    REFLEX_RETURN_ON_FALSE(!runtime->running, REFLEX_ERR_INVALID_STATE, "vm_task", "runtime already running");
+    REFLEX_RETURN_ON_ERROR(reflex_vm_validate_image(image), "vm_task", "image validation failed");
 
     memset(&effective_config, 0, sizeof(effective_config));
     if (config != NULL) {
@@ -86,33 +87,33 @@ esp_err_t reflex_vm_task_start(reflex_vm_task_runtime_t *runtime,
     runtime->running = true;
     runtime->vm.node_id = REFLEX_NODE_VM;
     reflex_vm_use_default_syscalls(&runtime->vm);
-    ESP_RETURN_ON_ERROR(reflex_vm_load_image(&runtime->vm, image), "vm_task", "image load failed");
+    REFLEX_RETURN_ON_ERROR(reflex_vm_load_image(&runtime->vm, image), "vm_task", "image load failed");
 
-    if (xTaskCreate(reflex_vm_task_entry,
-                    effective_config.name,
-                    effective_config.stack_size,
-                    runtime,
-                    effective_config.priority,
-                    &runtime->handle) != pdPASS) {
+    if (reflex_task_create(reflex_vm_task_entry,
+                           effective_config.name,
+                           effective_config.stack_size,
+                           runtime,
+                           effective_config.priority,
+                           &runtime->handle) != REFLEX_OK) {
         runtime->running = false;
         runtime->handle = NULL;
-        return ESP_FAIL;
+        return REFLEX_FAIL;
     }
 
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
-esp_err_t reflex_vm_task_start_binary(reflex_vm_task_runtime_t *runtime,
+reflex_err_t reflex_vm_task_start_binary(reflex_vm_task_runtime_t *runtime,
                                       const uint8_t *buffer,
                                       size_t len,
                                       const reflex_vm_task_config_t *config)
 {
     reflex_vm_task_config_t effective_config;
 
-    ESP_RETURN_ON_FALSE(runtime != NULL, ESP_ERR_INVALID_ARG, "vm_task", "runtime is required");
-    ESP_RETURN_ON_FALSE(buffer != NULL, ESP_ERR_INVALID_ARG, "vm_task", "buffer is required");
-    ESP_RETURN_ON_FALSE(len > 0, ESP_ERR_INVALID_ARG, "vm_task", "buffer length is required");
-    ESP_RETURN_ON_FALSE(!runtime->running, ESP_ERR_INVALID_STATE, "vm_task", "runtime already running");
+    REFLEX_RETURN_ON_FALSE(runtime != NULL, REFLEX_ERR_INVALID_ARG, "vm_task", "runtime is required");
+    REFLEX_RETURN_ON_FALSE(buffer != NULL, REFLEX_ERR_INVALID_ARG, "vm_task", "buffer is required");
+    REFLEX_RETURN_ON_FALSE(len > 0, REFLEX_ERR_INVALID_ARG, "vm_task", "buffer length is required");
+    REFLEX_RETURN_ON_FALSE(!runtime->running, REFLEX_ERR_INVALID_STATE, "vm_task", "runtime already running");
 
     memset(&effective_config, 0, sizeof(effective_config));
     if (config != NULL) {
@@ -125,35 +126,35 @@ esp_err_t reflex_vm_task_start_binary(reflex_vm_task_runtime_t *runtime,
     runtime->running = true;
     runtime->vm.node_id = REFLEX_NODE_VM;
     reflex_vm_use_default_syscalls(&runtime->vm);
-    ESP_RETURN_ON_ERROR(reflex_vm_load_binary(&runtime->vm, buffer, len), "vm_task", "binary load failed");
+    REFLEX_RETURN_ON_ERROR(reflex_vm_load_binary(&runtime->vm, buffer, len), "vm_task", "binary load failed");
 
-    if (xTaskCreate(reflex_vm_task_entry,
-                    effective_config.name,
-                    effective_config.stack_size,
-                    runtime,
-                    effective_config.priority,
-                    &runtime->handle) != pdPASS) {
+    if (reflex_task_create(reflex_vm_task_entry,
+                           effective_config.name,
+                           effective_config.stack_size,
+                           runtime,
+                           effective_config.priority,
+                           &runtime->handle) != REFLEX_OK) {
         runtime->running = false;
         runtime->handle = NULL;
         reflex_vm_unload(&runtime->vm);
-        return ESP_FAIL;
+        return REFLEX_FAIL;
     }
 
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
-esp_err_t reflex_vm_task_stop(reflex_vm_task_runtime_t *runtime)
+reflex_err_t reflex_vm_task_stop(reflex_vm_task_runtime_t *runtime)
 {
-    ESP_RETURN_ON_FALSE(runtime != NULL, ESP_ERR_INVALID_ARG, "vm_task", "runtime is required");
+    REFLEX_RETURN_ON_FALSE(runtime != NULL, REFLEX_ERR_INVALID_ARG, "vm_task", "runtime is required");
 
     runtime->running = false;
     if (runtime->handle != NULL) {
         while (runtime->handle != NULL) {
-            vTaskDelay(pdMS_TO_TICKS(10));
+            reflex_task_delay_ms(10);
         }
     }
 
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
 bool reflex_vm_task_is_running(const reflex_vm_task_runtime_t *runtime)
@@ -161,25 +162,25 @@ bool reflex_vm_task_is_running(const reflex_vm_task_runtime_t *runtime)
     return runtime != NULL && runtime->running;
 }
 
-esp_err_t reflex_vm_task_service_init(void *ctx)
+reflex_err_t reflex_vm_task_service_init(void *ctx)
 {
     reflex_vm_task_runtime_t *runtime = (reflex_vm_task_runtime_t *)ctx;
-    ESP_RETURN_ON_FALSE(runtime != NULL, ESP_ERR_INVALID_ARG, "vm_task", "runtime required");
+    REFLEX_RETURN_ON_FALSE(runtime != NULL, REFLEX_ERR_INVALID_ARG, "vm_task", "runtime required");
     reflex_vm_task_runtime_init(runtime);
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
-esp_err_t reflex_vm_task_service_start(void *ctx)
+reflex_err_t reflex_vm_task_service_start(void *ctx)
 {
     reflex_vm_task_runtime_t *runtime = (reflex_vm_task_runtime_t *)ctx;
-    ESP_RETURN_ON_FALSE(runtime != NULL, ESP_ERR_INVALID_ARG, "vm_task", "runtime required");
+    REFLEX_RETURN_ON_FALSE(runtime != NULL, REFLEX_ERR_INVALID_ARG, "vm_task", "runtime required");
     if (runtime->image == NULL) {
-        return ESP_OK; // Or ESP_ERR_INVALID_STATE if we require an image
+        return REFLEX_OK; // Or REFLEX_ERR_INVALID_STATE if we require an image
     }
     return reflex_vm_task_start(runtime, runtime->image, &runtime->config);
 }
 
-esp_err_t reflex_vm_task_service_stop(void *ctx)
+reflex_err_t reflex_vm_task_service_stop(void *ctx)
 {
     reflex_vm_task_runtime_t *runtime = (reflex_vm_task_runtime_t *)ctx;
     return reflex_vm_task_stop(runtime);
@@ -197,7 +198,7 @@ reflex_service_status_t reflex_vm_task_service_status(void *ctx)
     return (runtime->handle != NULL) ? REFLEX_SERVICE_STATUS_STARTED : REFLEX_SERVICE_STATUS_STOPPED;
 }
 
-esp_err_t reflex_vm_task_register_service(reflex_vm_task_runtime_t *runtime, const char *name)
+reflex_err_t reflex_vm_task_register_service(reflex_vm_task_runtime_t *runtime, const char *name)
 {
     static reflex_service_desc_t desc;
     desc.name = name;
@@ -209,7 +210,7 @@ esp_err_t reflex_vm_task_register_service(reflex_vm_task_runtime_t *runtime, con
     return reflex_service_register(&desc);
 }
 
-esp_err_t reflex_vm_task_self_check(void)
+reflex_err_t reflex_vm_task_self_check(void)
 {
     static const reflex_vm_instruction_t program[] = {
         {.opcode = REFLEX_VM_OPCODE_TLDI, .dst = 0, .imm = 1},
@@ -233,19 +234,19 @@ esp_err_t reflex_vm_task_self_check(void)
     uint32_t deadline = 100;
 
     reflex_vm_task_runtime_init(&runtime);
-    ESP_RETURN_ON_ERROR(reflex_word18_from_int32(1, &expected_one), "vm_task", "failed to encode expected value");
-    ESP_RETURN_ON_ERROR(reflex_vm_task_start(&runtime, &image, NULL), "vm_task", "failed to start runtime");
+    REFLEX_RETURN_ON_ERROR(reflex_word18_from_int32(1, &expected_one), "vm_task", "failed to encode expected value");
+    REFLEX_RETURN_ON_ERROR(reflex_vm_task_start(&runtime, &image, NULL), "vm_task", "failed to start runtime");
 
     while (deadline-- > 0 && reflex_vm_task_is_running(&runtime)) {
-        vTaskDelay(pdMS_TO_TICKS(10));
+        reflex_task_delay_ms(10);
     }
 
-    ESP_RETURN_ON_FALSE(runtime.vm.status == REFLEX_VM_STATUS_HALTED,
-                        ESP_FAIL,
+    REFLEX_RETURN_ON_FALSE(runtime.vm.status == REFLEX_VM_STATUS_HALTED,
+                        REFLEX_FAIL,
                         "vm_task",
                         "runtime must halt cleanly");
-    ESP_RETURN_ON_FALSE(reflex_word18_equal(&runtime.vm.registers[4], &expected_one),
-                        ESP_FAIL,
+    REFLEX_RETURN_ON_FALSE(reflex_word18_equal(&runtime.vm.registers[4], &expected_one),
+                        REFLEX_FAIL,
                         "vm_task",
                         "runtime result register mismatch");
 

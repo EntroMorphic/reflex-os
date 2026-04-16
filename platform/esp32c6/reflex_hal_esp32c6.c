@@ -1,0 +1,77 @@
+/**
+ * @file reflex_hal_esp32c6.c
+ * @brief Reflex HAL — ESP32-C6 / ESP-IDF backend.
+ */
+
+#include "reflex_hal.h"
+
+#include <stdarg.h>
+#include <stdio.h>
+#include "esp_timer.h"
+#include "esp_cpu.h"
+#include "esp_rom_gpio.h"
+#include "esp_sleep.h"
+#include "esp_random.h"
+#include "esp_mac.h"
+#include "esp_system.h"
+#include "esp_log.h"
+#include "driver/gpio.h"
+#include "soc/gpio_sig_map.h"
+
+uint64_t reflex_hal_time_us(void) {
+    return (uint64_t)esp_timer_get_time();
+}
+
+uint32_t reflex_hal_cpu_cycles(void) {
+    return esp_cpu_get_cycle_count();
+}
+
+void reflex_hal_delay_us(uint32_t us) {
+    esp_rom_delay_us(us);
+}
+
+reflex_err_t reflex_hal_gpio_set_level(uint32_t pin, int level) {
+    return (reflex_err_t)gpio_set_level((gpio_num_t)pin, level);
+}
+
+reflex_err_t reflex_hal_gpio_connect_out(uint32_t out_pin, uint32_t signal,
+                                         bool invert, bool enable) {
+    esp_rom_gpio_connect_out_signal((gpio_num_t)out_pin, signal, invert, !enable);
+    return REFLEX_OK;
+}
+
+void reflex_hal_reboot(void) {
+    esp_restart();
+}
+
+int reflex_hal_sleep_wakeup_cause(void) {
+    return (int)esp_sleep_get_wakeup_cause();
+}
+
+void reflex_hal_sleep_enter(uint64_t duration_us) {
+    esp_sleep_enable_timer_wakeup(duration_us);
+    esp_deep_sleep_start();
+}
+
+void reflex_hal_random_fill(uint8_t *buf, size_t len) {
+    esp_fill_random(buf, len);
+}
+
+reflex_err_t reflex_hal_mac_read(uint8_t mac[6]) {
+    return (reflex_err_t)esp_read_mac(mac, ESP_MAC_WIFI_STA);
+}
+
+void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
+    esp_log_level_t esp_level;
+    switch (level) {
+        case REFLEX_LOG_LEVEL_ERROR: esp_level = ESP_LOG_ERROR; break;
+        case REFLEX_LOG_LEVEL_WARN:  esp_level = ESP_LOG_WARN;  break;
+        case REFLEX_LOG_LEVEL_INFO:  esp_level = ESP_LOG_INFO;  break;
+        case REFLEX_LOG_LEVEL_DEBUG: esp_level = ESP_LOG_DEBUG;  break;
+        default:                     esp_level = ESP_LOG_INFO;   break;
+    }
+    va_list args;
+    va_start(args, fmt);
+    esp_log_writev(esp_level, tag, fmt, args);
+    va_end(args);
+}
