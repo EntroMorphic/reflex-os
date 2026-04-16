@@ -8,10 +8,11 @@
  */
 
 #include "goose.h"
-#include "esp_log.h"
+#include "reflex_hal.h"
 #include <stdio.h>
+#include <string.h>
 
-static const char *TAG = "GOOSE_ATLAS";
+#define TAG "GOOSE_ATLAS"
 
 typedef struct {
     const char *zone;
@@ -62,8 +63,8 @@ static const atlas_node_t c6_atlas[] = {
     {"radio", "ble",  0x600B1000}
 };
 
-esp_err_t goose_atlas_manifest_weave(void) {
-    ESP_LOGI(TAG, "Weaving True Atlas into the Loom...");
+reflex_err_t goose_atlas_manifest_weave(void) {
+    REFLEX_LOGI(TAG, "Weaving True Atlas into the Loom...");
     
     size_t node_count = sizeof(c6_atlas) / sizeof(atlas_node_t);
     const char *reg_names[] = {"ctrl", "stat", "data", "conf"};
@@ -97,6 +98,6 @@ esp_err_t goose_atlas_manifest_weave(void) {
         }
     }
     
-    ESP_LOGI(TAG, "True Atlas Weaving Complete. [%zu] nodes projected.", node_count * 4);
-    return ESP_OK;
+    REFLEX_LOGI(TAG, "True Atlas Weaving Complete. [%zu] nodes projected.", node_count * 4);
+    return REFLEX_OK;
 }

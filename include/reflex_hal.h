@@ -16,6 +16,14 @@
 extern "C" {
 #endif
 
+/* --- RTC Memory Attribute ---
+ * Platform-specific. On ESP32, this places data in RTC SLOW memory
+ * that survives deep sleep. On other platforms, falls back to regular
+ * static storage. */
+#ifndef REFLEX_RTC_DATA_ATTR
+#define REFLEX_RTC_DATA_ATTR
+#endif
+
 /* --- Time --- */
 
 uint64_t reflex_hal_time_us(void);
@@ -31,6 +39,9 @@ reflex_err_t reflex_hal_gpio_connect_out(uint32_t out_pin, uint32_t signal,
 /* --- System --- */
 
 void reflex_hal_reboot(void);
+
+#define REFLEX_SLEEP_WAKEUP_UNDEFINED 0
+
 int  reflex_hal_sleep_wakeup_cause(void);
 void reflex_hal_sleep_enter(uint64_t duration_us);
 void reflex_hal_random_fill(uint8_t *buf, size_t len);

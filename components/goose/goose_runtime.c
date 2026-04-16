@@ -4,16 +4,9 @@
  */
 
 #include "goose.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "esp_cpu.h"
-#include "driver/gpio.h"
-#include "esp_rom_gpio.h"
-#include "soc/gpio_sig_map.h"
-#include "esp_sleep.h"
-#include "nvs.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "reflex_hal.h"
+#include "reflex_kv.h"
+#include "reflex_task.h"
 #include <string.h>
 
 #ifdef CONFIG_ULP_COPROC_ENABLED
@@ -23,18 +16,18 @@ extern const uint8_t ulp_main_bin_start[] asm("_binary_goose_ulp_bin_start");
 extern const uint8_t ulp_main_bin_end[]   asm("_binary_goose_ulp_bin_end");
 #endif
 
-static const char *TAG = "GOOSE_RUNTIME";
+#define TAG "GOOSE_RUNTIME"
 
 #define GOOSE_FABRIC_MAX_CELLS 256
 #define GOOSE_LATTICE_BUCKETS 503
 #define GOOSE_FABRIC_MAGIC    0xF11BFABE
 
-static RTC_DATA_ATTR goose_cell_t fabric_cells[GOOSE_FABRIC_MAX_CELLS];
-static RTC_DATA_ATTR int16_t lattice_index[GOOSE_LATTICE_BUCKETS];
-static RTC_DATA_ATTR uint32_t fabric_cell_count = 0;
-static RTC_DATA_ATTR uint32_t fabric_version = 0;
-static RTC_DATA_ATTR volatile bool lattice_stable = false;
-static RTC_DATA_ATTR uint32_t fabric_magic = 0;
+static REFLEX_RTC_DATA_ATTR goose_cell_t fabric_cells[GOOSE_FABRIC_MAX_CELLS];
+static REFLEX_RTC_DATA_ATTR int16_t lattice_index[GOOSE_LATTICE_BUCKETS];
+static REFLEX_RTC_DATA_ATTR uint32_t fabric_cell_count = 0;
+static REFLEX_RTC_DATA_ATTR uint32_t fabric_version = 0;
+static REFLEX_RTC_DATA_ATTR volatile bool lattice_stable = false;
+static REFLEX_RTC_DATA_ATTR uint32_t fabric_magic = 0;
 
 typedef struct {
     char name[24]; 
@@ -44,7 +37,7 @@ typedef struct {
 static goonies_entry_t goonies_registry[GOOSE_FABRIC_MAX_CELLS];
 static uint32_t goonies_count = 0;
 
-static RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
+static REFLEX_RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
 
 static uint32_t goose_lattice_hash(reflex_tryte9_t coord) {
     uint32_t hash = 0;
@@ -52,45 +45,45 @@ static uint32_t goose_lattice_hash(reflex_tryte9_t coord) {
     return hash % GOOSE_LATTICE_BUCKETS;
 }
 
-esp_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
-    if (goonies_count >= GOOSE_FABRIC_MAX_CELLS) return ESP_ERR_NO_MEM;
-    if (!name || strlen(name) < 3) return ESP_ERR_INVALID_ARG;
+reflex_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
+    if (goonies_count >= GOOSE_FABRIC_MAX_CELLS) return REFLEX_ERR_NO_MEM;
+    if (!name || strlen(name) < 3) return REFLEX_ERR_INVALID_ARG;
     uint32_t s_addr, s_mask; reflex_tryte9_t s_coord; goose_cell_type_t s_type;
-    bool in_shadow = (goose_shadow_resolve(name, &s_addr, &s_mask, &s_coord, &s_type) == ESP_OK);
+    bool in_shadow = (goose_shadow_resolve(name, &s_addr, &s_mask, &s_coord, &s_type) == REFLEX_OK);
     bool is_protected = (strncmp(name, "sys.", 4) == 0 || strncmp(name, "agency.", 7) == 0 || in_shadow);
     for (uint32_t i = 0; i < goonies_count; i++) {
         if (strcmp(goonies_registry[i].name, name) == 0) {
-            if (is_protected && !is_system_weaving) { return ESP_ERR_INVALID_STATE; }
-            goonies_registry[i].coord = coord; return ESP_OK;
+            if (is_protected && !is_system_weaving) { return REFLEX_ERR_INVALID_STATE; }
+            goonies_registry[i].coord = coord; return REFLEX_OK;
         }
     }
-    if ((in_shadow || is_protected) && !is_system_weaving) { return ESP_ERR_NOT_SUPPORTED; }
+    if ((in_shadow || is_protected) && !is_system_weaving) { return REFLEX_ERR_NOT_SUPPORTED; }
     snprintf(goonies_registry[goonies_count].name, 24, "%s", name);
     goonies_registry[goonies_count].coord = coord;
     goonies_count++;
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
-esp_err_t goonies_resolve(const char *name, reflex_tryte9_t *out_coord) {
+reflex_err_t goonies_resolve(const char *name, reflex_tryte9_t *out_coord) {
     for (uint32_t i = 0; i < goonies_count; i++) {
-        if (strcmp(goonies_registry[i].name, name) == 0) { *out_coord = goonies_registry[i].coord; return ESP_OK; }
+        if (strcmp(goonies_registry[i].name, name) == 0) { *out_coord = goonies_registry[i].coord; return REFLEX_OK; }
     }
-    return ESP_ERR_NOT_FOUND;
+    return REFLEX_ERR_NOT_FOUND;
 }
 
 goose_cell_t* goonies_resolve_cell(const char *name) {
     if (!name) return NULL;
     reflex_tryte9_t coord;
-    if (goonies_resolve(name, &coord) == ESP_OK) { return goose_fabric_get_cell_by_coord(coord); }
+    if (goonies_resolve(name, &coord) == REFLEX_OK) { return goose_fabric_get_cell_by_coord(coord); }
     if (strncmp(name, "peer.", 5) == 0) {
-        extern esp_err_t goose_atmosphere_query(const char *name);
+        extern reflex_err_t goose_atmosphere_query(const char *name);
         goose_atmosphere_query(name);
         static int ghost_counter = 0;
         reflex_tryte9_t g_coord = goose_make_coord(5, 0, (int8_t)ghost_counter++);
         return goose_fabric_alloc_cell(name, g_coord, false);
     }
     uint32_t addr, mask; goose_cell_type_t type;
-    if (goose_shadow_resolve(name, &addr, &mask, &coord, &type) == ESP_OK) {
+    if (goose_shadow_resolve(name, &addr, &mask, &coord, &type) == REFLEX_OK) {
         goose_cell_t *c = goose_fabric_alloc_cell(name, coord, true); 
         if (c) { goose_fabric_set_agency(c, addr, type); c->bit_mask = mask; return c; }
     }
@@ -101,6 +94,7 @@ uint32_t goonies_get_count(void) { return goonies_count; }
 const char* goonies_get_name_by_idx(uint32_t idx) { return (idx < goonies_count) ? goonies_registry[idx].name : NULL; }
 reflex_tryte9_t goonies_get_coord_by_idx(uint32_t idx) { return (idx < goonies_count) ? goonies_registry[idx].coord : (reflex_tryte9_t){{0}}; }
 
+static void ensure_mux_init(void);
 #define LOOM_LOCK_TIMEOUT_CYCLES 50000
 
 static bool is_sanctuary_address(uint32_t addr) {
@@ -111,17 +105,17 @@ static bool is_sanctuary_address(uint32_t addr) {
 }
 
 bool goose_loom_try_lock(goose_field_t *field) {
-    uint32_t start = esp_cpu_get_cycle_count();
+    uint32_t start = reflex_hal_cpu_cycles();
     while (__atomic_test_and_set(&loom_authority, __ATOMIC_ACQUIRE)) {
-        if ((esp_cpu_get_cycle_count() - start) > LOOM_LOCK_TIMEOUT_CYCLES) {
+        if ((reflex_hal_cpu_cycles() - start) > LOOM_LOCK_TIMEOUT_CYCLES) {
             if (field) field->stats.lock_contention_cycles += LOOM_LOCK_TIMEOUT_CYCLES;
-            ESP_LOGW(TAG, "LOOM_CONTENTION_FAULT site=%s deferred",
+            REFLEX_LOGW(TAG, "LOOM_CONTENTION_FAULT site=%s deferred",
                      field ? field->name : "alloc");
             return false;
         }
-        esp_rom_delay_us(1);
+        reflex_hal_delay_us(1);
     }
-    uint32_t end = esp_cpu_get_cycle_count();
+    uint32_t end = reflex_hal_cpu_cycles();
     if (field) field->stats.lock_contention_cycles += (end - start);
     return true;
 }
@@ -131,24 +125,24 @@ void goose_loom_unlock(void) { __atomic_clear(&loom_authority, __ATOMIC_RELEASE)
 static char purpose_name[16] = {0};
 
 static void purpose_load_from_nvs(void) {
-    nvs_handle_t h;
-    if (nvs_open("goose", NVS_READONLY, &h) != ESP_OK) return;
+    reflex_kv_handle_t h;
+    if (reflex_kv_open("goose", true, &h) != REFLEX_OK) return;
     size_t len = sizeof(purpose_name);
-    if (nvs_get_str(h, "purpose", purpose_name, &len) != ESP_OK)
+    if (reflex_kv_get_str(h, "purpose", purpose_name, &len) != REFLEX_OK)
         purpose_name[0] = '\0';
-    nvs_close(h);
+    reflex_kv_close(h);
 }
 
-esp_err_t goose_purpose_set_name(const char *name) {
-    if (!name) return ESP_ERR_INVALID_ARG;
+reflex_err_t goose_purpose_set_name(const char *name) {
+    if (!name) return REFLEX_ERR_INVALID_ARG;
     strncpy(purpose_name, name, sizeof(purpose_name) - 1);
     purpose_name[sizeof(purpose_name) - 1] = '\0';
-    nvs_handle_t h;
-    esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
-    if (rc != ESP_OK) return rc;
-    rc = nvs_set_str(h, "purpose", purpose_name);
-    nvs_commit(h);
-    nvs_close(h);
+    reflex_kv_handle_t h;
+    reflex_err_t rc = reflex_kv_open("goose", false, &h);
+    if (rc != REFLEX_OK) return rc;
+    rc = reflex_kv_set_str(h, "purpose", purpose_name);
+    reflex_kv_commit(h);
+    reflex_kv_close(h);
     return rc;
 }
 
@@ -156,24 +150,25 @@ const char *goose_purpose_get_name(void) {
     return purpose_name;
 }
 
-esp_err_t goose_purpose_clear(void) {
+reflex_err_t goose_purpose_clear(void) {
     purpose_name[0] = '\0';
-    nvs_handle_t h;
-    esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
-    if (rc != ESP_OK) return rc;
-    nvs_erase_key(h, "purpose");
-    nvs_commit(h);
-    nvs_close(h);
+    reflex_kv_handle_t h;
+    reflex_err_t rc = reflex_kv_open("goose", false, &h);
+    if (rc != REFLEX_OK) return rc;
+    reflex_kv_erase(h, "purpose");
+    reflex_kv_commit(h);
+    reflex_kv_close(h);
     return rc;
 }
 
-esp_err_t goose_fabric_init(void) {
+reflex_err_t goose_fabric_init(void) {
+    ensure_mux_init();
     lattice_stable = false; goonies_count = 0;
     /* Clear loom_authority unconditionally. On cold boot it starts at 0
      * anyway; on warm boot (wake from deep sleep), the RTC-retained value
      * could still be 1 from a pre-sleep holder that no longer exists. */
     loom_authority = 0;
-    bool cold_boot = (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED)
+    bool cold_boot = (reflex_hal_sleep_wakeup_cause() == REFLEX_SLEEP_WAKEUP_UNDEFINED)
                   || (fabric_magic != GOOSE_FABRIC_MAGIC);
     if (cold_boot) {
         fabric_cell_count = 0;
@@ -201,10 +196,10 @@ esp_err_t goose_fabric_init(void) {
             pc->type = GOOSE_CELL_PURPOSE;
             pc->state = 1;
         }
-        ESP_LOGI(TAG, "purpose restored from NVS: \"%s\"", purpose_name);
+        REFLEX_LOGI(TAG, "purpose restored from NVS: \"%s\"", purpose_name);
     }
 
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
 goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
@@ -218,8 +213,13 @@ goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
 
 goose_cell_t* goose_fabric_get_cell(const char *name) { return goonies_resolve_cell(name); }
 
-static portMUX_TYPE fabric_mux = portMUX_INITIALIZER_UNLOCKED;
-static portMUX_TYPE agency_mux = portMUX_INITIALIZER_UNLOCKED;
+static reflex_mutex_t fabric_mux;
+static reflex_mutex_t agency_mux;
+
+static void ensure_mux_init(void) {
+    fabric_mux = reflex_mutex_init();
+    agency_mux = reflex_mutex_init();
+}
 static uint32_t last_eviction_idx = 0;
 
 goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
@@ -233,9 +233,9 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
      * because try_lock is non-recursive; this constraint is documented
      * on goose_transition_t in goose.h. */
     if (!goose_loom_try_lock(NULL)) return NULL;
-    taskENTER_CRITICAL(&fabric_mux);
+    reflex_critical_enter(&fabric_mux);
     if (goose_fabric_get_cell_by_coord(coord) != NULL) {
-        taskEXIT_CRITICAL(&fabric_mux);
+        reflex_critical_exit(&fabric_mux);
         /* Coord is already occupied. On warm boot (wake from deep sleep),
          * fabric_cells[] persists in RTC but goonies_registry is regular
          * BSS and gets zeroed. The atlas re-weave would then leave these
@@ -264,7 +264,7 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
                 idx = target; last_eviction_idx = (target + 1) % GOOSE_FABRIC_MAX_CELLS; found = true; break;
             }
         }
-        if (!found) { taskEXIT_CRITICAL(&fabric_mux); goose_loom_unlock(); return NULL; }
+        if (!found) { reflex_critical_exit(&fabric_mux); goose_loom_unlock(); return NULL; }
     }
     goose_cell_t *c = &fabric_cells[idx];
     memset(c, 0, sizeof(goose_cell_t)); c->coord = coord;
@@ -272,16 +272,16 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
     lattice_index[goose_lattice_hash(coord)] = (int16_t)idx;
     if (name) { goonies_register(name, coord, is_system_weaving); }
     fabric_version++;
-    taskEXIT_CRITICAL(&fabric_mux);
+    reflex_critical_exit(&fabric_mux);
     goose_loom_unlock();
     return c;
 }
 
-esp_err_t goose_fabric_set_agency(goose_cell_t *cell, uint32_t hardware_addr, goose_cell_type_t type) {
-    if (!cell) return ESP_ERR_INVALID_ARG;
-    if (cell->type == GOOSE_CELL_FIELD_PROXY) { return ESP_ERR_NOT_SUPPORTED; }
-    if (is_sanctuary_address(hardware_addr) && type != GOOSE_CELL_SYSTEM_ONLY) { return ESP_ERR_NOT_SUPPORTED; }
-    cell->hardware_addr = hardware_addr; cell->type = type; return ESP_OK;
+reflex_err_t goose_fabric_set_agency(goose_cell_t *cell, uint32_t hardware_addr, goose_cell_type_t type) {
+    if (!cell) return REFLEX_ERR_INVALID_ARG;
+    if (cell->type == GOOSE_CELL_FIELD_PROXY) { return REFLEX_ERR_NOT_SUPPORTED; }
+    if (is_sanctuary_address(hardware_addr) && type != GOOSE_CELL_SYSTEM_ONLY) { return REFLEX_ERR_NOT_SUPPORTED; }
+    cell->hardware_addr = hardware_addr; cell->type = type; return REFLEX_OK;
 }
 
 static goose_field_t *global_fields[16];
@@ -349,14 +349,14 @@ static goose_cell_t* goonies_resolve_by_capability_in_domain(const char *suffix,
 static goose_field_t *autonomy_field = NULL;
 #define MAX_FABRICATED_ROUTES 16
 
-esp_err_t goose_supervisor_weave_sync(void) {
+reflex_err_t goose_supervisor_weave_sync(void) {
     if (!autonomy_field) {
         goose_field_t *f = malloc(sizeof(goose_field_t));
-        if (!f) return ESP_ERR_NO_MEM;
+        if (!f) return REFLEX_ERR_NO_MEM;
         memset(f, 0, sizeof(goose_field_t));
         snprintf(f->name, 16, "sys.autonomy");
         f->routes = malloc(sizeof(goose_route_t) * MAX_FABRICATED_ROUTES);
-        if (!f->routes) { free(f); return ESP_ERR_NO_MEM; }
+        if (!f->routes) { free(f); return REFLEX_ERR_NO_MEM; }
         f->rhythm = GOOSE_RHYTHM_HARMONIC;
         autonomy_field = f;
         goose_field_start_pulse(autonomy_field);
@@ -430,7 +430,7 @@ esp_err_t goose_supervisor_weave_sync(void) {
         goose_apply_route(r);
         goose_loom_unlock();
     }
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
 goose_route_t* goose_fabric_find_radio_route_by_source_coord(reflex_tryte9_t coord) {
@@ -464,12 +464,12 @@ bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b) { for (int i = 0; i
 #ifdef CONFIG_ULP_COPROC_ENABLED
 static bool lp_heartbeat_running = false;
 
-esp_err_t goose_lp_heartbeat_init(void) {
-    if (lp_heartbeat_running) return ESP_OK;
-    esp_err_t rc = ulp_lp_core_load_binary(ulp_main_bin_start,
+reflex_err_t goose_lp_heartbeat_init(void) {
+    if (lp_heartbeat_running) return REFLEX_OK;
+    reflex_err_t rc = ulp_lp_core_load_binary(ulp_main_bin_start,
                                            ulp_main_bin_end - ulp_main_bin_start);
-    if (rc != ESP_OK) {
-        ESP_LOGW(TAG, "LP heartbeat: load failed rc=0x%x", rc);
+    if (rc != REFLEX_OK) {
+        REFLEX_LOGW(TAG, "LP heartbeat: load failed rc=0x%x", rc);
         return rc;
     }
     ulp_lp_led_intent  = 0;
@@ -479,13 +479,13 @@ esp_err_t goose_lp_heartbeat_init(void) {
         .lp_timer_sleep_duration_us = 1000 * 1000,  /* 1 Hz */
     };
     rc = ulp_lp_core_run(&cfg);
-    if (rc != ESP_OK) {
-        ESP_LOGW(TAG, "LP heartbeat: run failed rc=0x%x", rc);
+    if (rc != REFLEX_OK) {
+        REFLEX_LOGW(TAG, "LP heartbeat: run failed rc=0x%x", rc);
         return rc;
     }
     lp_heartbeat_running = true;
-    ESP_LOGI(TAG, "LP heartbeat: active (LP timer 1Hz)");
-    return ESP_OK;
+    REFLEX_LOGI(TAG, "LP heartbeat: active (LP timer 1Hz)");
+    return REFLEX_OK;
 }
 
 void goose_lp_heartbeat_sync(void) {
@@ -498,19 +498,19 @@ uint32_t goose_lp_heartbeat_count(void) {
     return lp_heartbeat_running ? (uint32_t)ulp_lp_pulse_count : 0;
 }
 #else
-esp_err_t goose_lp_heartbeat_init(void) { return ESP_ERR_NOT_SUPPORTED; }
+reflex_err_t goose_lp_heartbeat_init(void) { return REFLEX_ERR_NOT_SUPPORTED; }
 void goose_lp_heartbeat_sync(void) {}
 uint32_t goose_lp_heartbeat_count(void) { return 0; }
 #endif
 
-esp_err_t goose_apply_route(goose_route_t *route) {
-    if (!route) return ESP_ERR_INVALID_ARG;
+reflex_err_t goose_apply_route(goose_route_t *route) {
+    if (!route) return REFLEX_ERR_INVALID_ARG;
     if (route->coupling == GOOSE_COUPLING_HARDWARE) {
-        if (route->cached_sink && route->cached_source && route->cached_sink->hardware_addr < GPIO_NUM_MAX) {
-            esp_rom_gpio_connect_out_signal((gpio_num_t)route->cached_sink->hardware_addr, (uint32_t)route->cached_source->hardware_addr, (route->orientation == -1), false);
+        if (route->cached_sink && route->cached_source && route->cached_sink->hardware_addr < 32) {
+            reflex_hal_gpio_connect_out(route->cached_sink->hardware_addr, route->cached_source->hardware_addr, (route->orientation == -1), true);
         }
     }
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
 /* NEURON aggregation: ternary sum across all routes in a sub-field,
@@ -532,10 +532,10 @@ static int8_t neuron_quorum(const goose_field_t *sub_field) {
     return 0;
 }
 
-static esp_err_t internal_process_transitions(goose_field_t *field, int depth) {
-    if (!field || depth > 3) return ESP_ERR_INVALID_STATE;
-    uint64_t now = esp_timer_get_time();
-    if (depth == 0 && !goose_loom_try_lock(field)) return ESP_ERR_TIMEOUT;
+static reflex_err_t internal_process_transitions(goose_field_t *field, int depth) {
+    if (!field || depth > 3) return REFLEX_ERR_INVALID_STATE;
+    uint64_t now = reflex_hal_time_us();
+    if (depth == 0 && !goose_loom_try_lock(field)) return REFLEX_ERR_TIMEOUT;
     for (size_t i = 0; i < field->transition_count; i++) {
         goose_transition_t *t = &field->transitions[i];
         if (!t->cached_target || t->cached_version != fabric_version) { t->cached_target = goose_fabric_get_cell_by_coord(t->target_coord); t->cached_version = fabric_version; }
@@ -567,32 +567,32 @@ static esp_err_t internal_process_transitions(goose_field_t *field, int depth) {
             reflex_trit_t effective_orient = r->learned_orientation ? r->learned_orientation : r->orientation;
             reflex_trit_t control = r->cached_control ? (reflex_trit_t)r->cached_control->state : effective_orient;
             r->cached_sink->state = (int8_t)((int)r->cached_source->state * (int)control);
-            if (r->cached_sink->hardware_addr > 0 && r->cached_sink->hardware_addr < GPIO_NUM_MAX) { gpio_set_level((gpio_num_t)r->cached_sink->hardware_addr, r->cached_sink->state == 1 ? 1 : 0); } 
+            if (r->cached_sink->hardware_addr > 0 && r->cached_sink->hardware_addr < 32) { reflex_hal_gpio_set_level(r->cached_sink->hardware_addr, r->cached_sink->state == 1 ? 1 : 0); } 
             else if (r->cached_sink->hardware_addr >= 0x60000000) {
-                taskENTER_CRITICAL(&agency_mux);
+                reflex_critical_enter(&agency_mux);
                 volatile uint32_t *reg = (volatile uint32_t *)r->cached_sink->hardware_addr;
                 uint32_t mask = r->cached_sink->bit_mask ? r->cached_sink->bit_mask : 0xFFFFFFFF;
                 if (r->cached_sink->state == 1) *reg |= mask; else if (r->cached_sink->state == -1) *reg &= ~mask;
-                taskEXIT_CRITICAL(&agency_mux);
+                reflex_critical_exit(&agency_mux);
             }
         } else if (r->coupling == GOOSE_COUPLING_RADIO) {
-            extern esp_err_t goose_atmosphere_emit_arc(goose_cell_t *source);
+            extern reflex_err_t goose_atmosphere_emit_arc(goose_cell_t *source);
             goose_atmosphere_emit_arc(r->cached_source);
         }
     }
     if (depth == 0) goose_loom_unlock();
-    field->stats.total_pulses++; return ESP_OK;
+    field->stats.total_pulses++; return REFLEX_OK;
 }
 
-esp_err_t goose_process_transitions(goose_field_t *field) { return internal_process_transitions(field, 0); }
+reflex_err_t goose_process_transitions(goose_field_t *field) { return internal_process_transitions(field, 0); }
 static void goose_regional_pulse_task(void *arg) {
     goose_field_t *field = (goose_field_t *)arg; uint32_t delay_ms = 1000 / (uint32_t)field->rhythm;
-    while(1) { goose_process_transitions(field); vTaskDelay(pdMS_TO_TICKS(delay_ms ? delay_ms : 1)); }
+    while(1) { goose_process_transitions(field); reflex_task_delay_ms(delay_ms ? delay_ms : 1); }
 }
-esp_err_t goose_field_start_pulse(goose_field_t *field) {
-    if (!field) return ESP_ERR_INVALID_ARG;
+reflex_err_t goose_field_start_pulse(goose_field_t *field) {
+    if (!field) return REFLEX_ERR_INVALID_ARG;
     if (global_field_count < 16) { global_fields[global_field_count++] = field; }
     char task_name[16]; snprintf(task_name, sizeof(task_name), "p_%.13s", field->name);
-    xTaskCreate(goose_regional_pulse_task, task_name, 4096, field, 10, NULL);
-    return ESP_OK;
+    reflex_task_create(goose_regional_pulse_task, task_name, 4096, field, 10, NULL);
+    return REFLEX_OK;
 }

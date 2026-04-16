@@ -9546,7 +9546,7 @@ const shadow_node_t shadow_map[] = {
 
 const size_t shadow_map_count = 9527;
 
-esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, uint32_t *out_mask, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type) {
+reflex_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, uint32_t *out_mask, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type) {
     int low = 0, high = (int)shadow_map_count - 1;
     while (low <= high) {
         int mid = low + (high - low) / 2;
@@ -9556,10 +9556,10 @@ esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, uint32_t *o
             *out_mask = shadow_map[mid].bit_mask;
             *out_coord = goose_make_shadow_coord(shadow_map[mid].f, shadow_map[mid].r, shadow_map[mid].c);
             *out_type = shadow_map[mid].type;
-            return ESP_OK;
+            return REFLEX_OK;
         }
         if (res > 0) low = mid + 1;
         else high = mid - 1;
     }
-    return ESP_ERR_NOT_FOUND;
+    return REFLEX_ERR_NOT_FOUND;
 }

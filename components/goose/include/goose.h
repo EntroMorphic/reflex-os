@@ -3,7 +3,6 @@
 
 #include "reflex_ternary.h"
 #include <stdint.h>
-#include "esp_err.h"
 
 /**
  * @file goose.h
@@ -162,19 +161,19 @@ typedef struct {
 /**
  * @brief Initialize the ESP-NOW substrate for Geometric Arcing.
  */
-esp_err_t goose_atmosphere_init(void);
+reflex_err_t goose_atmosphere_init(void);
 
 /**
  * @brief Process atmospheric arcing (TX/RX of geometric state).
  */
-esp_err_t goose_atmosphere_process(void);
+reflex_err_t goose_atmosphere_process(void);
 
 /**
  * @brief Broadcast an ARC_OP_SYNC packet carrying the given cell's coord
  * and state. Used by the pulse path's radio routes and by the `mesh
  * emit` shell command.
  */
-esp_err_t goose_atmosphere_emit_arc(goose_cell_t *source);
+reflex_err_t goose_atmosphere_emit_arc(goose_cell_t *source);
 
 // --- Stats API (Instrumentation) ---
 
@@ -188,41 +187,41 @@ goose_stats_t goose_field_get_stats(goose_field_t *field);
 /**
  * @brief Initialize the GDMA substrate.
  */
-esp_err_t goose_dma_init(void);
+reflex_err_t goose_dma_init(void);
 
 /**
  * @brief Manifest a geometric DMA route (Authority-led flow).
  */
-esp_err_t goose_dma_apply_route(goose_route_t *route);
+reflex_err_t goose_dma_apply_route(goose_route_t *route);
 
 // --- Substrate API ---
 
 /**
  * @brief Initialize the Global Fabric (The Loom) in LP RAM.
  */
-esp_err_t goose_fabric_init(void);
+reflex_err_t goose_fabric_init(void);
 
 /**
  * @brief Manifest a structural hardware route (GPIO Matrix).
  */
-esp_err_t goose_apply_route(goose_route_t *route);
+reflex_err_t goose_apply_route(goose_route_t *route);
 
 /**
  * @brief Evaluate one rhythmic pass of a field manifold.
  */
-esp_err_t goose_process_transitions(goose_field_t *field);
+reflex_err_t goose_process_transitions(goose_field_t *field);
 
 /**
  * @brief Create a high-priority reactive task to pulse a field.
  */
-esp_err_t goose_field_start_pulse(goose_field_t *field);
+reflex_err_t goose_field_start_pulse(goose_field_t *field);
 
 // --- Loom API ---
 
 /**
  * @brief Initialize the GOOSE Gateway (Legacy Message Bridge).
  */
-esp_err_t goose_gateway_init(void);
+reflex_err_t goose_gateway_init(void);
 
 /**
  * @brief Find a cell in the Tapestry by its semantic name.
@@ -248,12 +247,12 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
 /**
  * @brief Securely map a cell to physical agency (Sanctuary Guarded).
  */
-esp_err_t goose_fabric_set_agency(goose_cell_t *cell, uint32_t hardware_addr, goose_cell_type_t type);
+reflex_err_t goose_fabric_set_agency(goose_cell_t *cell, uint32_t hardware_addr, goose_cell_type_t type);
 
 /**
  * @brief Reserve a coordinate space in the Loom.
  */
-esp_err_t goose_fabric_process(void);
+reflex_err_t goose_fabric_process(void);
 
 // --- Fragment Weaver API ---
 
@@ -274,7 +273,7 @@ typedef enum {
 /**
  * @brief Weave a pre-woven geometric fragment into the Tapestry.
  */
-esp_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, reflex_tryte9_t base_coord, goose_fragment_handle_t *out_handle);
+reflex_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, reflex_tryte9_t base_coord, goose_fragment_handle_t *out_handle);
 
 // --- LoomScript Binary Fragment Format (.loom) ---
 
@@ -311,7 +310,7 @@ typedef struct {
 /**
  * @brief Weave a compiled LoomScript fragment into the Tapestry.
  */
-esp_err_t goose_weave_loom(const uint8_t *buffer, size_t size);
+reflex_err_t goose_weave_loom(const uint8_t *buffer, size_t size);
 
 // --- Coordinate Helpers ---
 
@@ -352,7 +351,7 @@ bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b);
 /**
  * @brief Weave the full hardware spectrum of the ESP32-C6 into the Loom.
  */
-esp_err_t goose_atlas_manifest_weave(void);
+reflex_err_t goose_atlas_manifest_weave(void);
 
 // --- Shadow Atlas API ---
 
@@ -400,7 +399,7 @@ extern const size_t shadow_map_count;
  * trits[6,7]) — see the warning on that helper for the
  * balanced-ternary invariant.
  */
-esp_err_t goose_shadow_resolve(const char *name,
+reflex_err_t goose_shadow_resolve(const char *name,
                                uint32_t *out_addr,
                                uint32_t *out_mask,
                                reflex_tryte9_t *out_coord,
@@ -411,12 +410,12 @@ esp_err_t goose_shadow_resolve(const char *name,
 /**
  * @brief Register a human-readable name for a geometric coordinate.
  */
-esp_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving);
+reflex_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving);
 
 /**
  * @brief Resolve a name to its 9-trit coordinate.
  */
-esp_err_t goonies_resolve(const char *name, reflex_tryte9_t *out_coord);
+reflex_err_t goonies_resolve(const char *name, reflex_tryte9_t *out_coord);
 
 /**
  * @brief Resolve a name. If not in the active Loom, attempt to pull from the Shadow Atlas.
@@ -426,46 +425,46 @@ goose_cell_t* goonies_resolve_cell(const char *name);
 /**
  * @brief Manually page-in a hardware node from the Shadow Atlas.
  */
-esp_err_t goonies_page_in(const char *name);
+reflex_err_t goonies_page_in(const char *name);
 
 // --- Supervisor API ---
 
 /**
  * @brief Initialize the Harmonic Supervisor.
  */
-esp_err_t goose_supervisor_init(void);
+reflex_err_t goose_supervisor_init(void);
 
 /**
  * @brief Register a field for harmonic regulation.
  */
-esp_err_t goose_supervisor_register_field(goose_field_t *field);
+reflex_err_t goose_supervisor_register_field(goose_field_t *field);
 
 /**
  * @brief Perform a single regulation pulse.
  */
-esp_err_t goose_supervisor_pulse(void);
+reflex_err_t goose_supervisor_pulse(void);
 
 // --- Atmospheric API (Distributed Mesh) ---
 
 /**
  * @brief Initialize the distributed atmospheric substrate.
  */
-esp_err_t goose_atmosphere_init(void);
+reflex_err_t goose_atmosphere_init(void);
 
 /**
  * @brief Emit a geometric discovery query to the mesh.
  */
-esp_err_t goose_atmosphere_query(const char *name);
+reflex_err_t goose_atmosphere_query(const char *name);
 
 /**
  * @brief Emit a swarm-wide postural consensus arc.
  */
-esp_err_t goose_atmosphere_emit_posture(int8_t state, uint8_t weight);
+reflex_err_t goose_atmosphere_emit_posture(int8_t state, uint8_t weight);
 
 /**
  * @brief Provision the Aura HMAC key into NVS. 16-byte key.
  */
-esp_err_t goose_atmosphere_set_key(const uint8_t key[16]);
+reflex_err_t goose_atmosphere_set_key(const uint8_t key[16]);
 
 /**
  * @brief Mesh observability counters for the `mesh stat` shell command.
@@ -488,7 +487,7 @@ goose_mesh_stats_t goose_atmosphere_get_stats(void);
  * ULP binary, provisions initial globals, and starts it. Returns
  * ESP_ERR_NOT_SUPPORTED if CONFIG_ULP_COPROC_ENABLED is off.
  */
-esp_err_t goose_lp_heartbeat_init(void);
+reflex_err_t goose_lp_heartbeat_init(void);
 
 /**
  * @brief Mirror agency.led.intent state into the LP coprocessor. Called
@@ -504,24 +503,24 @@ uint32_t goose_lp_heartbeat_count(void);
 // --- Purpose API (Phase 29.5+) ---
 
 /** @brief Store the purpose name and persist to NVS. Max 15 chars. */
-esp_err_t goose_purpose_set_name(const char *name);
+reflex_err_t goose_purpose_set_name(const char *name);
 
 /** @brief Return the current purpose name (empty string if none). */
 const char *goose_purpose_get_name(void);
 
 /** @brief Clear the purpose name from memory and NVS. */
-esp_err_t goose_purpose_clear(void);
+reflex_err_t goose_purpose_clear(void);
 
 // --- Tapestry Snapshots API (Phase 29) ---
 
 /** @brief Persist learned_orientation + hebbian_counter from all supervised routes to NVS. */
-esp_err_t goose_snapshot_save(void);
+reflex_err_t goose_snapshot_save(void);
 
 /** @brief Restore learned_orientation + hebbian_counter from NVS into supervised routes. */
-esp_err_t goose_snapshot_load(void);
+reflex_err_t goose_snapshot_load(void);
 
 /** @brief Erase all snapshot blobs from NVS. */
-esp_err_t goose_snapshot_clear(void);
+reflex_err_t goose_snapshot_clear(void);
 
 /**
  * @brief Try to acquire the loom_authority spinlock with a cycle-accurate

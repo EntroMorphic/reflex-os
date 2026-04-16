@@ -128,7 +128,7 @@ def scrape_svd(svd_path, zones_path, output_path):
 
         f.write(f"const size_t shadow_map_count = {len(shadow_nodes)};\n\n")
         f.write(
-            "esp_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, uint32_t *out_mask, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type) {\n"
+            "reflex_err_t goose_shadow_resolve(const char *name, uint32_t *out_addr, uint32_t *out_mask, reflex_tryte9_t *out_coord, goose_cell_type_t *out_type) {\n"
         )
         f.write("    int low = 0, high = (int)shadow_map_count - 1;\n")
         f.write("    while (low <= high) {\n")
@@ -141,12 +141,12 @@ def scrape_svd(svd_path, zones_path, output_path):
             "            *out_coord = goose_make_shadow_coord(shadow_map[mid].f, shadow_map[mid].r, shadow_map[mid].c);\n"
         )
         f.write("            *out_type = shadow_map[mid].type;\n")
-        f.write("            return ESP_OK;\n")
+        f.write("            return REFLEX_OK;\n")
         f.write("        }\n")
         f.write("        if (res > 0) low = mid + 1;\n")
         f.write("        else high = mid - 1;\n")
         f.write("    }\n")
-        f.write("    return ESP_ERR_NOT_FOUND;\n")
+        f.write("    return REFLEX_ERR_NOT_FOUND;\n")
         f.write("}\n")
 
 

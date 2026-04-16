@@ -1,7 +1,7 @@
 idf_component_register(SRCS "goose_runtime.c" "goose_supervisor.c" "goose_library.c" "goose_gateway.c" "goose_atlas.c" "goose_atmosphere.c" "goose_shadow_atlas.c"
-                       INCLUDE_DIRS "include"
-                       REQUIRES ulp
-                       PRIV_REQUIRES drivers log core esp_wifi mbedtls nvs_flash)
+                       INCLUDE_DIRS "include" "../../include"
+                       REQUIRES ulp esp32c6
+                       PRIV_REQUIRES drivers log core)
 
 if(CONFIG_ULP_COPROC_ENABLED)
     set(ulp_app_name goose_ulp)

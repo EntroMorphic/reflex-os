@@ -4,47 +4,48 @@
  */
 
 #include "goose.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "esp_random.h"
-#include "nvs.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "reflex_hal.h"
+#include "reflex_kv.h"
+#include "reflex_task.h"
+#include <string.h>
 
-static const char *TAG = "GOOSE_SUPERVISOR";
+#define TAG "GOOSE_SUPERVISOR"
 
 #define MAX_SUPERVISED_FIELDS 32
 static goose_field_t *supervised_fields[MAX_SUPERVISED_FIELDS];
 static size_t supervised_field_count = 0;
 
-static portMUX_TYPE supervisor_mux = portMUX_INITIALIZER_UNLOCKED;
+static reflex_mutex_t supervisor_mux;
+static bool supervisor_mux_initialized = false;
 
 static goose_cell_t system_balance = { .state = REFLEX_TRIT_POS };
 
-esp_err_t goose_supervisor_init(void) {
-    ESP_LOGI(TAG, "Initializing Harmonic Supervisor...");
-    return ESP_OK;
+reflex_err_t goose_supervisor_init(void) {
+    supervisor_mux = reflex_mutex_init();
+    supervisor_mux_initialized = true;
+    REFLEX_LOGI(TAG, "Initializing Harmonic Supervisor...");
+    return REFLEX_OK;
 }
 
-esp_err_t goose_supervisor_register_field(goose_field_t *field) {
-    taskENTER_CRITICAL(&supervisor_mux);
+reflex_err_t goose_supervisor_register_field(goose_field_t *field) {
+    reflex_critical_enter(&supervisor_mux);
     if (supervised_field_count >= MAX_SUPERVISED_FIELDS) {
-        taskEXIT_CRITICAL(&supervisor_mux);
-        return ESP_ERR_NO_MEM;
+        reflex_critical_exit(&supervisor_mux);
+        return REFLEX_ERR_NO_MEM;
     }
     for(size_t i=0; i<supervised_field_count; i++) {
         if (supervised_fields[i] == field) {
-            taskEXIT_CRITICAL(&supervisor_mux);
-            return ESP_OK;
+            reflex_critical_exit(&supervisor_mux);
+            return REFLEX_OK;
         }
     }
     supervised_fields[supervised_field_count++] = field;
-    taskEXIT_CRITICAL(&supervisor_mux);
-    return ESP_OK;
+    reflex_critical_exit(&supervisor_mux);
+    return REFLEX_OK;
 }
 
-esp_err_t goose_supervisor_check_equilibrium(goose_field_t *field) {
-    if (!field) return ESP_ERR_INVALID_ARG;
+reflex_err_t goose_supervisor_check_equilibrium(goose_field_t *field) {
+    if (!field) return REFLEX_ERR_INVALID_ARG;
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
         if (r->cached_source && r->cached_source->type == GOOSE_CELL_HARDWARE_IN) continue;
@@ -53,21 +54,21 @@ esp_err_t goose_supervisor_check_equilibrium(goose_field_t *field) {
         if (r->cached_sink && r->cached_sink->state != (int8_t)expected) {
             if (r->cached_sink->type == GOOSE_CELL_HARDWARE_OUT) {
                 system_balance.state = REFLEX_TRIT_ZERO;
-                return ESP_FAIL; 
+                return REFLEX_FAIL; 
             }
         }
     }
     system_balance.state = REFLEX_TRIT_POS;
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
-esp_err_t goose_supervisor_rebalance(goose_field_t *field) {
+reflex_err_t goose_supervisor_rebalance(goose_field_t *field) {
     int field_rebalance_limit = 0;
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
         if (field_rebalance_limit++ > 10) {
             system_balance.state = REFLEX_TRIT_NEG;
-            return ESP_ERR_INVALID_STATE;
+            return REFLEX_ERR_INVALID_STATE;
         }
         if (r->cached_source && r->cached_sink &&
             r->cached_source->type == GOOSE_CELL_INTENT && 
@@ -81,10 +82,10 @@ esp_err_t goose_supervisor_rebalance(goose_field_t *field) {
 
 extern int32_t swarm_accumulator;
 
-esp_err_t goose_supervisor_swarm_sync(void) {
+reflex_err_t goose_supervisor_swarm_sync(void) {
     if (swarm_accumulator > 0) swarm_accumulator--;
     else if (swarm_accumulator < -1) swarm_accumulator++;
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
 /* Reward-gated co-activation Hebbian plasticity.
@@ -104,13 +105,13 @@ esp_err_t goose_supervisor_swarm_sync(void) {
 #define HEBBIAN_COMMIT_THRESHOLD 8
 #define HEBBIAN_COUNTER_MAX      (HEBBIAN_COMMIT_THRESHOLD * 2)
 
-esp_err_t goose_supervisor_learn_sync(void) {
+reflex_err_t goose_supervisor_learn_sync(void) {
     goose_cell_t *pain_cell = goonies_resolve_cell("sys.ai.pain");
     goose_cell_t *reward_cell = goonies_resolve_cell("sys.ai.reward");
 
     bool rewarded = (reward_cell && reward_cell->state == 1);
     bool pained   = (pain_cell && pain_cell->state == -1);
-    if (!rewarded && !pained) return ESP_OK;
+    if (!rewarded && !pained) return REFLEX_OK;
 
     /* Purpose-aware amplification. When the user has declared an active
      * purpose (GOOSE_CELL_PURPOSE, set via `purpose set`), Hebbian
@@ -121,7 +122,7 @@ esp_err_t goose_supervisor_learn_sync(void) {
     goose_cell_t *purpose_cell = goonies_resolve_cell("sys.purpose");
     int purpose_multiplier = (purpose_cell && purpose_cell->state != 0) ? 2 : 1;
 
-    if (!goose_loom_try_lock(NULL)) return ESP_OK;
+    if (!goose_loom_try_lock(NULL)) return REFLEX_OK;
 
     for (size_t f = 0; f < supervised_field_count; f++) {
         goose_field_t *field = supervised_fields[f];
@@ -156,7 +157,7 @@ esp_err_t goose_supervisor_learn_sync(void) {
 
     if (rewarded) reward_cell->state = 0;
     goose_loom_unlock();
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
 /* --- Tapestry Snapshots (Phase 29) ---
@@ -176,15 +177,15 @@ esp_err_t goose_supervisor_learn_sync(void) {
  */
 #define SNAP_ROUTE_ENTRY_SIZE (16 + 1 + 2)
 
-esp_err_t goose_snapshot_save(void) {
-    nvs_handle_t h;
-    esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
-    if (rc != ESP_OK) return rc;
+reflex_err_t goose_snapshot_save(void) {
+    reflex_kv_handle_t h;
+    reflex_err_t rc = reflex_kv_open("goose", false, &h);
+    if (rc != REFLEX_OK) return rc;
 
     /* Hold loom_authority while reading route plasticity so we get a
      * consistent snapshot — learn_sync writes these fields under the
      * same lock. If contended, the save is skipped (try again later). */
-    if (!goose_loom_try_lock(NULL)) { nvs_close(h); return ESP_ERR_TIMEOUT; }
+    if (!goose_loom_try_lock(NULL)) { reflex_kv_close(h); return REFLEX_ERR_TIMEOUT; }
 
     uint32_t saved_fields = 0;
     uint32_t saved_routes = 0;
@@ -213,27 +214,27 @@ esp_err_t goose_snapshot_save(void) {
         for (int ki = 0; field->name[ki]; ki++) { kh ^= (uint32_t)field->name[ki]; kh *= 0x01000193; }
         char key[16];
         snprintf(key, sizeof(key), "s_%08lx", (unsigned long)kh);
-        rc = nvs_set_blob(h, key, buf, pos);
-        if (rc == ESP_OK) {
+        rc = reflex_kv_set_blob(h, key, buf, pos);
+        if (rc == REFLEX_OK) {
             saved_fields++;
             saved_routes += (count > 16 ? 16 : count);
         }
     }
 
     goose_loom_unlock();
-    nvs_commit(h);
-    nvs_close(h);
-    ESP_LOGI(TAG, "snapshot saved: %lu fields, %lu routes",
+    reflex_kv_commit(h);
+    reflex_kv_close(h);
+    REFLEX_LOGI(TAG, "snapshot saved: %lu fields, %lu routes",
              (unsigned long)saved_fields, (unsigned long)saved_routes);
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
-esp_err_t goose_snapshot_load(void) {
-    nvs_handle_t h;
-    esp_err_t rc = nvs_open("goose", NVS_READONLY, &h);
-    if (rc != ESP_OK) return rc;
+reflex_err_t goose_snapshot_load(void) {
+    reflex_kv_handle_t h;
+    reflex_err_t rc = reflex_kv_open("goose", true, &h);
+    if (rc != REFLEX_OK) return rc;
 
-    if (!goose_loom_try_lock(NULL)) { nvs_close(h); return ESP_ERR_TIMEOUT; }
+    if (!goose_loom_try_lock(NULL)) { reflex_kv_close(h); return REFLEX_ERR_TIMEOUT; }
 
     uint32_t restored_routes = 0;
 
@@ -251,8 +252,8 @@ esp_err_t goose_snapshot_load(void) {
 
         uint8_t buf[2 + 16 * SNAP_ROUTE_ENTRY_SIZE];
         size_t len = sizeof(buf);
-        rc = nvs_get_blob(h, key, buf, &len);
-        if (rc != ESP_OK || len < 2) continue;
+        rc = reflex_kv_get_blob(h, key, buf, &len);
+        if (rc != REFLEX_OK || len < 2) continue;
 
         uint16_t snap_count;
         memcpy(&snap_count, buf, 2);
@@ -277,38 +278,38 @@ esp_err_t goose_snapshot_load(void) {
     }
 
     goose_loom_unlock();
-    nvs_close(h);
+    reflex_kv_close(h);
     if (restored_routes > 0) {
-        ESP_LOGI(TAG, "snapshot loaded: %lu routes restored",
+        REFLEX_LOGI(TAG, "snapshot loaded: %lu routes restored",
                  (unsigned long)restored_routes);
     }
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
-esp_err_t goose_snapshot_clear(void) {
-    nvs_handle_t h;
-    esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
-    if (rc != ESP_OK) return rc;
+reflex_err_t goose_snapshot_clear(void) {
+    reflex_kv_handle_t h;
+    reflex_err_t rc = reflex_kv_open("goose", false, &h);
+    if (rc != REFLEX_OK) return rc;
     for (size_t f = 0; f < supervised_field_count; f++) {
         uint32_t kh = 0x811c9dc5;
         for (int ki = 0; supervised_fields[f]->name[ki]; ki++) { kh ^= (uint32_t)supervised_fields[f]->name[ki]; kh *= 0x01000193; }
         char key[16];
         snprintf(key, sizeof(key), "s_%08lx", (unsigned long)kh);
-        nvs_erase_key(h, key);
+        reflex_kv_erase(h, key);
     }
-    nvs_commit(h);
-    nvs_close(h);
-    ESP_LOGI(TAG, "snapshot cleared");
-    return ESP_OK;
+    reflex_kv_commit(h);
+    reflex_kv_close(h);
+    REFLEX_LOGI(TAG, "snapshot cleared");
+    return REFLEX_OK;
 }
 
-esp_err_t goose_supervisor_pulse(void) {
-    taskENTER_CRITICAL(&supervisor_mux);
+reflex_err_t goose_supervisor_pulse(void) {
+    reflex_critical_enter(&supervisor_mux);
     size_t count = supervised_field_count;
-    taskEXIT_CRITICAL(&supervisor_mux);
+    reflex_critical_exit(&supervisor_mux);
 
     for (size_t i = 0; i < count; i++) {
-        if (goose_supervisor_check_equilibrium(supervised_fields[i]) != ESP_OK) {
+        if (goose_supervisor_check_equilibrium(supervised_fields[i]) != REFLEX_OK) {
             goose_supervisor_rebalance(supervised_fields[i]);
         }
     }
@@ -325,7 +326,7 @@ esp_err_t goose_supervisor_pulse(void) {
     static uint64_t lp_last_advance_us = 0;
     static bool lp_stall_warned = false;
     uint32_t cur = goose_lp_heartbeat_count();
-    uint64_t now_us = esp_timer_get_time();
+    uint64_t now_us = reflex_hal_time_us();
     if (cur != lp_last_count) {
         lp_last_count = cur;
         lp_last_advance_us = now_us;
@@ -333,7 +334,7 @@ esp_err_t goose_supervisor_pulse(void) {
     } else if (cur > 0 && lp_last_advance_us > 0 &&
                (now_us - lp_last_advance_us) > LP_STALL_THRESHOLD_US &&
                !lp_stall_warned) {
-        ESP_LOGW(TAG, "LP_HEARTBEAT_STALLED count=%lu stalled_us=%llu",
+        REFLEX_LOGW(TAG, "LP_HEARTBEAT_STALLED count=%lu stalled_us=%llu",
                  (unsigned long)cur,
                  (unsigned long long)(now_us - lp_last_advance_us));
         lp_stall_warned = true;
@@ -342,7 +343,7 @@ esp_err_t goose_supervisor_pulse(void) {
     // Autonomic Fabrication pass at 1Hz (offset by 2)
     static int weave_div = 0;
     if (weave_div++ >= 10) {
-        extern esp_err_t goose_supervisor_weave_sync(void);
+        extern reflex_err_t goose_supervisor_weave_sync(void);
         goose_supervisor_weave_sync();
         weave_div = 0;
     }
@@ -358,5 +359,5 @@ esp_err_t goose_supervisor_pulse(void) {
         goose_supervisor_swarm_sync();
         sync_div = 0;
     }
-    return ESP_OK;
+    return REFLEX_OK;
 }

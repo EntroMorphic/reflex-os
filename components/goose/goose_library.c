@@ -21,18 +21,18 @@
  */
 
 #include "goose.h"
-#include "esp_log.h"
+#include "reflex_hal.h"
 #include <string.h>
 #include <stdio.h>
 
-static const char *TAG = "GOOSE_LIB";
+#define TAG "GOOSE_LIB"
 
 /**
  * @brief Weave Geometric Fragment
  * Instantiates a trusted geometric pattern at the provided base coordinate.
  */
-esp_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, reflex_tryte9_t base_coord, goose_fragment_handle_t *out_handle) {
-    ESP_LOGI(TAG, "Weaving Fragment [%s] type %d at manifold coord", name, type);
+reflex_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, reflex_tryte9_t base_coord, goose_fragment_handle_t *out_handle) {
+    REFLEX_LOGI(TAG, "Weaving Fragment [%s] type %d at manifold coord", name, type);
     
     if (out_handle) {
         out_handle->cell_start = 0; 
@@ -48,13 +48,13 @@ esp_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, ref
              * 1 Virtual Cell + 1 Evolutionary Transition.
              */
             goose_cell_t *pulse_cell = goose_fabric_alloc_cell(name, base_coord, true);
-            if (!pulse_cell) return ESP_ERR_NO_MEM;
+            if (!pulse_cell) return REFLEX_ERR_NO_MEM;
             
             pulse_cell->type = GOOSE_CELL_VIRTUAL;
             if (out_handle) {
                 out_handle->cell_count = 1;
             }
-            ESP_LOGI(TAG, "Wove Heartbeat Pattern: %s", name);
+            REFLEX_LOGI(TAG, "Wove Heartbeat Pattern: %s", name);
             break;
         }
         case GOOSE_FRAGMENT_GATE: {
@@ -63,25 +63,25 @@ esp_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, ref
              * 1 Intent Cell (Control) + 1 Software Route.
              */
             goose_cell_t *ctrl = goose_fabric_alloc_cell(name, base_coord, true);
-            if (!ctrl) return ESP_ERR_NO_MEM;
+            if (!ctrl) return REFLEX_ERR_NO_MEM;
             
             ctrl->type = GOOSE_CELL_INTENT;
             if (out_handle) {
                 out_handle->cell_count = 1;
             }
-            ESP_LOGI(TAG, "Wove Gate Pattern: %s", name);
+            REFLEX_LOGI(TAG, "Wove Gate Pattern: %s", name);
             break;
         }
         case GOOSE_FRAGMENT_NOT: {
             // NOT Pattern: Static Inversion route
-            ESP_LOGI(TAG, "Wove Inverter Pattern: %s", name);
+            REFLEX_LOGI(TAG, "Wove Inverter Pattern: %s", name);
             break;
         }
         default:
-            return ESP_ERR_NOT_SUPPORTED;
+            return REFLEX_ERR_NOT_SUPPORTED;
     }
     
-    return ESP_OK;
+    return REFLEX_OK;
 }
 
 /**
@@ -92,25 +92,25 @@ esp_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, ref
 #define MAX_ROUTES_PER_FRAGMENT 32
 static int active_loom_fragments = 0;
 
-esp_err_t goose_weave_loom(const uint8_t *buffer, size_t size) {
-    if (size < sizeof(loom_header_t)) return ESP_ERR_INVALID_SIZE;
+reflex_err_t goose_weave_loom(const uint8_t *buffer, size_t size) {
+    if (size < sizeof(loom_header_t)) return REFLEX_ERR_INVALID_SIZE;
     
     // Red-Team Remediation: Fragment Quota
     if (active_loom_fragments >= MAX_LOOM_FRAGMENTS) {
-        ESP_LOGE("GOOSE_LIB", "Quota Exhausted: Max Loom fragments reached");
-        return ESP_ERR_NO_MEM;
+        REFLEX_LOGE(TAG, "Quota Exhausted: Max Loom fragments reached");
+        return REFLEX_ERR_NO_MEM;
     }
 
     loom_header_t *head = (loom_header_t *)buffer;
-    if (head->magic != LOOM_MAGIC) return ESP_ERR_INVALID_VERSION;
+    if (head->magic != LOOM_MAGIC) return REFLEX_ERR_INVALID_VERSION;
 
     // Red-Team Remediation: Allocation Validation
     if (head->route_count > MAX_ROUTES_PER_FRAGMENT || head->cell_count > 64) {
-        ESP_LOGE("GOOSE_LIB", "Security Violation: Fragment too large");
-        return ESP_ERR_INVALID_SIZE;
+        REFLEX_LOGE(TAG, "Security Violation: Fragment too large");
+        return REFLEX_ERR_INVALID_SIZE;
     }
 
-    ESP_LOGI("GOOSE_LIB", "Weaving LoomScript Fragment [0x%08X]...", (unsigned int)head->name_hash);
+    REFLEX_LOGI(TAG, "Weaving LoomScript Fragment [0x%08X]...", (unsigned int)head->name_hash);
     active_loom_fragments++;
 
     loom_cell_entry_t *cells = (loom_cell_entry_t *)(buffer + sizeof(loom_header_t));
@@ -144,6 +144,6 @@ esp_err_t goose_weave_loom(const uint8_t *buffer, size_t size) {
     goose_field_start_pulse(field);
     goose_supervisor_register_field(field);
 
-    return ESP_OK;
+    return REFLEX_OK;
 }
 

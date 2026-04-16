@@ -4,17 +4,13 @@
  */
 
 #include "goose.h"
-#include "esp_now.h"
-#include "esp_wifi.h"
-#include "esp_log.h"
-#include "esp_mac.h"
-#include "esp_timer.h"
-#include "mbedtls/md.h"
-#include "nvs.h"
-#include "esp_random.h"
+#include "reflex_hal.h"
+#include "reflex_kv.h"
+#include "reflex_radio.h"
+#include "reflex_crypto.h"
 #include <string.h>
 
-static const char *TAG = "GOOSE_ATMOSPHERE";
+#define TAG "GOOSE_ATMOSPHERE"
 
 /* Aura wire protocol epoch. Bump on incompatible changes so older peers log
  * AURA_VERSION_MISMATCH instead of silently failing the MAC check. */
@@ -79,32 +75,17 @@ static uint32_t calculate_aura(uint8_t version, uint8_t op, reflex_tryte9_t coor
     in.state = state;
     in.nonce = nonce;
 
-    mbedtls_md_context_t ctx;
-    mbedtls_md_init(&ctx);
-    const mbedtls_md_info_t *md = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-    if (!md) {
-        ESP_LOGE(TAG, "mbedtls md info unavailable, fail-closed");
-        return AURA_ERROR_SENTINEL;
-    }
-    if (mbedtls_md_setup(&ctx, md, 1) != 0 ||
-        mbedtls_md_hmac_starts(&ctx, goose_aura_key, sizeof(goose_aura_key)) != 0 ||
-        mbedtls_md_hmac_update(&ctx, (const uint8_t *)&in, sizeof(in)) != 0) {
-        mbedtls_md_free(&ctx);
-        ESP_LOGE(TAG, "hmac setup/update failed, fail-closed");
-        return AURA_ERROR_SENTINEL;
-    }
     uint8_t digest[32];
-    int rc = mbedtls_md_hmac_finish(&ctx, digest);
-    mbedtls_md_free(&ctx);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "hmac finish failed, fail-closed");
+    if (reflex_hmac_sha256(goose_aura_key, sizeof(goose_aura_key),
+                           (const uint8_t *)&in, sizeof(in), digest) != REFLEX_OK) {
+        REFLEX_LOGE(TAG, "hmac failed, fail-closed");
         return AURA_ERROR_SENTINEL;
     }
     return ((uint32_t)digest[0]) | ((uint32_t)digest[1] << 8)
          | ((uint32_t)digest[2] << 16) | ((uint32_t)digest[3] << 24);
 }
 
-esp_err_t goose_atmosphere_advertise(uint32_t name_hash, goose_cell_t *cell, const uint8_t *dest_mac);
+reflex_err_t goose_atmosphere_advertise(uint32_t name_hash, goose_cell_t *cell, const uint8_t *dest_mac);
 
 static uint64_t last_query_processed_us = 0;
 int32_t swarm_accumulator = 0;
@@ -159,24 +140,24 @@ static bool replay_seen_or_record(const uint8_t *src_mac, uint32_t nonce, uint64
 
 /* Persist a 16-byte key blob to NVS under goose/aura_key. Shared between
  * first-boot auto-provisioning and the operator `aura setkey` command. */
-static esp_err_t persist_aura_key(const uint8_t key[16]) {
-    nvs_handle_t h;
-    esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
-    if (rc != ESP_OK) return rc;
-    rc = nvs_set_blob(h, "aura_key", key, 16);
-    if (rc == ESP_OK) rc = nvs_commit(h);
-    nvs_close(h);
+static reflex_err_t persist_aura_key(const uint8_t key[16]) {
+    reflex_kv_handle_t h;
+    reflex_err_t rc = reflex_kv_open("goose", false, &h);
+    if (rc != REFLEX_OK) return rc;
+    rc = reflex_kv_set_blob(h, "aura_key", key, 16);
+    if (rc == REFLEX_OK) rc = reflex_kv_commit(h);
+    reflex_kv_close(h);
     return rc;
 }
 
 static void load_aura_key(void) {
-    nvs_handle_t h;
-    if (nvs_open("goose", NVS_READONLY, &h) == ESP_OK) {
+    reflex_kv_handle_t h;
+    if (reflex_kv_open("goose", true, &h) == REFLEX_OK) {
         size_t len = sizeof(goose_aura_key);
-        esp_err_t rc = nvs_get_blob(h, "aura_key", goose_aura_key, &len);
-        nvs_close(h);
-        if (rc == ESP_OK && len == sizeof(goose_aura_key)) {
-            ESP_LOGI(TAG, "aura key loaded from NVS");
+        reflex_err_t rc = reflex_kv_get_blob(h, "aura_key", goose_aura_key, &len);
+        reflex_kv_close(h);
+        if (rc == REFLEX_OK && len == sizeof(goose_aura_key)) {
+            REFLEX_LOGI(TAG, "aura key loaded from NVS");
             return;
         }
     }
@@ -186,35 +167,35 @@ static void load_aura_key(void) {
      * now requires an operator to run `aura setkey <hex>` on both sides
      * with a chosen shared key. */
     uint8_t fresh[16];
-    esp_fill_random(fresh, sizeof(fresh));
-    esp_err_t rc = persist_aura_key(fresh);
-    if (rc == ESP_OK) {
+    reflex_hal_random_fill(fresh, sizeof(fresh));
+    reflex_err_t rc = persist_aura_key(fresh);
+    if (rc == REFLEX_OK) {
         memcpy(goose_aura_key, fresh, sizeof(goose_aura_key));
-        ESP_LOGI(TAG, "aura key auto-provisioned (run 'aura setkey' on peers to pair)");
+        REFLEX_LOGI(TAG, "aura key auto-provisioned (run 'aura setkey' on peers to pair)");
     } else {
         /* NVS write failed; fall back to compile-time default so the mesh
          * still works at all. Logged as a warning so the operator notices. */
         memcpy(goose_aura_key, GOOSE_AURA_KEY_DEFAULT, sizeof(goose_aura_key));
-        ESP_LOGW(TAG, "aura key NVS write failed (rc=0x%x); using compile-time default", rc);
+        REFLEX_LOGW(TAG, "aura key NVS write failed (rc=0x%x); using compile-time default", rc);
     }
 }
 
-esp_err_t goose_atmosphere_set_key(const uint8_t key[16]) {
-    if (!key) return ESP_ERR_INVALID_ARG;
-    esp_err_t rc = persist_aura_key(key);
-    if (rc == ESP_OK) {
+reflex_err_t goose_atmosphere_set_key(const uint8_t key[16]) {
+    if (!key) return REFLEX_ERR_INVALID_ARG;
+    reflex_err_t rc = persist_aura_key(key);
+    if (rc == REFLEX_OK) {
         memcpy(goose_aura_key, key, 16);
-        ESP_LOGI(TAG, "aura key provisioned");
+        REFLEX_LOGI(TAG, "aura key provisioned");
     }
     return rc;
 }
 
-static void atmosphere_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
+static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const uint8_t *data, int len) {
     if (len != sizeof(goose_arc_packet_t)) return;
 
     // Self-Arc Suppression
     uint8_t local_mac[6];
-    esp_read_mac(local_mac, ESP_MAC_WIFI_STA);
+    reflex_hal_mac_read(local_mac);
     if (memcmp(recv_info->src_addr, local_mac, 6) == 0) {
         mesh_stats.rx_self_drop++;
         return;
@@ -233,11 +214,13 @@ static void atmosphere_recv_cb(const esp_now_recv_info_t *recv_info, const uint8
         uint32_t slot = ((uint32_t)recv_info->src_addr[4] << 8 |
                           recv_info->src_addr[5]) & 0x7;
         version_warn_entry_t *w = &version_warn_ring[slot];
-        uint64_t now_v = esp_timer_get_time();
+        uint64_t now_v = reflex_hal_time_us();
         bool same = (memcmp(w->mac, recv_info->src_addr, 6) == 0 && w->version == arc->version);
         if (!same || (now_v - w->last_us > 5000000)) {
-            ESP_LOGW(TAG, "AURA_VERSION_MISMATCH remote=0x%02x local=0x%02x from " MACSTR,
-                     arc->version, GOOSE_ARC_VERSION, MAC2STR(recv_info->src_addr));
+            REFLEX_LOGW(TAG, "AURA_VERSION_MISMATCH remote=0x%02x local=0x%02x from %02x:%02x:%02x:%02x:%02x:%02x",
+                     arc->version, GOOSE_ARC_VERSION,
+                     recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
+                     recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5]);
             memcpy(w->mac, recv_info->src_addr, 6);
             w->version = arc->version;
             w->last_us = now_v;
@@ -252,7 +235,7 @@ static void atmosphere_recv_cb(const esp_now_recv_info_t *recv_info, const uint8
         return;
     }
 
-    uint64_t now = esp_timer_get_time();
+    uint64_t now = reflex_hal_time_us();
 
     // Replay protection — reject packets seen within the cache window
     if (replay_seen_or_record(recv_info->src_addr, arc->nonce, now)) {
@@ -284,7 +267,10 @@ static void atmosphere_recv_cb(const esp_now_recv_info_t *recv_info, const uint8
     }
     else if (arc->op == ARC_OP_ADVERTISE) {
         mesh_stats.rx_advertise++;
-        ESP_LOGI(TAG, "Ghost Solidified for hash [0x%08lX] at " MACSTR, (unsigned long)arc->name_hash, MAC2STR(recv_info->src_addr));
+        REFLEX_LOGI(TAG, "Ghost Solidified for hash [0x%08lX] at %02x:%02x:%02x:%02x:%02x:%02x",
+                     (unsigned long)arc->name_hash,
+                     recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
+                     recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5]);
     }
     else if (arc->op == ARC_OP_POSTURE) {
         mesh_stats.rx_posture++;
@@ -305,32 +291,30 @@ static void atmosphere_recv_cb(const esp_now_recv_info_t *recv_info, const uint8
     }
 }
 
-esp_err_t goose_atmosphere_init(void) {
+reflex_err_t goose_atmosphere_init(void) {
     load_aura_key();
     memset(replay_cache, 0, sizeof(replay_cache));
-    esp_now_init();
-    esp_now_register_recv_cb(atmosphere_recv_cb);
-    esp_now_peer_info_t peer_info = {0};
+    reflex_radio_init();
+    reflex_radio_register_recv(atmosphere_recv_cb);
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    memcpy(peer_info.peer_addr, broadcast_mac, 6);
-    esp_now_add_peer(&peer_info);
-    return ESP_OK;
+    reflex_radio_add_peer(broadcast_mac);
+    return REFLEX_OK;
 }
 
-esp_err_t goose_atmosphere_emit_arc(goose_cell_t *source) {
-    if (!source) return ESP_ERR_INVALID_ARG;
-    uint32_t nonce = (uint32_t)esp_timer_get_time();
+reflex_err_t goose_atmosphere_emit_arc(goose_cell_t *source) {
+    if (!source) return REFLEX_ERR_INVALID_ARG;
+    uint32_t nonce = (uint32_t)reflex_hal_time_us();
     goose_arc_packet_t arc = {
         .version = GOOSE_ARC_VERSION,
         .op = ARC_OP_SYNC, .coord = source->coord, .state = source->state, .nonce = nonce,
         .aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_SYNC, source->coord, 0, source->state, nonce)
     };
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    return esp_now_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
+    return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
 
-esp_err_t goose_atmosphere_query(const char *name) {
-    uint32_t nonce = (uint32_t)esp_timer_get_time();
+reflex_err_t goose_atmosphere_query(const char *name) {
+    uint32_t nonce = (uint32_t)reflex_hal_time_us();
     uint32_t h = goose_name_hash(name);
     goose_arc_packet_t arc = {
         .version = GOOSE_ARC_VERSION,
@@ -338,24 +322,24 @@ esp_err_t goose_atmosphere_query(const char *name) {
     };
     arc.aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_QUERY, (reflex_tryte9_t){{0}}, h, 0, nonce);
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    return esp_now_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
+    return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
 
-esp_err_t goose_atmosphere_advertise(uint32_t name_hash, goose_cell_t *cell, const uint8_t *dest_mac) {
-    uint32_t nonce = (uint32_t)esp_timer_get_time();
+reflex_err_t goose_atmosphere_advertise(uint32_t name_hash, goose_cell_t *cell, const uint8_t *dest_mac) {
+    uint32_t nonce = (uint32_t)reflex_hal_time_us();
     goose_arc_packet_t arc = {
         .version = GOOSE_ARC_VERSION,
         .op = ARC_OP_ADVERTISE, .coord = cell->coord, .state = cell->state, .name_hash = name_hash, .nonce = nonce
     };
     arc.aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_ADVERTISE, arc.coord, name_hash, arc.state, nonce);
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    return esp_now_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
+    return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
 
-esp_err_t goose_atmosphere_emit_posture(int8_t state, uint8_t weight) {
+reflex_err_t goose_atmosphere_emit_posture(int8_t state, uint8_t weight) {
     /* Emit-side cap (defense in depth; receive-side also clamps). */
     if (weight > SWARM_WEIGHT_MAX) weight = SWARM_WEIGHT_MAX;
-    uint32_t nonce = (uint32_t)esp_timer_get_time() & 0xFFFFFFF0;
+    uint32_t nonce = (uint32_t)reflex_hal_time_us() & 0xFFFFFFF0;
     nonce |= (weight & 0x0F);
     goose_arc_packet_t arc = {
         .version = GOOSE_ARC_VERSION,
@@ -363,5 +347,5 @@ esp_err_t goose_atmosphere_emit_posture(int8_t state, uint8_t weight) {
         .aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_POSTURE, (reflex_tryte9_t){{0}}, 0, state, nonce)
     };
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    return esp_now_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
+    return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
