@@ -181,6 +181,11 @@ esp_err_t goose_snapshot_save(void) {
     esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
     if (rc != ESP_OK) return rc;
 
+    /* Hold loom_authority while reading route plasticity so we get a
+     * consistent snapshot — learn_sync writes these fields under the
+     * same lock. If contended, the save is skipped (try again later). */
+    if (!goose_loom_try_lock(NULL)) { nvs_close(h); return ESP_ERR_TIMEOUT; }
+
     uint32_t saved_fields = 0;
     uint32_t saved_routes = 0;
 
@@ -201,8 +206,13 @@ esp_err_t goose_snapshot_save(void) {
             memcpy(&buf[pos], &hc, 2); pos += 2;
         }
 
+        /* Key: "s_" + 8-hex-char FNV hash of the full field name.
+         * snprintf(key, 16, "snap_%.10s", ...) would truncate names >10
+         * chars, causing silent collisions on similar-prefix fields. */
+        uint32_t kh = 0x811c9dc5;
+        for (int ki = 0; field->name[ki]; ki++) { kh ^= (uint32_t)field->name[ki]; kh *= 0x01000193; }
         char key[16];
-        snprintf(key, sizeof(key), "snap_%.10s", field->name);
+        snprintf(key, sizeof(key), "s_%08lx", (unsigned long)kh);
         rc = nvs_set_blob(h, key, buf, pos);
         if (rc == ESP_OK) {
             saved_fields++;
@@ -210,6 +220,7 @@ esp_err_t goose_snapshot_save(void) {
         }
     }
 
+    goose_loom_unlock();
     nvs_commit(h);
     nvs_close(h);
     ESP_LOGI(TAG, "snapshot saved: %lu fields, %lu routes",
@@ -222,14 +233,21 @@ esp_err_t goose_snapshot_load(void) {
     esp_err_t rc = nvs_open("goose", NVS_READONLY, &h);
     if (rc != ESP_OK) return rc;
 
+    if (!goose_loom_try_lock(NULL)) { nvs_close(h); return ESP_ERR_TIMEOUT; }
+
     uint32_t restored_routes = 0;
 
     for (size_t f = 0; f < supervised_field_count; f++) {
         goose_field_t *field = supervised_fields[f];
         if (field->route_count == 0) continue;
 
+        /* Key: "s_" + 8-hex-char FNV hash of the full field name.
+         * snprintf(key, 16, "snap_%.10s", ...) would truncate names >10
+         * chars, causing silent collisions on similar-prefix fields. */
+        uint32_t kh = 0x811c9dc5;
+        for (int ki = 0; field->name[ki]; ki++) { kh ^= (uint32_t)field->name[ki]; kh *= 0x01000193; }
         char key[16];
-        snprintf(key, sizeof(key), "snap_%.10s", field->name);
+        snprintf(key, sizeof(key), "s_%08lx", (unsigned long)kh);
 
         uint8_t buf[2 + 16 * SNAP_ROUTE_ENTRY_SIZE];
         size_t len = sizeof(buf);
@@ -258,6 +276,7 @@ esp_err_t goose_snapshot_load(void) {
         }
     }
 
+    goose_loom_unlock();
     nvs_close(h);
     if (restored_routes > 0) {
         ESP_LOGI(TAG, "snapshot loaded: %lu routes restored",
