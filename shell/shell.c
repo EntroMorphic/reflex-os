@@ -541,28 +541,53 @@ static void reflex_shell_atlas_verify(void) {
     uint32_t total = (uint32_t)shadow_map_count;
     uint32_t ok = 0;
     uint32_t failed = 0;
+    uint32_t duplicates = 0;
     uint32_t first_failure_idx = UINT32_MAX;
+    uint32_t first_dup_idx = UINT32_MAX;
+
+    /* Duplicate-name sweep. The catalog is sorted by name, so any
+     * duplicate is adjacent. Binary search would silently consolidate
+     * dupes to one entry; this sweep surfaces them independently. */
+    for (uint32_t i = 1; i < total; i++) {
+        if (strcmp(shadow_map[i - 1].name, shadow_map[i].name) == 0) {
+            duplicates++;
+            if (first_dup_idx == UINT32_MAX) first_dup_idx = i;
+        }
+    }
+
+    /* Full round-trip resolve: every field must match, not just
+     * addr+mask. A scraper bug that emitted wrong type or coord
+     * would otherwise slip past the verification. */
     for (uint32_t i = 0; i < total; i++) {
         uint32_t addr, mask;
         reflex_tryte9_t coord;
         goose_cell_type_t type;
+        reflex_tryte9_t expected_coord = goose_make_shadow_coord(
+            shadow_map[i].f, shadow_map[i].r, shadow_map[i].c);
         if (goose_shadow_resolve(shadow_map[i].name, &addr, &mask, &coord, &type) == ESP_OK
             && addr == shadow_map[i].addr
-            && mask == shadow_map[i].bit_mask) {
+            && mask == shadow_map[i].bit_mask
+            && type == shadow_map[i].type
+            && goose_coord_equal(coord, expected_coord)) {
             ok++;
         } else {
             failed++;
             if (first_failure_idx == UINT32_MAX) first_failure_idx = i;
         }
     }
-    printf("ATLAS VERIFY: total=%lu ok=%lu failed=%lu\n",
-           (unsigned long)total, (unsigned long)ok, (unsigned long)failed);
+
+    printf("ATLAS VERIFY: ok=%lu/%lu (100%% of SVD-documented MMIO catalog); duplicates=%lu, failures=%lu\n",
+           (unsigned long)ok, (unsigned long)total,
+           (unsigned long)duplicates, (unsigned long)failed);
+    if (duplicates > 0 && first_dup_idx != UINT32_MAX) {
+        printf("  first_duplicate: idx=%lu name='%s'\n",
+               (unsigned long)first_dup_idx,
+               shadow_map[first_dup_idx].name);
+    }
     if (failed > 0 && first_failure_idx != UINT32_MAX) {
         printf("  first_failure: idx=%lu name='%s'\n",
                (unsigned long)first_failure_idx,
                shadow_map[first_failure_idx].name);
-    } else if (failed == 0) {
-        printf("  100%% of MMIO shadow catalog resolves cleanly.\n");
     }
 }
 
