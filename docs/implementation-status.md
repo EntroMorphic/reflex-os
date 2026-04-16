@@ -145,10 +145,12 @@ Remaining (honest limits, not regressions):
 
 ## Next Steps
 
-The pre-audit "Wave 2 / Wave 3 / Atmosphere hardening" items from earlier revisions of this document all shipped across the remediation arc. See `CHANGELOG.md` for the per-commit record and `docs/strategy.md` for the forward roadmap (Phase 29 onward). Near-term concrete work:
+The pre-audit "Wave 2 / Wave 3 / Atmosphere hardening" items from earlier revisions of this document all shipped across the remediation arc. See `CHANGELOG.md` for the per-commit record and `docs/strategy.md` for the forward roadmap (Phase 29 onward). Near-term ordered TODO:
 
-1. **Intent as a first-class cell type** (`GOOSE_CELL_PURPOSE`) alongside `GOOSE_CELL_NEED`, letting the user — human or AI — declare the machine's current purpose and have the supervisor route toward it. This is the step-change the maintainer articulated for the substrate-as-interface vision and the natural consumer of the current Hebbian plasticity layer.
-2. **Phase 29 — Tapestry Snapshots**: persist `learned_orientation` and Hebbian counters to NVS so plasticity survives cold boot. Prerequisite for Phase 31 and for any long-horizon user-purpose modeling.
-3. **Advanced I/O on the fabric**: expose I2C and SPI buses through GOOSE cells, so external sensors become addressable via G.O.O.N.I.E.S. names (`perception.i2c0.bme280.temperature`) and the plasticity / fabrication layers have a real environment to learn from.
-4. **Multi-VM contexts**: support concurrent execution of multiple ternary task images so a single board can host more than one independent program.
-5. **Aura key derivation from efuse** + secure-boot integration to close the remaining honest limit on Aura key extraction.
+1. **Cut a `v2.6.0` release tag.** Move `CHANGELOG.md`'s `[Unreleased]` content under a dated `## [2.6.0]` heading and tag the commit that represents the full audit+housekeeping+atlas-coverage state. Closing ritual for the current arc and the citable anchor any future work branches from.
+2. **Write the Reflex OS session essay.** A 2–4 k word systems writeup of the substrate-as-interface vision, the two audit arcs, the three-board mesh trial, and the catalog-vs-live-loom distinction. The raw material lives in commit messages and is perishable — writing it while the context is fresh is much cheaper than reconstructing it later. Publicly visible narrative is the project's biggest missing second-order asset.
+3. **`GOOSE_CELL_PURPOSE` — intent as a first-class cell type.** The step-change articulated in-session: let the user (human or AI) declare the machine's current purpose and have the supervisor route toward it. Starts with a design document (how does `weave_sync` treat PURPOSE cells vs NEED cells? does `learn_sync` weight Hebbian updates by purpose agreement? does the shell expose `purpose get/set`? what's the data model — single global, per-field, or stack?) and proceeds to implementation across at least two sessions.
+4. **Phase 29 — Tapestry Snapshots.** Persist `learned_orientation` and Hebbian counters to NVS on a supervisor-driven cadence; restore at boot. Known-shape engineering work. Natural prerequisite for item 3 — purpose learned over sessions needs to survive reboots.
+5. **Advanced I/O on the fabric — first real sensor.** Expose a BME280 (or similar I2C sensor) as addressable GOOSE cells under `perception.i2c0.bme280.*`. The moment real environmental data enters the fabric, the plasticity layer has something to learn from and the substrate-as-interface vision stops being a demo and starts being a real embedded system.
+
+Additional longer-horizon items previously listed here (multi-VM contexts, Aura key derivation from efuse + secure boot) remain valid but are not on the immediate TODO.
