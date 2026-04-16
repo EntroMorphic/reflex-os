@@ -82,7 +82,7 @@ The sort output is byte-identical for ASCII-only input (pre-flight confirmed), s
 
 Close R4, R9. These make the verify output nicer for humans without changing its correctness properties.
 
-### ☐ R4 — MEDIUM — no progress indication / ~100 ms shell monopoly
+### ☑ R4 — MEDIUM — no progress indication / ~100 ms shell monopoly
 
 **Finding.** `atlas verify` processes 9527 entries in a tight loop with no output until completion. On a slow terminal or a scripted capture with a short window, the user might think the shell hung. Also: the entire verification holds the shell task for ~100 ms (no scheduler yield), though it doesn't take `loom_authority` so it doesn't starve the supervisor pulse.
 
@@ -124,3 +124,4 @@ Close R7, R8. These record the behavior changes from commit `6bb1f0a` so the nex
 
 - **Phase A** — R1, R2, R3, R9 — `atlas verify` now does full round-trip (name + addr + mask + type + coord via `goose_make_shadow_coord`) and sweeps for adjacent-name duplicates in a separate pass. Output rewritten to a single line that absorbs R3's honest "SVD-documented" wording and R9's dedup. `docs/architecture.md` §2 and `docs/implementation-status.md` G3 both updated with the narrower coverage claim. Validated on Alpha: `ok=9527/9527 (100% of SVD-documented MMIO catalog); duplicates=0, failures=0`.
 - **Phase B** — R5, R6 — scraper now asserts every name is pure ASCII at scrape time and sorts via explicit `encode("ascii")` byte key; reciprocal sync-discipline comments added to both `tools/goose_scraper.py` (emit block) and `shadow_node_t` in `goose.h`. Regenerated catalog diff is limited to the new header comment block — the 9527 data rows are byte-identical to the prior state, confirming that (a) Python default sort and byte-order sort coincide for the current ASCII-only catalog, and (b) the ASCII invariant is satisfied today.
+- **Phase C** — R4 — `atlas verify` emits a progress dot every 1000 entries and calls `vTaskDelay(0)` between chunks so higher-priority tasks run. Validated on Alpha: exactly ten dots (9527/1000 → ceil(10)) followed by the summary line; no regression.

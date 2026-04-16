@@ -557,8 +557,19 @@ static void reflex_shell_atlas_verify(void) {
 
     /* Full round-trip resolve: every field must match, not just
      * addr+mask. A scraper bug that emitted wrong type or coord
-     * would otherwise slip past the verification. */
+     * would otherwise slip past the verification.
+     *
+     * Every 1000 entries we emit a progress dot and yield via
+     * vTaskDelay(0) so higher-priority tasks (supervisor pulse,
+     * atmosphere RX, button ISR service) can run between chunks.
+     * The verify itself doesn't take loom_authority, so yielding is
+     * courtesy to the scheduler, not a correctness requirement. */
     for (uint32_t i = 0; i < total; i++) {
+        if ((i % 1000) == 0) {
+            putchar('.');
+            fflush(stdout);
+            vTaskDelay(0);
+        }
         uint32_t addr, mask;
         reflex_tryte9_t coord;
         goose_cell_type_t type;
@@ -575,6 +586,8 @@ static void reflex_shell_atlas_verify(void) {
             if (first_failure_idx == UINT32_MAX) first_failure_idx = i;
         }
     }
+    putchar('\n');
+    fflush(stdout);
 
     printf("ATLAS VERIFY: ok=%lu/%lu (100%% of SVD-documented MMIO catalog); duplicates=%lu, failures=%lu\n",
            (unsigned long)ok, (unsigned long)total,
