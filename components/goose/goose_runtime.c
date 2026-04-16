@@ -202,7 +202,9 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
         bool found = false;
         for (int i = 0; i < GOOSE_FABRIC_MAX_CELLS; i++) {
             uint32_t target = (last_eviction_idx + i) % GOOSE_FABRIC_MAX_CELLS;
-            if (fabric_cells[target].type != GOOSE_CELL_PINNED && fabric_cells[target].type != GOOSE_CELL_SYSTEM_ONLY) {
+            if (fabric_cells[target].type != GOOSE_CELL_PINNED &&
+                fabric_cells[target].type != GOOSE_CELL_SYSTEM_ONLY &&
+                fabric_cells[target].type != GOOSE_CELL_PURPOSE) {
                 for (uint32_t g = 0; g < goonies_count; g++) {
                     if (goose_coord_equal(goonies_registry[g].coord, fabric_cells[target].coord)) {
                         goonies_registry[g] = goonies_registry[--goonies_count]; break;

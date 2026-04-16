@@ -114,5 +114,7 @@ That's not a metaphor. That's the specification.
 
 ---
 
-*Reflex OS v2.6.0 is open source at [github.com/EntroMorphic/reflex-os](https://github.com/EntroMorphic/reflex-os).*
+*This essay describes the state at v2.6.0. Features added after the tag — `GOOSE_CELL_PURPOSE`, Tapestry Snapshots, the internal temperature sensor service — are documented in [`CHANGELOG.md`](../CHANGELOG.md).*
+
+*Reflex OS is open source at [github.com/EntroMorphic/reflex-os](https://github.com/EntroMorphic/reflex-os).*
 *The sibling research project is at [github.com/EntroMorphic/the-reflex](https://github.com/EntroMorphic/the-reflex).*

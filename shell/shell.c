@@ -708,13 +708,13 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
             if (p) {
                 p->type = GOOSE_CELL_PURPOSE;
                 p->state = 1;
-                printf("purpose set: '%s' (active)\n", argv[2]);
+                printf("purpose: active (name '%s' noted but not persisted in the cell — Phase 29 follow-up)\n", argv[2]);
             } else {
                 printf("purpose set: failed to allocate cell\n");
             }
         } else if (argc >= 2 && strcmp(argv[1], "get") == 0) {
             goose_cell_t *p = goonies_resolve_cell("sys.purpose");
-            printf("purpose: %s\n", (p && p->state != 0) ? "active" : "inactive");
+            printf("purpose: %s\n", (p && p->state != 0) ? "active (name not stored in cell)" : "inactive");
         } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
             goose_cell_t *p = goonies_resolve_cell("sys.purpose");
             if (p) p->state = 0;
