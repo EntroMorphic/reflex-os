@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_random.h"
+#include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -155,6 +156,128 @@ esp_err_t goose_supervisor_learn_sync(void) {
 
     if (rewarded) reward_cell->state = 0;
     goose_loom_unlock();
+    return ESP_OK;
+}
+
+/* --- Tapestry Snapshots (Phase 29) ---
+ *
+ * Persist learned_orientation and hebbian_counter from supervised routes
+ * to NVS under "goose/snap_<fieldname>". One blob per field. Route
+ * matching on restore is by name (16-byte fixed-width). The format is:
+ *
+ *   [uint16_t route_count]
+ *   for each route:
+ *     [char name[16]]
+ *     [int8_t learned_orientation]
+ *     [int16_t hebbian_counter]
+ *
+ * Max per-field blob: 2 + 16*(16+1+2) = 306 bytes. Well within NVS
+ * blob limits.
+ */
+#define SNAP_ROUTE_ENTRY_SIZE (16 + 1 + 2)
+
+esp_err_t goose_snapshot_save(void) {
+    nvs_handle_t h;
+    esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
+    if (rc != ESP_OK) return rc;
+
+    uint32_t saved_fields = 0;
+    uint32_t saved_routes = 0;
+
+    for (size_t f = 0; f < supervised_field_count; f++) {
+        goose_field_t *field = supervised_fields[f];
+        if (field->route_count == 0) continue;
+
+        uint8_t buf[2 + 16 * SNAP_ROUTE_ENTRY_SIZE];
+        size_t pos = 0;
+        uint16_t count = (uint16_t)field->route_count;
+        memcpy(&buf[pos], &count, 2); pos += 2;
+
+        for (size_t r = 0; r < field->route_count && r < 16; r++) {
+            goose_route_t *route = &field->routes[r];
+            memcpy(&buf[pos], route->name, 16); pos += 16;
+            buf[pos++] = (uint8_t)route->learned_orientation;
+            int16_t hc = route->hebbian_counter;
+            memcpy(&buf[pos], &hc, 2); pos += 2;
+        }
+
+        char key[16];
+        snprintf(key, sizeof(key), "snap_%.10s", field->name);
+        rc = nvs_set_blob(h, key, buf, pos);
+        if (rc == ESP_OK) {
+            saved_fields++;
+            saved_routes += (count > 16 ? 16 : count);
+        }
+    }
+
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGI(TAG, "snapshot saved: %lu fields, %lu routes",
+             (unsigned long)saved_fields, (unsigned long)saved_routes);
+    return ESP_OK;
+}
+
+esp_err_t goose_snapshot_load(void) {
+    nvs_handle_t h;
+    esp_err_t rc = nvs_open("goose", NVS_READONLY, &h);
+    if (rc != ESP_OK) return rc;
+
+    uint32_t restored_routes = 0;
+
+    for (size_t f = 0; f < supervised_field_count; f++) {
+        goose_field_t *field = supervised_fields[f];
+        if (field->route_count == 0) continue;
+
+        char key[16];
+        snprintf(key, sizeof(key), "snap_%.10s", field->name);
+
+        uint8_t buf[2 + 16 * SNAP_ROUTE_ENTRY_SIZE];
+        size_t len = sizeof(buf);
+        rc = nvs_get_blob(h, key, buf, &len);
+        if (rc != ESP_OK || len < 2) continue;
+
+        uint16_t snap_count;
+        memcpy(&snap_count, buf, 2);
+        size_t pos = 2;
+
+        for (uint16_t s = 0; s < snap_count && pos + SNAP_ROUTE_ENTRY_SIZE <= len; s++) {
+            char snap_name[16];
+            memcpy(snap_name, &buf[pos], 16); pos += 16;
+            int8_t snap_orient = (int8_t)buf[pos++];
+            int16_t snap_hc;
+            memcpy(&snap_hc, &buf[pos], 2); pos += 2;
+
+            for (size_t r = 0; r < field->route_count; r++) {
+                if (memcmp(field->routes[r].name, snap_name, 16) == 0) {
+                    field->routes[r].learned_orientation = snap_orient;
+                    field->routes[r].hebbian_counter = snap_hc;
+                    restored_routes++;
+                    break;
+                }
+            }
+        }
+    }
+
+    nvs_close(h);
+    if (restored_routes > 0) {
+        ESP_LOGI(TAG, "snapshot loaded: %lu routes restored",
+                 (unsigned long)restored_routes);
+    }
+    return ESP_OK;
+}
+
+esp_err_t goose_snapshot_clear(void) {
+    nvs_handle_t h;
+    esp_err_t rc = nvs_open("goose", NVS_READWRITE, &h);
+    if (rc != ESP_OK) return rc;
+    for (size_t f = 0; f < supervised_field_count; f++) {
+        char key[16];
+        snprintf(key, sizeof(key), "snap_%.10s", supervised_fields[f]->name);
+        nvs_erase_key(h, key);
+    }
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGI(TAG, "snapshot cleared");
     return ESP_OK;
 }
 

@@ -680,6 +680,19 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
     } else if (strcmp(argv[0], "config") == 0) {
         if (argc >= 3 && strcmp(argv[1], "get") == 0) reflex_shell_config_get(argv[2]);
         else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
+    } else if (strcmp(argv[0], "snapshot") == 0) {
+        if (argc >= 2 && strcmp(argv[1], "save") == 0) {
+            esp_err_t rc = goose_snapshot_save();
+            printf("snapshot save: rc=0x%x\n", rc);
+        } else if (argc >= 2 && strcmp(argv[1], "load") == 0) {
+            esp_err_t rc = goose_snapshot_load();
+            printf("snapshot load: rc=0x%x\n", rc);
+        } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
+            esp_err_t rc = goose_snapshot_clear();
+            printf("snapshot clear: rc=0x%x\n", rc);
+        } else {
+            printf("snapshot <save|load|clear>\n");
+        }
     } else if (strcmp(argv[0], "purpose") == 0) {
         if (argc >= 3 && strcmp(argv[1], "set") == 0) {
             goose_cell_t *p = goonies_resolve_cell("sys.purpose");

@@ -501,6 +501,17 @@ void goose_lp_heartbeat_sync(void);
  */
 uint32_t goose_lp_heartbeat_count(void);
 
+// --- Tapestry Snapshots API (Phase 29) ---
+
+/** @brief Persist learned_orientation + hebbian_counter from all supervised routes to NVS. */
+esp_err_t goose_snapshot_save(void);
+
+/** @brief Restore learned_orientation + hebbian_counter from NVS into supervised routes. */
+esp_err_t goose_snapshot_load(void);
+
+/** @brief Erase all snapshot blobs from NVS. */
+esp_err_t goose_snapshot_clear(void);
+
 /**
  * @brief Try to acquire the loom_authority spinlock with a cycle-accurate
  * timeout. Returns true if acquired, false if contended past the timeout.
