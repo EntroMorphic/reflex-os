@@ -40,14 +40,20 @@ A clean checkout regenerates `sdkconfig` from `sdkconfig.defaults`. The target i
 | `sleep <secs>` | Enter deep sleep for N seconds (LP-timer wake) |
 | `led status` | Query the physical LED state via the Tapestry |
 | `goonies ls` | List the hierarchical hardware DNS registry |
-| `goonies find <name>` | Resolve a name to its 9-trit coordinate |
+| `goonies find <name>` | Resolve a name: live registry first, then fall through to the 9527-entry shadow catalog. Output is labeled `[live]` or `[shadow]`. |
+| `atlas verify` | Walk the entire SVD-documented MMIO shadow catalog (full round-trip + duplicate sweep). Prints progress dots; reports `ok=N/N, duplicates=D, failures=F`. |
 | `vm info` | Inspect the ternary VM state |
 | `vm loadhex <HEX>` | Load a CRC32-verified packed image |
 | `heartbeat` | Read the LP core's parallel pulse counter |
 | `aura setkey <32 hex>` | Provision the HMAC-SHA256 Aura key into NVS |
+| `mesh mac` | Print the local Wi-Fi STA MAC (used to identify boards in a mesh trial) |
+| `mesh emit <state>` | Broadcast an `ARC_OP_SYNC` packet with the given ternary state (`-1\|0\|1`) without mutating the local cell |
+| `mesh query <name>` | Broadcast an `ARC_OP_QUERY` for `<name>`; peers respond with `ARC_OP_ADVERTISE` if they have the name locally |
+| `mesh posture <state> <weight>` | Broadcast an `ARC_OP_POSTURE` with weight clamped to `SWARM_WEIGHT_MAX=4` |
+| `mesh stat` | Dump the mesh RX counters (sync/query/advertise/posture, plus version_mismatch, aura_fail, replay_drop, self_drop) |
 | `services` | List registered services |
 | `config <get\|set>` | Persistence management |
-| `bonsai <experiment>` | Run one of the in-tree experiments |
+| `bonsai <experiment>` | Run one of the in-tree bonsai experiments — see `bonsai/EXPERIMENT-*.md` |
 
 ## Documentation
 
