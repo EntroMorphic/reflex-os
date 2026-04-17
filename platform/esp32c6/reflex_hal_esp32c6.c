@@ -15,14 +15,30 @@
 #define SYSTIMER_UNIT0_VAL_LO   (SYSTIMER_BASE_ADDR + 0x44)
 #define REG32_HAL(a) (*(volatile uint32_t *)(a))
 #include "esp_cpu.h"
-#include "esp_rom_gpio.h"
 #include "esp_sleep.h"
 #include "esp_random.h"
 #include "esp_mac.h"
 #include "esp_system.h"
 #include "esp_log.h"
-#include "driver/gpio.h"
-#include "soc/gpio_sig_map.h"
+
+/* GPIO registers (Gap G — replaces driver/gpio.h) */
+#define GPIO_BASE_ADDR        0x60091000
+#define GPIO_OUT_W1TS         (GPIO_BASE_ADDR + 0x08)
+#define GPIO_OUT_W1TC         (GPIO_BASE_ADDR + 0x0C)
+#define GPIO_ENABLE_W1TS      (GPIO_BASE_ADDR + 0x24)
+#define GPIO_ENABLE_W1TC      (GPIO_BASE_ADDR + 0x28)
+#define GPIO_IN_REG_ADDR      (GPIO_BASE_ADDR + 0x3C)
+#define GPIO_FUNC_OUT_BASE    (GPIO_BASE_ADDR + 0x554)
+/* IO MUX — per-pin config (function select, pull-up/down, input enable) */
+#define IO_MUX_BASE_ADDR      0x60090000
+#define IO_MUX_PIN_REG(n)     (IO_MUX_BASE_ADDR + 4 + (n) * 4)
+#define IO_MUX_FUN_PU_BIT     (1 << 8)
+#define IO_MUX_FUN_PD_BIT     (1 << 7)
+#define IO_MUX_FUN_IE_BIT     (1 << 9)
+#define IO_MUX_MCU_SEL_BITS   (0x7 << 12)
+
+/* ROM function for GPIO matrix signal routing */
+extern void esp_rom_gpio_connect_out_signal(uint32_t gpio, uint32_t signal, bool invert, bool oen_inv);
 
 uint64_t reflex_hal_time_us(void) {
     /* Trigger UNIT0 value latch and read. XTAL = 40 MHz, divide by 40.
@@ -45,38 +61,44 @@ void reflex_hal_delay_us(uint32_t us) {
 }
 
 reflex_err_t reflex_hal_gpio_init_output(uint32_t pin) {
-    gpio_config_t cfg = {
-        .pin_bit_mask = (1ULL << pin),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    return (reflex_err_t)gpio_config(&cfg);
+    if (pin >= 31) return REFLEX_ERR_INVALID_ARG;
+    /* IO MUX: GPIO function (MCU_SEL=1), no pulls, no input */
+    uint32_t mux = REG32_HAL(IO_MUX_PIN_REG(pin));
+    mux &= ~(IO_MUX_MCU_SEL_BITS | IO_MUX_FUN_IE_BIT | IO_MUX_FUN_PU_BIT | IO_MUX_FUN_PD_BIT);
+    mux |= (1 << 12);  /* MCU_SEL = 1 → GPIO function */
+    REG32_HAL(IO_MUX_PIN_REG(pin)) = mux;
+    /* Enable output + set func_out_sel to 0x80 (simple GPIO output) */
+    REG32_HAL(GPIO_ENABLE_W1TS) = (1 << pin);
+    REG32_HAL(GPIO_FUNC_OUT_BASE + pin * 4) = 0x80;
+    return REFLEX_OK;
 }
 
 reflex_err_t reflex_hal_gpio_init_input(uint32_t pin, bool pullup) {
-    gpio_config_t cfg = {
-        .pin_bit_mask = (1ULL << pin),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = pullup ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    return (reflex_err_t)gpio_config(&cfg);
+    if (pin >= 31) return REFLEX_ERR_INVALID_ARG;
+    uint32_t mux = REG32_HAL(IO_MUX_PIN_REG(pin));
+    mux &= ~(IO_MUX_MCU_SEL_BITS | IO_MUX_FUN_PU_BIT | IO_MUX_FUN_PD_BIT);
+    mux |= (1 << 12) | IO_MUX_FUN_IE_BIT;  /* GPIO func + input enable */
+    if (pullup) mux |= IO_MUX_FUN_PU_BIT;
+    REG32_HAL(IO_MUX_PIN_REG(pin)) = mux;
+    /* Disable output */
+    REG32_HAL(GPIO_ENABLE_W1TC) = (1 << pin);
+    return REFLEX_OK;
 }
 
 reflex_err_t reflex_hal_gpio_set_level(uint32_t pin, int level) {
-    return (reflex_err_t)gpio_set_level((gpio_num_t)pin, level);
+    if (pin >= 31) return REFLEX_ERR_INVALID_ARG;
+    if (level) REG32_HAL(GPIO_OUT_W1TS) = (1 << pin);
+    else       REG32_HAL(GPIO_OUT_W1TC) = (1 << pin);
+    return REFLEX_OK;
 }
 
 int reflex_hal_gpio_get_level(uint32_t pin) {
-    return gpio_get_level((gpio_num_t)pin);
+    return (REG32_HAL(GPIO_IN_REG_ADDR) >> pin) & 1;
 }
 
 reflex_err_t reflex_hal_gpio_connect_out(uint32_t out_pin, uint32_t signal,
                                          bool invert, bool enable) {
-    esp_rom_gpio_connect_out_signal((gpio_num_t)out_pin, signal, invert, !enable);
+    esp_rom_gpio_connect_out_signal(out_pin, signal, invert, !enable);
     return REFLEX_OK;
 }
 
