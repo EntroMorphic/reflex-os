@@ -15,6 +15,7 @@
 
 #include "reflex_types.h"
 #include <stdint.h>
+#include <setjmp.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,13 +34,16 @@ typedef enum {
 } reflex_task_state_t;
 
 typedef struct reflex_tcb {
-    uint32_t *sp;
+    jmp_buf context;
     reflex_task_state_t state;
     int priority;
     uint32_t wake_tick;
     const char *name;
     uint32_t *stack_base;
     uint32_t stack_size;
+    void (*entry)(void *);
+    void *arg;
+    bool started;
 } reflex_tcb_t;
 
 reflex_err_t reflex_sched_init(void);
@@ -53,6 +57,8 @@ void reflex_sched_delay_ms(uint32_t ms);
 void reflex_sched_yield(void);
 
 uint32_t reflex_sched_get_tick(void);
+void reflex_sched_tick(void);
+void reflex_sched_ack_tick(void);
 
 void reflex_sched_enter_critical(void);
 void reflex_sched_exit_critical(void);

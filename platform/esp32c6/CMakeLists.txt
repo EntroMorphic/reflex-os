@@ -7,7 +7,8 @@ if(CONFIG_REFLEX_KERNEL_SCHEDULER)
                                      "../../kernel/reflex_task_kernel.c"
                                      "../../kernel/reflex_trap.c"
                                      "../../kernel/reflex_startup.c"
-                                     "../../kernel/reflex_vectors.S")
+                                     "../../kernel/reflex_vectors.S"
+                                     "../../kernel/reflex_kernel_test.c")
 else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
 endif()

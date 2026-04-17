@@ -93,8 +93,17 @@ static void manifest_demo_arc(void)
     }
 }
 
+#if CONFIG_REFLEX_KERNEL_SCHEDULER
+extern void reflex_kernel_test(void);
+#endif
+
 void app_main(void)
 {
+#if CONFIG_REFLEX_KERNEL_SCHEDULER
+    reflex_kernel_test();
+    return;
+#endif
+
     int32_t boot_count = 0;
     bool safe_mode = false;
     static reflex_vm_task_runtime_t system_vm;
