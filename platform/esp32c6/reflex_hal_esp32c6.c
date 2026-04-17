@@ -14,12 +14,15 @@
 #define SYSTIMER_UNIT0_VAL_HI   (SYSTIMER_BASE_ADDR + 0x40)
 #define SYSTIMER_UNIT0_VAL_LO   (SYSTIMER_BASE_ADDR + 0x44)
 #define REG32_HAL(a) (*(volatile uint32_t *)(a))
-#include "esp_cpu.h"
 #include "esp_sleep.h"
-#include "esp_random.h"
-#include "esp_mac.h"
-#include "esp_system.h"
 #include "esp_rom_sys.h"
+
+/* Hardware RNG register */
+#define RNG_DATA_REG     0x600B2808
+
+/* eFuse MAC address registers */
+#define EFUSE_MAC0_REG   0x600B0844
+#define EFUSE_MAC1_REG   0x600B0848
 
 /* GPIO registers (Gap G — replaces driver/gpio.h) */
 #define GPIO_BASE_ADDR        0x60091000
@@ -53,7 +56,9 @@ uint64_t reflex_hal_time_us(void) {
 }
 
 uint32_t reflex_hal_cpu_cycles(void) {
-    return esp_cpu_get_cycle_count();
+    uint32_t cycles;
+    __asm__ volatile ("csrr %0, 0x7E2" : "=r"(cycles)); /* C6 PCCR (machine mode) */
+    return cycles;
 }
 
 void reflex_hal_delay_us(uint32_t us) {
@@ -103,7 +108,8 @@ reflex_err_t reflex_hal_gpio_connect_out(uint32_t out_pin, uint32_t signal,
 }
 
 void reflex_hal_reboot(void) {
-    esp_restart();
+    extern void software_reset(void);  /* ROM function at 0x40000090 */
+    software_reset();
 }
 
 int reflex_hal_sleep_wakeup_cause(void) {
@@ -116,11 +122,23 @@ void reflex_hal_sleep_enter(uint64_t duration_us) {
 }
 
 void reflex_hal_random_fill(uint8_t *buf, size_t len) {
-    esp_fill_random(buf, len);
+    for (size_t i = 0; i < len; i += 4) {
+        uint32_t rnd = REG32_HAL(RNG_DATA_REG);
+        size_t n = (len - i < 4) ? len - i : 4;
+        for (size_t j = 0; j < n; j++) buf[i + j] = (uint8_t)(rnd >> (j * 8));
+    }
 }
 
 reflex_err_t reflex_hal_mac_read(uint8_t mac[6]) {
-    return (reflex_err_t)esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    uint32_t w0 = REG32_HAL(EFUSE_MAC0_REG);
+    uint32_t w1 = REG32_HAL(EFUSE_MAC1_REG);
+    mac[0] = (uint8_t)(w1 >> 8);
+    mac[1] = (uint8_t)(w1);
+    mac[2] = (uint8_t)(w0 >> 24);
+    mac[3] = (uint8_t)(w0 >> 16);
+    mac[4] = (uint8_t)(w0 >> 8);
+    mac[5] = (uint8_t)(w0);
+    return REFLEX_OK;
 }
 
 reflex_err_t reflex_hal_temp_init(reflex_temp_handle_t *out) {
