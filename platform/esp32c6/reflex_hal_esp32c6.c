@@ -15,6 +15,7 @@
 #define SYSTIMER_UNIT0_VAL_LO   (SYSTIMER_BASE_ADDR + 0x44)
 #define REG32_HAL(a) (*(volatile uint32_t *)(a))
 #include "esp_rom_sys.h"
+#include "esp_log.h"
 
 /* PMU registers for deep sleep */
 #define PMU_BASE              0x600B0000
@@ -185,14 +186,19 @@ reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
 }
 
 void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
-    const char *prefix = (level == REFLEX_LOG_LEVEL_ERROR) ? "E" :
-                         (level == REFLEX_LOG_LEVEL_WARN)  ? "W" :
-                         (level == REFLEX_LOG_LEVEL_DEBUG) ? "D" : "I";
-    char buf[256];
+    /* Use esp_log_writev to route through the VFS layer to the
+     * USB-JTAG console. esp_rom_printf goes to UART0 which is
+     * not connected on the C6's USB-JTAG interface. */
+    esp_log_level_t esp_level;
+    switch (level) {
+        case REFLEX_LOG_LEVEL_ERROR: esp_level = ESP_LOG_ERROR; break;
+        case REFLEX_LOG_LEVEL_WARN:  esp_level = ESP_LOG_WARN;  break;
+        case REFLEX_LOG_LEVEL_INFO:  esp_level = ESP_LOG_INFO;  break;
+        case REFLEX_LOG_LEVEL_DEBUG: esp_level = ESP_LOG_DEBUG;  break;
+        default:                     esp_level = ESP_LOG_INFO;   break;
+    }
     va_list args;
     va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
+    esp_log_writev(esp_level, tag, fmt, args);
     va_end(args);
-    esp_rom_printf("%s (%lu) %s: %s\n", prefix,
-                   (unsigned long)(reflex_hal_time_us() / 1000), tag, buf);
 }
