@@ -50,6 +50,12 @@ void reflex_hal_sleep_enter(uint64_t duration_us);
 void reflex_hal_random_fill(uint8_t *buf, size_t len);
 reflex_err_t reflex_hal_mac_read(uint8_t mac[6]);
 
+/* --- Temperature Sensor --- */
+
+typedef void *reflex_temp_handle_t;
+reflex_err_t reflex_hal_temp_init(reflex_temp_handle_t *out);
+reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius);
+
 /* --- Log --- */
 
 #define REFLEX_LOG_LEVEL_ERROR   1

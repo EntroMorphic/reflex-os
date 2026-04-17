@@ -4,6 +4,7 @@
  */
 
 #include "reflex_hal.h"
+#include "driver/temperature_sensor.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -85,6 +86,21 @@ void reflex_hal_random_fill(uint8_t *buf, size_t len) {
 
 reflex_err_t reflex_hal_mac_read(uint8_t mac[6]) {
     return (reflex_err_t)esp_read_mac(mac, ESP_MAC_WIFI_STA);
+}
+
+reflex_err_t reflex_hal_temp_init(reflex_temp_handle_t *out) {
+    temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 50);
+    temperature_sensor_handle_t h = NULL;
+    esp_err_t rc = temperature_sensor_install(&cfg, &h);
+    if (rc != ESP_OK) return (reflex_err_t)rc;
+    rc = temperature_sensor_enable(h);
+    if (rc != ESP_OK) return (reflex_err_t)rc;
+    *out = (reflex_temp_handle_t)h;
+    return REFLEX_OK;
+}
+
+reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
+    return (reflex_err_t)temperature_sensor_get_celsius((temperature_sensor_handle_t)h, celsius);
 }
 
 void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
