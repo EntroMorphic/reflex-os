@@ -34,21 +34,6 @@ idf_component_register(SRCS ${REFLEX_PLATFORM_SRCS}
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC "REFLEX_RTC_DATA_ATTR=__attribute__((section(\".rtc.data\")))")
 
-if(CONFIG_REFLEX_KERNEL_SCHEDULER)
-    target_link_libraries(${COMPONENT_LIB} INTERFACE
-        "-Wl,--wrap=esp_startup_start_app"
-        "-Wl,--wrap=xTaskCreatePinnedToCore"
-        "-Wl,--wrap=vTaskDelay"
-        "-Wl,--wrap=vTaskDelete"
-        "-Wl,--wrap=xQueueCreate"
-        "-Wl,--wrap=xQueueGenericCreate"
-        "-Wl,--wrap=xQueueGenericSend"
-        "-Wl,--wrap=xQueueReceive"
-        "-Wl,--wrap=vTaskStartScheduler"
-        "-Wl,--wrap=xTaskGetSchedulerState"
-        "-Wl,--wrap=xTaskGetCurrentTaskHandle"
-        "-Wl,--wrap=vPortEnterCritical"
-        "-Wl,--wrap=vPortExitCritical"
-        "-Wl,--wrap=vPortYield"
-    )
-endif()
+# FreeRTOS is the scheduling HAL. The Reflex kernel scheduler
+# operates as a supervisor task on top of FreeRTOS, managing
+# purpose-modulated priorities and holon lifecycle.

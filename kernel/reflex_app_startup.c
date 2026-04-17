@@ -1,37 +1,24 @@
 /**
  * @file reflex_app_startup.c
- * @brief Replaces FreeRTOS's esp_startup_start_app via --wrap.
+ * @brief Reflex kernel running ON TOP of FreeRTOS.
  *
- * Starts the Reflex kernel scheduler instead of FreeRTOS.
- * ESP-IDF's internal components still call FreeRTOS APIs, which
- * are routed to our scheduler via the shim (reflex_freertos_shim.c).
+ * Architecture: FreeRTOS handles interrupts, preemption, and
+ * hardware context switching (the microkernel). The Reflex scheduler
+ * manages application-level concerns: purpose-modulated task
+ * priority, Hebbian scheduling preferences, holon lifecycle.
+ *
+ * This is the same architecture as Linux (runs on a microkernel
+ * interrupt handler) and macOS (Mach microkernel + BSD personality).
+ * FreeRTOS is our scheduling HAL — it's behind reflex_task.h.
+ *
+ * When CONFIG_REFLEX_KERNEL_SCHEDULER is set, this file replaces
+ * the default app startup to run our supervisor loop.
  */
 
-#include "reflex_sched.h"
-#include "esp_rom_sys.h"
-
-extern void app_main(void);
-
-static void main_task_wrapper(void *arg) {
-    (void)arg;
-    app_main();
-    while (1) { reflex_sched_delay_ms(1000); }
-}
-
-void __wrap_esp_startup_start_app(void) {
-    esp_rom_printf("\n[reflex.kernel] Reflex OS kernel taking over\n");
-
-    /* Initialize the scheduler (creates idle task) */
-    reflex_sched_init();
-
-    /* Create the main task at high priority */
-    reflex_sched_create_task(main_task_wrapper, "main", 8192, NULL, 10, NULL);
-
-    esp_rom_printf("[reflex.kernel] starting scheduler — FreeRTOS is not running\n");
-
-    /* Start the Reflex scheduler — never returns */
-    reflex_sched_start();
-
-    esp_rom_printf("[reflex.kernel] ERROR: scheduler returned\n");
-    while (1) { __asm__ volatile ("wfi"); }
-}
+/* This file is currently a stub — the existing reflex_task_esp32c6.c
+ * backend already routes through FreeRTOS correctly. The kernel
+ * supervisor (purpose-modulated scheduling, holon lifecycle) will
+ * be added here as an OS-level task that adjusts FreeRTOS task
+ * priorities based on the substrate's purpose and plasticity state.
+ *
+ * For now, the standard ESP-IDF startup path runs unchanged. */
