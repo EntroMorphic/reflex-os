@@ -27,7 +27,7 @@
 #include "reflex_vm_loader.h"
 #include "goose.h"
 
-#define REFLEX_BOOT_LOOP_THRESHOLD 3
+#define REFLEX_BOOT_LOOP_THRESHOLD 10
 #define REFLEX_STABILITY_MS 10000
 
 static void goose_supervisor_task(void *arg)
@@ -116,16 +116,16 @@ void app_main(void)
     if (boot_count >= REFLEX_BOOT_LOOP_THRESHOLD) safe_mode = true;
 
     if (safe_mode) {
-        REFLEX_LOGW(REFLEX_BOOT_TAG, "safe mode active");
+        REFLEX_LOGW(REFLEX_BOOT_TAG, "safe mode detected, resetting counters");
+        boot_count = 0;
         reflex_config_set_boot_count(0);
         reflex_config_set_safe_mode(false);
-        reflex_shell_run();
-        return;
     }
 
     reflex_config_set_boot_count(boot_count + 1);
     
     // 3. Substrate Startup
+    REFLEX_LOGI(REFLEX_BOOT_TAG, "starting substrate (boot_count=%ld)", (long)boot_count);
     if (reflex_event_bus_init() != REFLEX_OK || reflex_event_bus_start() != REFLEX_OK) {
         reflex_shell_run(); return;
     }

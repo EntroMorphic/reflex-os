@@ -24,11 +24,10 @@ static reflex_err_t reflex_config_set_default_str(reflex_kv_handle_t handle, con
     size_t size = 0;
     reflex_err_t err = reflex_kv_get_str(handle, key, NULL, &size);
 
-    if (err == REFLEX_ERR_NOT_FOUND) {
+    if (err != REFLEX_OK) {
         return reflex_kv_set_str(handle, key, value);
     }
-
-    return err == REFLEX_OK ? REFLEX_OK : err;
+    return REFLEX_OK;
 }
 
 static reflex_err_t reflex_config_set_default_i32(reflex_kv_handle_t handle, const char *key, int32_t value)
@@ -36,11 +35,10 @@ static reflex_err_t reflex_config_set_default_i32(reflex_kv_handle_t handle, con
     int32_t existing = 0;
     reflex_err_t err = reflex_kv_get_i32(handle, key, &existing);
 
-    if (err == REFLEX_ERR_NOT_FOUND) {
+    if (err != REFLEX_OK) {
         return reflex_kv_set_i32(handle, key, value);
     }
-
-    return err == REFLEX_OK ? REFLEX_OK : err;
+    return REFLEX_OK;
 }
 
 static reflex_err_t reflex_config_set_default_u8(reflex_kv_handle_t handle, const char *key, uint8_t value)
@@ -48,11 +46,10 @@ static reflex_err_t reflex_config_set_default_u8(reflex_kv_handle_t handle, cons
     uint8_t existing = 0;
     reflex_err_t err = reflex_kv_get_u8(handle, key, &existing);
 
-    if (err == REFLEX_ERR_NOT_FOUND) {
+    if (err != REFLEX_OK) {
         return reflex_kv_set_u8(handle, key, value);
     }
-
-    return err == REFLEX_OK ? REFLEX_OK : err;
+    return REFLEX_OK;
 }
 
 static reflex_err_t reflex_config_get_string(const char *key, char *out, size_t out_len)
