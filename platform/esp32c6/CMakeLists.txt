@@ -12,7 +12,7 @@ else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
 endif()
 
-set(REFLEX_PLATFORM_REQUIRES driver esp_timer nvs_flash log)
+set(REFLEX_PLATFORM_REQUIRES driver nvs_flash log)
 set(REFLEX_PLATFORM_PRIV_REQUIRES esp_driver_tsens)
 
 # Radio backend selection

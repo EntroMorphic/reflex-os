@@ -8,7 +8,12 @@
 
 #include <stdarg.h>
 #include <stdio.h>
-#include "esp_timer.h"
+/* SYSTIMER direct read (Gap C — replaces esp_timer_get_time) */
+#define SYSTIMER_BASE_ADDR      0x60004000
+#define SYSTIMER_UNIT0_OP       (SYSTIMER_BASE_ADDR + 0x04)
+#define SYSTIMER_UNIT0_VAL_HI   (SYSTIMER_BASE_ADDR + 0x40)
+#define SYSTIMER_UNIT0_VAL_LO   (SYSTIMER_BASE_ADDR + 0x44)
+#define REG32_HAL(a) (*(volatile uint32_t *)(a))
 #include "esp_cpu.h"
 #include "esp_rom_gpio.h"
 #include "esp_sleep.h"
@@ -20,7 +25,15 @@
 #include "soc/gpio_sig_map.h"
 
 uint64_t reflex_hal_time_us(void) {
-    return (uint64_t)esp_timer_get_time();
+    /* Trigger UNIT0 value latch and read. XTAL = 40 MHz, divide by 40.
+     * Bounded spin (max 20 iterations) — the latch completes in ~2 cycles. */
+    REG32_HAL(SYSTIMER_UNIT0_OP) = (1U << 30);
+    for (volatile int i = 0; i < 20; i++) {
+        if (REG32_HAL(SYSTIMER_UNIT0_OP) & (1U << 29)) break;
+    }
+    uint32_t hi = REG32_HAL(SYSTIMER_UNIT0_VAL_HI);
+    uint32_t lo = REG32_HAL(SYSTIMER_UNIT0_VAL_LO);
+    return (((uint64_t)hi << 32) | lo) / 40;
 }
 
 uint32_t reflex_hal_cpu_cycles(void) {

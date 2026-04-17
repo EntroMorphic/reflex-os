@@ -1,6 +1,6 @@
 idf_component_register(SRCS "boot.c" "log.c" "service_manager.c" "event_bus.c" "fabric.c"
                        INCLUDE_DIRS "include" "../include"
-                       REQUIRES log esp_timer vm esp32c6)
+                       REQUIRES log vm esp32c6)
 
 execute_process(COMMAND git describe --always --dirty
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
