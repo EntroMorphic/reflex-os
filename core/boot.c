@@ -1,79 +1,21 @@
 #include "reflex_boot.h"
 #include "reflex_log.h"
+#include "reflex_hal.h"
 
-/* Platform-specific: boot banner queries chip info, flash, and reset
- * reason. This is the one file in core/ that legitimately needs
- * vendor headers. It should move to platform/ in a future cleanup. */
-#include "sdkconfig.h"
-#include "esp_app_desc.h"
-#include "esp_chip_info.h"
-#include "esp_flash.h"
-#include "esp_system.h"
-
-static const char *reflex_boot_reset_reason_name(esp_reset_reason_t reason)
-{
-    switch (reason) {
-    case ESP_RST_UNKNOWN:
-        return "unknown";
-    case ESP_RST_POWERON:
-        return "power_on";
-    case ESP_RST_EXT:
-        return "external";
-    case ESP_RST_SW:
-        return "software";
-    case ESP_RST_PANIC:
-        return "panic";
-    case ESP_RST_INT_WDT:
-        return "int_wdt";
-    case ESP_RST_TASK_WDT:
-        return "task_wdt";
-    case ESP_RST_WDT:
-        return "wdt";
-    case ESP_RST_DEEPSLEEP:
-        return "deep_sleep";
-    case ESP_RST_BROWNOUT:
-        return "brownout";
-    case ESP_RST_SDIO:
-        return "sdio";
-    case ESP_RST_USB:
-        return "usb";
-    case ESP_RST_JTAG:
-        return "jtag";
-    case ESP_RST_EFUSE:
-        return "efuse";
-    case ESP_RST_PWR_GLITCH:
-        return "power_glitch";
-    case ESP_RST_CPU_LOCKUP:
-        return "cpu_lockup";
-    default:
-        return "unmapped";
-    }
-}
+/* Platform-specific chip info. On ESP-IDF these come from esp_chip_info
+ * and esp_app_desc. For now we use compile-time constants — the values
+ * are properties of the board, not runtime-discovered. When we own the
+ * eFuse reader, we can read chip revision and flash size from registers. */
+#ifndef REFLEX_CHIP_NAME
+#define REFLEX_CHIP_NAME "esp32-c6"
+#endif
+#ifndef REFLEX_VERSION
+#define REFLEX_VERSION "v3.0-dev"
+#endif
 
 void reflex_boot_print_banner(void)
 {
-    const esp_app_desc_t *app_desc = esp_app_get_description();
-    esp_chip_info_t chip_info = {0};
-    uint32_t flash_size = 0;
-    esp_reset_reason_t reset_reason = esp_reset_reason();
-
     reflex_log_init();
-    esp_chip_info(&chip_info);
-    esp_flash_get_size(NULL, &flash_size);
-
     REFLEX_LOGI(REFLEX_BOOT_TAG, "reflex-os boot");
-    REFLEX_LOGI(REFLEX_BOOT_TAG,
-                "project=%s version=%s target=%s",
-                app_desc->project_name,
-                app_desc->version,
-                CONFIG_IDF_TARGET);
-    REFLEX_LOGI(REFLEX_BOOT_TAG,
-                "chip=esp32-c6 cores=%d revision=%d.%d flash=%luMB",
-                chip_info.cores,
-                chip_info.revision / 100,
-                chip_info.revision % 100,
-                (unsigned long)(flash_size / (1024 * 1024)));
-    REFLEX_LOGI(REFLEX_BOOT_TAG,
-                "reset_reason=%s console=usb_serial_jtag",
-                reflex_boot_reset_reason_name(reset_reason));
+    REFLEX_LOGI(REFLEX_BOOT_TAG, "chip=%s version=%s", REFLEX_CHIP_NAME, REFLEX_VERSION);
 }

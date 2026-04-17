@@ -15,7 +15,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "esp_app_desc.h"
 #include "reflex_types.h"
 #include "reflex_hal.h"
 #include "reflex_task.h"

@@ -30,8 +30,34 @@ void reflex_hal_delay_us(uint32_t us) {
     esp_rom_delay_us(us);
 }
 
+reflex_err_t reflex_hal_gpio_init_output(uint32_t pin) {
+    gpio_config_t cfg = {
+        .pin_bit_mask = (1ULL << pin),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    return (reflex_err_t)gpio_config(&cfg);
+}
+
+reflex_err_t reflex_hal_gpio_init_input(uint32_t pin, bool pullup) {
+    gpio_config_t cfg = {
+        .pin_bit_mask = (1ULL << pin),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = pullup ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    return (reflex_err_t)gpio_config(&cfg);
+}
+
 reflex_err_t reflex_hal_gpio_set_level(uint32_t pin, int level) {
     return (reflex_err_t)gpio_set_level((gpio_num_t)pin, level);
+}
+
+int reflex_hal_gpio_get_level(uint32_t pin) {
+    return gpio_get_level((gpio_num_t)pin);
 }
 
 reflex_err_t reflex_hal_gpio_connect_out(uint32_t out_pin, uint32_t signal,

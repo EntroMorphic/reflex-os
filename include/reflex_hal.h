@@ -32,7 +32,10 @@ void     reflex_hal_delay_us(uint32_t us);
 
 /* --- GPIO --- */
 
+reflex_err_t reflex_hal_gpio_init_output(uint32_t pin);
+reflex_err_t reflex_hal_gpio_init_input(uint32_t pin, bool pullup);
 reflex_err_t reflex_hal_gpio_set_level(uint32_t pin, int level);
+int          reflex_hal_gpio_get_level(uint32_t pin);
 reflex_err_t reflex_hal_gpio_connect_out(uint32_t out_pin, uint32_t signal,
                                          bool invert, bool enable);
 
