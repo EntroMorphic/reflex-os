@@ -138,6 +138,10 @@ uint32_t reflex_sched_get_tick(void) {
     return s_tick_count;
 }
 
+reflex_tcb_t *reflex_sched_get_current(void) {
+    return s_current;
+}
+
 /* ---- Critical sections ---- */
 
 void reflex_sched_enter_critical(void) {

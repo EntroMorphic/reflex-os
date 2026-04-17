@@ -9,7 +9,8 @@ if(CONFIG_REFLEX_KERNEL_SCHEDULER)
                                      "../../kernel/reflex_startup.c"
                                      "../../kernel/reflex_vectors.S"
                                      "../../kernel/reflex_kernel_test.c"
-                                     "../../kernel/reflex_app_startup.c")
+                                     "../../kernel/reflex_app_startup.c"
+                                     "../../kernel/reflex_freertos_shim.c")
 else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
 endif()
@@ -34,5 +35,20 @@ idf_component_register(SRCS ${REFLEX_PLATFORM_SRCS}
 target_compile_definitions(${COMPONENT_LIB} PUBLIC "REFLEX_RTC_DATA_ATTR=__attribute__((section(\".rtc.data\")))")
 
 if(CONFIG_REFLEX_KERNEL_SCHEDULER)
-    target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=esp_startup_start_app")
+    target_link_libraries(${COMPONENT_LIB} INTERFACE
+        "-Wl,--wrap=esp_startup_start_app"
+        "-Wl,--wrap=xTaskCreatePinnedToCore"
+        "-Wl,--wrap=vTaskDelay"
+        "-Wl,--wrap=vTaskDelete"
+        "-Wl,--wrap=xQueueCreate"
+        "-Wl,--wrap=xQueueGenericCreate"
+        "-Wl,--wrap=xQueueGenericSend"
+        "-Wl,--wrap=xQueueReceive"
+        "-Wl,--wrap=vTaskStartScheduler"
+        "-Wl,--wrap=xTaskGetSchedulerState"
+        "-Wl,--wrap=xTaskGetCurrentTaskHandle"
+        "-Wl,--wrap=vPortEnterCritical"
+        "-Wl,--wrap=vPortExitCritical"
+        "-Wl,--wrap=vPortYield"
+    )
 endif()

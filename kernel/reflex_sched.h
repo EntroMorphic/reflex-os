@@ -59,6 +59,7 @@ void reflex_sched_yield(void);
 uint32_t reflex_sched_get_tick(void);
 void reflex_sched_tick(void);
 void reflex_sched_ack_tick(void);
+reflex_tcb_t *reflex_sched_get_current(void);
 
 void reflex_sched_enter_critical(void);
 void reflex_sched_exit_critical(void);
