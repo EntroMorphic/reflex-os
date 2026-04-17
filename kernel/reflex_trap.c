@@ -26,13 +26,9 @@ uint32_t *reflex_trap_handler(uint32_t *frame) {
         /* Interrupt */
         uint32_t cause = mcause & 0x7FF;
         if (cause == MCAUSE_MACHINE_TIMER) {
-            /* Timer tick — advance the scheduler */
             reflex_sched_tick();
-            /* TODO: acknowledge the timer interrupt by writing the
-             * next compare value to the SYSTIMER comparator register.
-             * For now, the timer setup is done by the ESP-IDF startup
-             * code. When we own startup (Dep 10 full), we'll configure
-             * the SYSTIMER ourselves. */
+            extern void reflex_sched_ack_tick(void);
+            reflex_sched_ack_tick();
         }
         /* Other interrupts can be dispatched here */
     } else {

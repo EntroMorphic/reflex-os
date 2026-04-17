@@ -12,6 +12,23 @@
 #include <string.h>
 #include <stdlib.h>
 
+/* SYSTIMER registers for tick generation (Gap H) */
+#define SYSTIMER_BASE           0x60004000
+#define SYSTIMER_CONF           (SYSTIMER_BASE + 0x00)
+#define SYSTIMER_UNIT0_OP       (SYSTIMER_BASE + 0x04)
+#define SYSTIMER_UNIT0_VAL_LO   (SYSTIMER_BASE + 0x44)
+#define SYSTIMER_UNIT0_VAL_HI   (SYSTIMER_BASE + 0x40)
+#define SYSTIMER_TARGET0_LO     (SYSTIMER_BASE + 0x20)
+#define SYSTIMER_TARGET0_HI     (SYSTIMER_BASE + 0x1C)
+#define SYSTIMER_TARGET0_CONF   (SYSTIMER_BASE + 0x34)
+#define SYSTIMER_COMP0_LOAD     (SYSTIMER_BASE + 0x50)
+#define SYSTIMER_INT_ENA        (SYSTIMER_BASE + 0x64)
+#define SYSTIMER_INT_CLR        (SYSTIMER_BASE + 0x6C)
+#define REG32(addr) (*(volatile uint32_t *)(addr))
+
+/* XTAL = 40 MHz. For 1 kHz tick: period = 40000 */
+#define SYSTIMER_TICK_PERIOD    (40000000 / REFLEX_SCHED_TICK_HZ)
+
 /* ---- Global scheduler state ---- */
 
 static reflex_tcb_t s_tasks[REFLEX_SCHED_MAX_TASKS];
@@ -228,10 +245,33 @@ reflex_err_t reflex_sched_init(void) {
                                     NULL, 0, NULL);
 }
 
+static void setup_systimer_tick(void) {
+    /* Enable SYSTIMER clock */
+    REG32(SYSTIMER_CONF) |= (1 << 0);  /* CLK_FO = force on */
+
+    /* Configure TARGET0 in periodic mode */
+    REG32(SYSTIMER_TARGET0_CONF) = (1 << 30)     /* period mode */
+                                 | SYSTIMER_TICK_PERIOD;
+    REG32(SYSTIMER_COMP0_LOAD) = 1;              /* load the config */
+
+    /* Enable TARGET0 work */
+    REG32(SYSTIMER_CONF) |= (1 << 24);           /* TARGET0_WORK_EN */
+
+    /* Enable TARGET0 interrupt */
+    REG32(SYSTIMER_INT_CLR) = (1 << 0);           /* clear pending */
+    REG32(SYSTIMER_INT_ENA) |= (1 << 0);          /* enable TARGET0 int */
+}
+
+/* Called from the trap handler to acknowledge the tick */
+void reflex_sched_ack_tick(void) {
+    REG32(SYSTIMER_INT_CLR) = (1 << 0);
+}
+
 reflex_err_t reflex_sched_start(void) {
     reflex_tcb_t *first = pick_next();
     if (!first) return REFLEX_ERR_INVALID_STATE;
 
+    setup_systimer_tick();
     s_started = true;
     first->state = REFLEX_TASK_STATE_RUNNING;
     s_current = first;
