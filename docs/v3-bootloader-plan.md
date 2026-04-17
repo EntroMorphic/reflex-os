@@ -2,6 +2,8 @@
 
 **Goal:** Reflex OS owns the second-stage bootloader. The boot chain becomes: ROM bootloader (silicon, immutable) → Reflex bootloader (ours) → Reflex OS kernel.
 
+**Current state (Phase 0):** Reflex Boot0 owns the boot *policy* — partition selection, boot-loop protection, diagnostics. The boot *mechanism* is still ESP-IDF's `bootloader_support` library (~17K lines: clock init, flash config, cache/MMU, WDT, console, image loading). Our `reflex_boot0.c` is the entry point that calls into that library. The architecture is correct; the code ownership is incremental.
+
 ---
 
 ## The Boot Chain Today

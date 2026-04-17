@@ -3,5 +3,3 @@ idf_component_register(SRCS "reflex_boot0.c"
 
 idf_build_get_property(scripts BOOTLOADER_LINKER_SCRIPT)
 target_linker_script(${COMPONENT_LIB} INTERFACE "${scripts}")
-
-target_link_libraries(${COMPONENT_LIB} INTERFACE "-u bootloader_hooks_include")
