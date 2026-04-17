@@ -13,4 +13,12 @@ menu "Reflex OS"
         config REFLEX_RADIO_802154
             bool "IEEE 802.15.4 (blob-free)"
     endchoice
+    config REFLEX_KERNEL_SCHEDULER
+        bool "Use Reflex kernel scheduler (replaces FreeRTOS)"
+        default n
+        help
+            Use the Reflex OS kernel scheduler instead of FreeRTOS.
+            Currently cooperative-only: tasks must call yield or delay
+            explicitly. Preemptive tick-driven switching requires the
+            assembly context save/restore from Dependency 10.
 endmenu
