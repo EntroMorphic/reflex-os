@@ -4,7 +4,10 @@ set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "reflex_kv_esp32c6.c"
 # Task/scheduler backend selection
 if(CONFIG_REFLEX_KERNEL_SCHEDULER)
     list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_sched.c"
-                                     "../../kernel/reflex_task_kernel.c")
+                                     "../../kernel/reflex_task_kernel.c"
+                                     "../../kernel/reflex_trap.c"
+                                     "../../kernel/reflex_startup.c"
+                                     "../../kernel/reflex_vectors.S")
 else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
 endif()
