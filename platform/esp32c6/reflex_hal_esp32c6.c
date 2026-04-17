@@ -14,8 +14,32 @@
 #define SYSTIMER_UNIT0_VAL_HI   (SYSTIMER_BASE_ADDR + 0x40)
 #define SYSTIMER_UNIT0_VAL_LO   (SYSTIMER_BASE_ADDR + 0x44)
 #define REG32_HAL(a) (*(volatile uint32_t *)(a))
-#include "esp_sleep.h"
 #include "esp_rom_sys.h"
+
+/* PMU registers for deep sleep */
+#define PMU_BASE              0x600B0000
+#define PMU_SLP_WAKEUP_CNTL0 (PMU_BASE + 0x120)  /* bit 31 = sleep_req */
+#define PMU_SLP_WAKEUP_CNTL1 (PMU_BASE + 0x124)  /* wakeup enable mask */
+
+/* LP timer for timed wake */
+#define LP_TIMER_BASE         0x600B0C00
+#define LP_TIMER_TAR0_LOW     (LP_TIMER_BASE + 0x00)
+#define LP_TIMER_TAR0_HIGH    (LP_TIMER_BASE + 0x04)
+#define LP_TIMER_UPDATE       (LP_TIMER_BASE + 0x10)
+#define LP_TIMER_MAIN_BUF0_LO (LP_TIMER_BASE + 0x1C)
+#define LP_TIMER_MAIN_BUF0_HI (LP_TIMER_BASE + 0x20)
+
+/* LP timer runs at ~32 kHz (RC_SLOW). Use esp_sleep for now because
+ * the full PMU sleep configuration (power domain retention, voltage
+ * regulator timing, analog state) requires ~200 lines of register
+ * writes with chip-revision-specific calibration constants from
+ * pmu_param.c. The sleep TRIGGER is one bit (PMU_SLEEP_REQ), but
+ * the PREPARATION is what makes it safe.
+ *
+ * For the sleep command and wakeup cause, we keep esp_sleep.h as
+ * the one remaining ESP-IDF dependency in the HAL. It will be
+ * replaced when the full PMU configuration is extracted. */
+#include "esp_sleep.h"
 
 /* Hardware RNG register */
 #define RNG_DATA_REG     0x600B2808
