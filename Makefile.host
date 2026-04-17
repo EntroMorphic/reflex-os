@@ -1,0 +1,30 @@
+# Reflex OS Host Test Build
+#
+# Builds and runs the VM self-checks on the host machine (macOS/Linux).
+# No ESP-IDF, no toolchain, no hardware required.
+#
+# Usage:
+#   make -f Makefile.host test
+
+CC ?= cc
+CFLAGS = -Wall -Wextra -O2 -DREFLEX_VM_STANDALONE -DREFLEX_VM_HOST_TEST
+# Stub headers provide reflex_fabric.h, goose.h, etc. for host builds.
+# They must be searched BEFORE the real include paths.
+INCLUDES = -Itests/stub_headers -Iinclude -Ivm/include -Ikernel
+
+# Portable VM files only — interpreter and cache need GOOSE stubs
+# that are more complex than reasonable for a first host build.
+VM_SRCS = vm/ternary.c vm/mmu.c vm/loader.c
+TEST_SRCS = tests/vm_test_main.c tests/vm_stubs.c
+
+.PHONY: test clean
+
+test: build-host/reflex_vm_test
+	./build-host/reflex_vm_test
+
+build-host/reflex_vm_test: $(VM_SRCS) $(TEST_SRCS)
+	@mkdir -p build-host
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(VM_SRCS) $(TEST_SRCS)
+
+clean:
+	rm -rf build-host

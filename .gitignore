@@ -34,3 +34,4 @@ session-ses_*.md
 # OS metadata
 .DS_Store
 Thumbs.db
+build-host/

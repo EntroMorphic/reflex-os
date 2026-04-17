@@ -1,0 +1,53 @@
+# Reflex OS Standalone Build
+#
+# Builds the platform-independent components without ESP-IDF.
+# Currently: VM layer + ternary primitives + self-checks.
+#
+# Usage (host testing):
+#   mkdir build-host && cd build-host
+#   cmake -f ../CMakeLists.standalone.txt ..
+#   make
+#   ./reflex_vm_test
+#
+# Usage (RISC-V cross-compile):
+#   mkdir build-rv && cd build-rv
+#   cmake -DCMAKE_TOOLCHAIN_FILE=../standalone.cmake -f ../CMakeLists.standalone.txt ..
+#   make
+
+cmake_minimum_required(VERSION 3.16)
+project(reflex_os_standalone C)
+
+# Portable include paths
+include_directories(
+    include
+    vm/include
+    kernel
+)
+
+# Compile definitions for standalone mode
+add_definitions(-DREFLEX_VM_STANDALONE)
+
+# --- VM library (fully platform-independent) ---
+add_library(reflex_vm STATIC
+    vm/ternary.c
+    vm/interpreter.c
+    vm/mmu.c
+    vm/cache.c
+    vm/loader.c
+)
+
+# --- Host test executable ---
+# Only build on host (not cross-compile)
+if(NOT CMAKE_CROSSCOMPILING)
+    add_executable(reflex_vm_test
+        vm/ternary.c
+        vm/interpreter.c
+        vm/mmu.c
+        vm/cache.c
+        vm/loader.c
+    )
+    target_compile_definitions(reflex_vm_test PRIVATE REFLEX_VM_STANDALONE REFLEX_VM_HOST_TEST)
+
+    # Add a simple test main
+    target_sources(reflex_vm_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/vm_test_main.c)
+endif()
