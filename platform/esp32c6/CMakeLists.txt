@@ -34,6 +34,9 @@ idf_component_register(SRCS ${REFLEX_PLATFORM_SRCS}
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC "REFLEX_RTC_DATA_ATTR=__attribute__((section(\".rtc.data\")))")
 
-# FreeRTOS is the scheduling HAL. The Reflex kernel scheduler
-# operates as a supervisor task on top of FreeRTOS, managing
-# purpose-modulated priorities and holon lifecycle.
+if(CONFIG_REFLEX_KERNEL_SCHEDULER)
+    # Wrap xPortStartScheduler to insert the Reflex kernel banner.
+    # FreeRTOS runs as the scheduling HAL; the Reflex kernel manages
+    # policy (purpose-modulated priorities, holon lifecycle).
+    target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=xPortStartScheduler")
+endif()
