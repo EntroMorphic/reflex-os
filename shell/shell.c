@@ -5,25 +5,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "driver/pulse_cnt.h"
 #include "driver/rmt_tx.h"
 #include "driver/rmt_encoder.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 #include "reflex_types.h"
 #include "reflex_hal.h"
 #include "reflex_task.h"
-#include "esp_heap_caps.h"
-#include "esp_system.h"
-#include "esp_timer.h"
-#include "esp_netif.h"
-#include "esp_mac.h"
-#include "esp_rom_gpio.h"
 #include "soc/gpio_sig_map.h"
 
 #include "reflex_log.h"
@@ -40,7 +31,6 @@
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
 #include "goose.h"
-#include "esp_sleep.h"
 
 #define REFLEX_SHELL_LINE_MAX 256
 #define REFLEX_SHELL_ARGV_MAX 8
@@ -54,7 +44,7 @@ typedef enum {
 } reflex_bonsai_edge_t;
 
 typedef struct {
-    TaskHandle_t handle;
+    reflex_task_handle_t handle;
     bool running;
     int last_level;
     int current_level;
@@ -65,7 +55,7 @@ typedef struct {
 } reflex_bonsai_exp1_state_t;
 
 typedef struct {
-    TaskHandle_t handle;
+    reflex_task_handle_t handle;
     bool running;
     reflex_bonsai_edge_t phase;
     uint32_t phase_steps;
@@ -73,7 +63,7 @@ typedef struct {
 } reflex_bonsai_exp2_state_t;
 
 typedef struct {
-    TaskHandle_t handle;
+    reflex_task_handle_t handle;
     bool running;
     reflex_bonsai_edge_t field_a;
     reflex_bonsai_edge_t field_b;
@@ -157,7 +147,7 @@ static void reflex_shell_config_set(const char *key, const char *value)
 static void reflex_shell_bonsai_exp1_task(void *arg) {
     reflex_bonsai_exp1_state_t *s = (reflex_bonsai_exp1_state_t *)arg;
     while (s->running) {
-        int l = gpio_get_level(REFLEX_BUTTON_PIN);
+        int l = reflex_hal_gpio_get_level(REFLEX_BUTTON_PIN);
         if (l > s->last_level) { s->last_edge = REFLEX_BONSAI_EDGE_POS; s->rising_edges++; reflex_led_set(true); }
         else if (l < s->last_level) { s->last_edge = REFLEX_BONSAI_EDGE_NEG; s->falling_edges++; reflex_led_set(false); }
         else { s->last_edge = REFLEX_BONSAI_EDGE_ZERO; s->stable_samples++; }
@@ -202,7 +192,7 @@ static void reflex_shell_bonsai_exp3a_task(void *arg) {
 static void reflex_shell_bonsai_exp1_start(void) {
     if (reflex_shell_bonsai_exp1.running) return;
     reflex_shell_bonsai_exp1.running = true;
-    xTaskCreate(reflex_shell_bonsai_exp1_task, "bonsai-exp1", 2048, &reflex_shell_bonsai_exp1, 6, &reflex_shell_bonsai_exp1.handle);
+    reflex_task_create(reflex_shell_bonsai_exp1_task, "bonsai-exp1", 2048, &reflex_shell_bonsai_exp1, 6, &reflex_shell_bonsai_exp1.handle);
 }
 static void reflex_shell_bonsai_exp1_status(void) {
     reflex_bonsai_exp1_state_t *s = &reflex_shell_bonsai_exp1;
@@ -212,7 +202,7 @@ static void reflex_shell_bonsai_exp1_status(void) {
 static void reflex_shell_bonsai_exp2_start(void) {
     if (reflex_shell_bonsai_exp2.running) return;
     reflex_shell_bonsai_exp2.running = true;
-    xTaskCreate(reflex_shell_bonsai_exp2_task, "bonsai-exp2", 2048, &reflex_shell_bonsai_exp2, 6, &reflex_shell_bonsai_exp2.handle);
+    reflex_task_create(reflex_shell_bonsai_exp2_task, "bonsai-exp2", 2048, &reflex_shell_bonsai_exp2, 6, &reflex_shell_bonsai_exp2.handle);
 }
 static void reflex_shell_bonsai_exp2_status(void) {
     reflex_bonsai_exp2_state_t *s = &reflex_shell_bonsai_exp2;
@@ -222,7 +212,7 @@ static void reflex_shell_bonsai_exp2_status(void) {
 static void reflex_shell_bonsai_exp3a_start(void) {
     if (reflex_shell_bonsai_exp3a.running) return;
     reflex_shell_bonsai_exp3a.running = true;
-    xTaskCreate(reflex_shell_bonsai_exp3a_task, "bonsai-exp3a", 2048, &reflex_shell_bonsai_exp3a, 6, &reflex_shell_bonsai_exp3a.handle);
+    reflex_task_create(reflex_shell_bonsai_exp3a_task, "bonsai-exp3a", 2048, &reflex_shell_bonsai_exp3a, 6, &reflex_shell_bonsai_exp3a.handle);
 }
 static void reflex_shell_bonsai_exp3a_status(void) {
     reflex_bonsai_exp3a_state_t *s = &reflex_shell_bonsai_exp3a;
@@ -455,10 +445,9 @@ static void reflex_shell_bonsai_deep_sleep(void) {
     reflex_task_delay_ms(1000);
     
     // Configure wake up timer
-    esp_sleep_enable_timer_wakeup(10 * 1000000);
+    reflex_hal_sleep_enter(10 * 1000000);
     
     // Enter light sleep
-    esp_light_sleep_start();
     
     printf("HP Mind has returned to the manifold.\n");
 }
@@ -641,8 +630,7 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         if (secs < 1) secs = 1;
         printf("entering deep sleep for %d seconds\n", secs);
         fflush(stdout);
-        esp_sleep_enable_timer_wakeup((uint64_t)secs * 1000000ULL);
-        esp_deep_sleep_start();
+        reflex_hal_sleep_enter((uint64_t)secs * 1000000ULL);
     }
     else if (strcmp(argv[0], "goonies") == 0) {
         if (argc >= 2 && strcmp(argv[1], "ls") == 0) reflex_shell_loom_list();
@@ -735,7 +723,7 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
     } else if (strcmp(argv[0], "mesh") == 0) {
         if (argc >= 2 && strcmp(argv[1], "mac") == 0) {
             uint8_t mac[6];
-            esp_read_mac(mac, ESP_MAC_WIFI_STA);
+            reflex_hal_mac_read(mac);
             printf("mac=%02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
         } else if (argc >= 3 && strcmp(argv[1], "emit") == 0) {
             goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
@@ -805,7 +793,7 @@ void reflex_shell_run(void) {
     usb_serial_jtag_vfs_use_driver(); usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF); usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
     printf("reflex> "); fflush(stdout);
     while (1) {
-        uint8_t ch; int r = usb_serial_jtag_read_bytes(&ch, 1, pdMS_TO_TICKS(50));
+        uint8_t ch; int r = usb_serial_jtag_read_bytes(&ch, 1, 50);
         if (r <= 0) { reflex_task_delay_ms(50); continue; }
         if (ch == '\n') {
             line[len] = 0; char *argv[8]; int argc = 0;
