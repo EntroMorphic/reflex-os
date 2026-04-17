@@ -35,13 +35,16 @@ extern void esp_rom_output_tx_wait_idle(uint32_t uart_no);
 #include "soc/pcr_reg.h"
 #include "soc/assist_debug_reg.h"
 
-/* HAL — thin register wrappers over the cache/MMU silicon */
-#include "hal/cache_hal.h"
-#include "hal/cache_ll.h"
-#include "hal/mmu_hal.h"
-#include "hal/mmu_types.h"
-#include "hal/cache_types.h"
-#include "hal/lpwdt_ll.h"
+/* Cache/MMU register definitions */
+#include "soc/extmem_reg.h"
+#include "soc/spi_mem_reg.h"
+#include "soc/ext_mem_defs.h"
+
+/* ROM cache functions (mask ROM — silicon, not SDK) */
+extern int Cache_Enable_ICache(uint32_t autoload);
+extern int Cache_Disable_ICache(void);
+extern int Cache_Suspend_ICache(void);
+extern int Cache_Resume_ICache(uint32_t autoload);
 
 /* Clock config — rtc_clk_init is the chip-level PLL driver */
 #include "soc/rtc.h"
@@ -127,7 +130,7 @@ static void __attribute__((noreturn)) halt(const char *msg) {
 /* ---- Hardware init (direct register + ROM calls) ---- */
 
 static void hw_feed_wdt(void) {
-    REG_WRITE(LP_WDT_SWD_WPROTECT_REG, LP_WDT_SWD_WKEY_VALUE);
+    REG_WRITE(LP_WDT_SWD_WPROTECT_REG, 0x50D83AA1);
     REG_SET_BIT(LP_WDT_SWD_CONFIG_REG, LP_WDT_SWD_AUTO_FEED_EN);
     REG_WRITE(LP_WDT_SWD_WPROTECT_REG, 0);
 }
@@ -182,9 +185,43 @@ static void hw_console_init(void) {
     esp_rom_install_channel_putc(1, esp_rom_output_putc);
 }
 
+/* ---- Direct cache/MMU management (no HAL) ---- */
+
+#define MMU_PAGE_SIZE       0x10000  /* 64 KB */
+#define MMU_PAGE_SHIFT      16
+#define MMU_ENTRY_NUM       256
+#define MMU_VALID_BIT       (1 << 9)
+#define MMU_INVALID_VAL     0
+
+static void reflex_mmu_unmap_all(void) {
+    for (int i = 0; i < MMU_ENTRY_NUM; i++) {
+        REG_WRITE(SPI_MEM_MMU_ITEM_INDEX_REG(0), i);
+        REG_WRITE(SPI_MEM_MMU_ITEM_CONTENT_REG(0), MMU_INVALID_VAL);
+    }
+}
+
+static void reflex_mmu_map_page(uint32_t entry_id, uint32_t paddr_page) {
+    REG_WRITE(SPI_MEM_MMU_ITEM_INDEX_REG(0), entry_id);
+    REG_WRITE(SPI_MEM_MMU_ITEM_CONTENT_REG(0), paddr_page | MMU_VALID_BIT);
+}
+
+static void reflex_cache_disable(void) {
+    Cache_Disable_ICache();
+}
+
+static void reflex_cache_enable(void) {
+    /* Enable IBUS and DBUS by clearing the shut bits */
+    REG_CLR_BIT(EXTMEM_L1_CACHE_CTRL_REG, EXTMEM_L1_CACHE_SHUT_IBUS);
+    REG_CLR_BIT(EXTMEM_L1_CACHE_CTRL_REG, EXTMEM_L1_CACHE_SHUT_DBUS);
+    /* autoload=0: the app configures cache autoload during FreeRTOS init */
+    Cache_Enable_ICache(0);
+}
+
 static void hw_cache_init(void) {
-    cache_hal_init();
-    mmu_hal_init();
+    /* Set page size to 64 KB (code 0) */
+    REG_SET_FIELD(SPI_MEM_MMU_POWER_CTRL_REG(0), SPI_MEM_MMU_PAGE_SIZE, 0);
+    reflex_mmu_unmap_all();
+    reflex_cache_enable();
 }
 
 /* ---- Flash read wrapper ---- */
@@ -275,25 +312,25 @@ static uint32_t load_image(uint32_t part_offset) {
     }
 
     /* Second pass: set up MMU for flash-mapped segments */
-    cache_hal_disable(CACHE_LL_LEVEL_EXT_MEM, CACHE_TYPE_ALL);
-    mmu_hal_unmap_all();
+    reflex_cache_disable();
+    reflex_mmu_unmap_all();
 
     for (int i = 0; i < map_count; i++) {
-        uint32_t page_size = CONFIG_MMU_PAGE_SIZE;
-        uint32_t vaddr_aligned = maps[i].vaddr & ~(page_size - 1);
-        uint32_t paddr_aligned = maps[i].paddr & ~(page_size - 1);
+        uint32_t vaddr_aligned = maps[i].vaddr & ~(MMU_PAGE_SIZE - 1);
+        uint32_t paddr_aligned = maps[i].paddr & ~(MMU_PAGE_SIZE - 1);
         uint32_t end = maps[i].paddr + maps[i].len;
-        uint32_t map_len = end - paddr_aligned;
-        /* Align up to page boundary */
-        map_len = (map_len + page_size - 1) & ~(page_size - 1);
-        uint32_t actual_len = 0;
+        uint32_t paddr_cur = paddr_aligned;
 
-        mmu_hal_map_region(0, MMU_TARGET_FLASH0,
-                           vaddr_aligned, paddr_aligned,
-                           map_len, &actual_len);
+        while (paddr_cur < end) {
+            uint32_t entry_id = (vaddr_aligned >> MMU_PAGE_SHIFT) & (MMU_ENTRY_NUM - 1);
+            uint32_t ppage = paddr_cur >> MMU_PAGE_SHIFT;
+            reflex_mmu_map_page(entry_id, ppage);
+            vaddr_aligned += MMU_PAGE_SIZE;
+            paddr_cur += MMU_PAGE_SIZE;
+        }
     }
 
-    cache_hal_enable(CACHE_LL_LEVEL_EXT_MEM, CACHE_TYPE_ALL);
+    reflex_cache_enable();
 
     return hdr.entry_addr;
 }
