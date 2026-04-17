@@ -1,0 +1,16 @@
+menu "Reflex OS"
+    choice REFLEX_RADIO_BACKEND
+        prompt "Radio backend"
+        default REFLEX_RADIO_ESPNOW
+        help
+            Select the radio backend for the GOOSE atmospheric mesh.
+            ESP-NOW requires the Wi-Fi binary blob.
+            802.15.4 is blob-free but uses a different radio.
+
+        config REFLEX_RADIO_ESPNOW
+            bool "ESP-NOW (Wi-Fi)"
+
+        config REFLEX_RADIO_802154
+            bool "IEEE 802.15.4 (blob-free)"
+    endchoice
+endmenu

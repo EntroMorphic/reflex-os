@@ -148,7 +148,9 @@ void app_main(void)
     reflex_led_service_register();
     reflex_button_service_register();
     reflex_temp_service_register();
+#if !CONFIG_REFLEX_RADIO_802154
     reflex_wifi_service_register();
+#endif
     
     // 8. Ternary VM
     reflex_cache_init(&system_cache);
@@ -160,8 +162,14 @@ void app_main(void)
         reflex_shell_run(); return;
     }
 
-    // 8.5 Demo/Experimental Arcing (after Wi-Fi init so ESP-NOW has its substrate)
+    // 8.5 Atmospheric arcing
+#if CONFIG_REFLEX_RADIO_802154
+    if (goose_atmosphere_init() == REFLEX_OK) {
+        REFLEX_LOGI(REFLEX_BOOT_TAG, "atmospheric mesh: 802.15.4 (blob-free)");
+    }
+#else
     manifest_demo_arc();
+#endif
 
     // 9. Stability & Shell
     reflex_task_create(reflex_stability_task, "reflex-stable", 2048, NULL, 5, NULL);
