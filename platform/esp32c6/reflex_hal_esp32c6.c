@@ -74,8 +74,8 @@ uint64_t reflex_hal_time_us(void) {
     for (volatile int i = 0; i < 20; i++) {
         if (REG32_HAL(SYSTIMER_UNIT0_OP) & (1U << 29)) break;
     }
-    uint32_t hi = REG32_HAL(SYSTIMER_UNIT0_VAL_HI);
     uint32_t lo = REG32_HAL(SYSTIMER_UNIT0_VAL_LO);
+    uint32_t hi = REG32_HAL(SYSTIMER_UNIT0_VAL_HI);
     return (((uint64_t)hi << 32) | lo) / 40;
 }
 
@@ -122,6 +122,7 @@ reflex_err_t reflex_hal_gpio_set_level(uint32_t pin, int level) {
 }
 
 int reflex_hal_gpio_get_level(uint32_t pin) {
+    if (pin >= 31) return 0;
     return (REG32_HAL(GPIO_IN_REG_ADDR) >> pin) & 1;
 }
 
@@ -146,8 +147,11 @@ void reflex_hal_sleep_enter(uint64_t duration_us) {
 }
 
 void reflex_hal_random_fill(uint8_t *buf, size_t len) {
+    /* XOR multiple RNG reads for better entropy mixing, matching
+     * the ESP-IDF approach. Each read returns a 32-bit word from
+     * the hardware noise source. */
     for (size_t i = 0; i < len; i += 4) {
-        uint32_t rnd = REG32_HAL(RNG_DATA_REG);
+        uint32_t rnd = REG32_HAL(RNG_DATA_REG) ^ REG32_HAL(RNG_DATA_REG);
         size_t n = (len - i < 4) ? len - i : 4;
         for (size_t j = 0; j < n; j++) buf[i + j] = (uint8_t)(rnd >> (j * 8));
     }
