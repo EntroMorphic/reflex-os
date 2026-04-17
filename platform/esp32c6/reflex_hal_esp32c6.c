@@ -19,7 +19,7 @@
 #include "esp_random.h"
 #include "esp_mac.h"
 #include "esp_system.h"
-#include "esp_log.h"
+#include "esp_rom_sys.h"
 
 /* GPIO registers (Gap G — replaces driver/gpio.h) */
 #define GPIO_BASE_ADDR        0x60091000
@@ -139,16 +139,14 @@ reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
 }
 
 void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
-    esp_log_level_t esp_level;
-    switch (level) {
-        case REFLEX_LOG_LEVEL_ERROR: esp_level = ESP_LOG_ERROR; break;
-        case REFLEX_LOG_LEVEL_WARN:  esp_level = ESP_LOG_WARN;  break;
-        case REFLEX_LOG_LEVEL_INFO:  esp_level = ESP_LOG_INFO;  break;
-        case REFLEX_LOG_LEVEL_DEBUG: esp_level = ESP_LOG_DEBUG;  break;
-        default:                     esp_level = ESP_LOG_INFO;   break;
-    }
+    const char *prefix = (level == REFLEX_LOG_LEVEL_ERROR) ? "E" :
+                         (level == REFLEX_LOG_LEVEL_WARN)  ? "W" :
+                         (level == REFLEX_LOG_LEVEL_DEBUG) ? "D" : "I";
+    char buf[256];
     va_list args;
     va_start(args, fmt);
-    esp_log_writev(esp_level, tag, fmt, args);
+    vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
+    esp_rom_printf("%s (%lu) %s: %s\n", prefix,
+                   (unsigned long)(reflex_hal_time_us() / 1000), tag, buf);
 }
