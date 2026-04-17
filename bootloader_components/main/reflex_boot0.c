@@ -27,6 +27,7 @@
  * which is declared in esp_rom_sys.h. */
 extern void esp_rom_output_putc(char c);
 extern void esp_rom_install_channel_putc(int channel, void (*putc)(char c));
+extern void esp_rom_output_tx_wait_idle(uint32_t uart_no);
 
 /* Register definitions — just #define constants, no code */
 #include "soc/lp_wdt_reg.h"
@@ -42,15 +43,17 @@ extern void esp_rom_install_channel_putc(int channel, void (*putc)(char c));
 #include "hal/cache_types.h"
 #include "hal/lpwdt_ll.h"
 
-/* Chip info for clock config */
+/* Clock config — rtc_clk_init is the chip-level PLL driver */
 #include "soc/rtc.h"
 #include "hal/clk_tree_ll.h"
 #include "esp_private/regi2c_ctrl.h"
 #include "soc/regi2c_lp_bias.h"
+#include "soc/lp_analog_peri_reg.h"
+#include "soc/pmu_reg.h"
 
-/* Bootloader support — ONLY for linker symbols and startup assembly.
- * We don't call bootloader_init or bootloader_utility_*. */
-#include "bootloader_common.h"
+/* Bootloader support — ONLY for linker symbols, startup assembly,
+ * and the REG_READ/REG_WRITE macros from soc/soc.h. No high-level
+ * bootloader functions are called. */
 
 #define TAG "reflex.boot0"
 
@@ -136,16 +139,43 @@ static void hw_debug_init(void) {
               ASSIST_DEBUG_CORE_0_RCD_PDEBUGEN | ASSIST_DEBUG_CORE_0_RCD_RECORDEN);
 }
 
-/* Forward declaration — bootloader_clock_configure is the one
- * remaining bootloader_support function we call. It configures the
- * PLL for 160MHz. Replacing it requires direct RTC register writes
- * specific to the C6's clock tree. Tracked for Phase 1. */
-extern void bootloader_clock_configure(void);
-
 static void hw_clock_init(void) {
     _regi2c_ctrl_ll_master_enable_clock(true);
     regi2c_ctrl_ll_master_configure_clock();
-    bootloader_clock_configure();
+
+    /* Configure clocks via rtc_clk_init — chip-level PLL/regulator
+     * driver from esp_hw_support (hardware register writes, not boot
+     * policy). This function configures BBPLL, voltage regulators,
+     * CPU frequency divider, and RC oscillator tuning. */
+    esp_rom_output_tx_wait_idle(0);
+
+    rtc_clk_config_t clk_cfg = RTC_CLK_CONFIG_DEFAULT();
+    clk_cfg.cpu_freq_mhz = 80;
+
+    soc_rtc_slow_clk_src_t slow_src = rtc_clk_slow_src_get();
+    clk_cfg.slow_clk_src = (slow_src == SOC_RTC_SLOW_CLK_SRC_INVALID)
+                         ? SOC_RTC_SLOW_CLK_SRC_RC_SLOW : slow_src;
+
+    /* RC_FAST chosen deliberately — C6 ECO0 has a timing issue with
+     * XTAL_D2 as the fast clock source that can prevent the chip from
+     * capturing the reset reason. RC_FAST avoids this on all revisions. */
+    clk_cfg.fast_clk_src = SOC_RTC_FAST_CLK_SRC_RC_FAST;
+
+    rtc_clk_init(clk_cfg);
+
+    /* Clear all LP interrupt enables and pending bits so stale brownout,
+     * WDT, or sleep interrupts from a previous boot don't fire during
+     * early OS init. */
+    CLEAR_PERI_REG_MASK(LP_WDT_INT_ENA_REG, LP_WDT_SUPER_WDT_INT_ENA);
+    CLEAR_PERI_REG_MASK(LP_WDT_INT_ENA_REG, LP_WDT_LP_WDT_INT_ENA);
+    CLEAR_PERI_REG_MASK(LP_ANALOG_PERI_LP_ANA_LP_INT_ENA_REG,
+                        LP_ANALOG_PERI_LP_ANA_BOD_MODE0_LP_INT_ENA);
+    CLEAR_PERI_REG_MASK(PMU_HP_INT_ENA_REG, PMU_SOC_WAKEUP_INT_ENA);
+    CLEAR_PERI_REG_MASK(PMU_HP_INT_ENA_REG, PMU_SOC_SLEEP_REJECT_INT_ENA);
+    SET_PERI_REG_MASK(LP_WDT_INT_CLR_REG, LP_WDT_SUPER_WDT_INT_CLR);
+    SET_PERI_REG_MASK(LP_WDT_INT_CLR_REG, LP_WDT_LP_WDT_INT_CLR);
+    SET_PERI_REG_MASK(LP_ANALOG_PERI_LP_ANA_LP_INT_CLR_REG,
+                      LP_ANALOG_PERI_LP_ANA_BOD_MODE0_LP_INT_CLR);
 }
 
 static void hw_console_init(void) {
