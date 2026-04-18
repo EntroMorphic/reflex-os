@@ -22,7 +22,7 @@
 #define REG32(addr) (*(volatile uint32_t *)(addr))
 #define SYSTIMER_TICK_PERIOD    (40000000 / REFLEX_SCHED_TICK_HZ)
 
-static reflex_tcb_t s_tasks[REFLEX_SCHED_MAX_TASKS];
+reflex_tcb_t s_tasks[REFLEX_SCHED_MAX_TASKS];
 static reflex_tcb_t *s_current = NULL;
 static volatile uint32_t s_tick_count = 0;
 static volatile uint32_t s_critical_nesting = 0;
