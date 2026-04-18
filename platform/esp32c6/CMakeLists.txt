@@ -34,10 +34,58 @@ idf_component_register(SRCS ${REFLEX_PLATFORM_SRCS}
 target_compile_definitions(${COMPONENT_LIB} PUBLIC "REFLEX_RTC_DATA_ATTR=__attribute__((section(\".rtc.data\")))")
 
 if(CONFIG_REFLEX_KERNEL_SCHEDULER)
-    # Our compat layer provides all FreeRTOS symbols. --whole-archive
-    # forces all our symbols to be linked. --allow-multiple-definition
-    # lets our definitions override FreeRTOS's when both exist.
+    # --wrap forces ALL calls to these functions to go through our
+    # __wrap_ implementations, regardless of link order. This is
+    # the only reliable way to override FreeRTOS on ESP-IDF.
     target_link_libraries(${COMPONENT_LIB} INTERFACE
-        "-Wl,--allow-multiple-definition"
-        "-Wl,--wrap=xPortStartScheduler")
+        "-Wl,--wrap=xPortStartScheduler"
+        "-Wl,--wrap=vTaskStartScheduler"
+        "-Wl,--wrap=xTaskCreatePinnedToCore"
+        "-Wl,--wrap=xTaskCreateStaticPinnedToCore"
+        "-Wl,--wrap=vTaskDelay"
+        "-Wl,--wrap=vTaskDelete"
+        "-Wl,--wrap=xTaskGetCurrentTaskHandle"
+        "-Wl,--wrap=xTaskGetCurrentTaskHandleForCore"
+        "-Wl,--wrap=xTaskGetSchedulerState"
+        "-Wl,--wrap=xTaskGetTickCount"
+        "-Wl,--wrap=xTaskGetTickCountFromISR"
+        "-Wl,--wrap=uxTaskGetNumberOfTasks"
+        "-Wl,--wrap=pcTaskGetName"
+        "-Wl,--wrap=vTaskSuspendAll"
+        "-Wl,--wrap=xTaskResumeAll"
+        "-Wl,--wrap=xTaskIncrementTick"
+        "-Wl,--wrap=vTaskSwitchContext"
+        "-Wl,--wrap=vTaskSetTimeOutState"
+        "-Wl,--wrap=vTaskInternalSetTimeOutState"
+        "-Wl,--wrap=xTaskCheckForTimeOut"
+        "-Wl,--wrap=vTaskPlaceOnEventList"
+        "-Wl,--wrap=vTaskPlaceOnUnorderedEventList"
+        "-Wl,--wrap=xTaskRemoveFromEventList"
+        "-Wl,--wrap=vTaskRemoveFromUnorderedEventList"
+        "-Wl,--wrap=xTaskPriorityInherit"
+        "-Wl,--wrap=xTaskPriorityDisinherit"
+        "-Wl,--wrap=pvTaskIncrementMutexHeldCount"
+        "-Wl,--wrap=pvTaskGetThreadLocalStoragePointer"
+        "-Wl,--wrap=vTaskSetThreadLocalStoragePointerAndDelCallback"
+        "-Wl,--wrap=xQueueGenericCreate"
+        "-Wl,--wrap=xQueueGenericSend"
+        "-Wl,--wrap=xQueueGenericSendFromISR"
+        "-Wl,--wrap=xQueueReceive"
+        "-Wl,--wrap=xQueueReceiveFromISR"
+        "-Wl,--wrap=xQueueGiveFromISR"
+        "-Wl,--wrap=xQueueSemaphoreTake"
+        "-Wl,--wrap=xQueueCreateMutex"
+        "-Wl,--wrap=xQueueGiveMutexRecursive"
+        "-Wl,--wrap=xQueueTakeMutexRecursive"
+        "-Wl,--wrap=xQueueCreateCountingSemaphore"
+        "-Wl,--wrap=xEventGroupCreate"
+        "-Wl,--wrap=xEventGroupWaitBits"
+        "-Wl,--wrap=xEventGroupSetBits"
+        "-Wl,--wrap=xEventGroupClearBits"
+        "-Wl,--wrap=vPortEnterCritical"
+        "-Wl,--wrap=vPortExitCritical"
+        "-Wl,--wrap=pvPortMalloc"
+        "-Wl,--wrap=vPortFree"
+        "-Wl,--wrap=xPortInIsrContext"
+    )
 endif()
