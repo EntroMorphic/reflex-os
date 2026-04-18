@@ -1,18 +1,14 @@
 set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "reflex_kv_esp32c6.c"
                         "reflex_crypto_esp32c6.c")
 
-# Task/scheduler backend selection
+# FreeRTOS is always the task backend — it's the scheduling HAL.
+# When CONFIG_REFLEX_KERNEL_SCHEDULER is enabled, the shim inserts
+# the Reflex kernel hook at xPortStartScheduler. The standalone
+# kernel code (reflex_sched.c, vectors, etc.) remains in kernel/
+# as infrastructure for a future bare-metal Reflex OS.
+list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
 if(CONFIG_REFLEX_KERNEL_SCHEDULER)
-    list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_sched.c"
-                                     "../../kernel/reflex_task_kernel.c"
-                                     "../../kernel/reflex_trap.c"
-                                     "../../kernel/reflex_startup.c"
-                                     "../../kernel/reflex_vectors.S"
-                                     "../../kernel/reflex_kernel_test.c"
-                                     "../../kernel/reflex_app_startup.c"
-                                     "../../kernel/reflex_freertos_shim.c")
-else()
-    list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
+    list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_freertos_shim.c")
 endif()
 
 set(REFLEX_PLATFORM_REQUIRES driver nvs_flash log)
