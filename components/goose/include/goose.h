@@ -535,5 +535,10 @@ bool goose_loom_try_lock(goose_field_t *field);
  */
 void goose_loom_unlock(void);
 
+/* --- Holon Lifecycle (kernel-managed field groups) --- */
+
+reflex_err_t reflex_holon_create(const char *name, const char *domain);
+reflex_err_t reflex_holon_add_field(const char *holon_name, goose_field_t *field);
+
 #endif
 

@@ -7,6 +7,7 @@
 #include "reflex_hal.h"
 #include "reflex_kv.h"
 #include "reflex_task.h"
+#include "reflex_kernel.h"
 #include <string.h>
 
 #define TAG "GOOSE_SUPERVISOR"
@@ -20,14 +21,159 @@ static bool supervisor_mux_initialized = false;
 
 static goose_cell_t system_balance = { .state = REFLEX_TRIT_POS };
 
+/* --- Kernel scheduling policy (Items 1-3) --- */
+
+#define PULSE_BASE_PRIORITY   10
+#define PULSE_PURPOSE_BOOST    3
+#define PULSE_HEBBIAN_BOOST    2
+#define PULSE_PAIN_PENALTY     2
+#define PULSE_MAX_PRIORITY    15
+
+/* Holon: a named group of fields managed as a lifecycle unit.
+ * The supervisor activates/deactivates holons based on purpose. */
+#define MAX_HOLONS 8
+#define MAX_HOLON_FIELDS 4
+
+typedef struct {
+    char name[16];
+    char domain[16];
+    goose_field_t *fields[MAX_HOLON_FIELDS];
+    size_t field_count;
+    bool active;
+} reflex_holon_t;
+
+static reflex_holon_t s_holons[MAX_HOLONS];
+static size_t s_holon_count = 0;
+static char s_last_purpose[16] = {0};
+
+__attribute__((weak))
+void reflex_kernel_set_policy(reflex_kernel_policy_fn fn) { (void)fn; }
+
+static void goose_kernel_policy_tick(uint32_t tick) {
+    (void)tick;
+    const char *purpose = goose_purpose_get_name();
+    bool purpose_active = (purpose && purpose[0]);
+    bool purpose_changed = false;
+
+    if (purpose_active) {
+        if (strncmp(s_last_purpose, purpose, sizeof(s_last_purpose) - 1) != 0) {
+            strncpy(s_last_purpose, purpose, sizeof(s_last_purpose) - 1);
+            s_last_purpose[sizeof(s_last_purpose) - 1] = '\0';
+            purpose_changed = true;
+        }
+    } else if (s_last_purpose[0]) {
+        s_last_purpose[0] = '\0';
+        purpose_changed = true;
+    }
+
+    /* Pain signal suppresses all non-essential task priorities */
+    goose_cell_t *pain_cell = goonies_resolve_cell("sys.ai.pain");
+    bool pained = (pain_cell && pain_cell->state == -1);
+
+    /* Holon lifecycle: activate holons matching purpose, deactivate others */
+    for (size_t h = 0; h < s_holon_count; h++) {
+        reflex_holon_t *holon = &s_holons[h];
+        bool should_be_active = !holon->domain[0] ||
+            (purpose_active && strstr(purpose, holon->domain));
+        if (holon->active != should_be_active) {
+            holon->active = should_be_active;
+            if (purpose_changed) {
+                extern int printf(const char *, ...);
+                printf("[reflex.kernel] holon %s %s (domain=%s)\n",
+                    holon->name, should_be_active ? "activated" : "deactivated",
+                    holon->domain[0] ? holon->domain : "*");
+            }
+        }
+    }
+
+    for (size_t f = 0; f < supervised_field_count; f++) {
+        goose_field_t *field = supervised_fields[f];
+        int priority = PULSE_BASE_PRIORITY;
+
+        /* Item 1: Purpose boost — active purpose lifts all substrate work */
+        if (purpose_active) priority += PULSE_PURPOSE_BOOST;
+
+        /* Item 2: Hebbian maturity — fields with learned routes are stable */
+        int learned_routes = 0;
+        for (size_t r = 0; r < field->route_count; r++) {
+            if (field->routes[r].learned_orientation != 0) learned_routes++;
+        }
+        if (learned_routes > 0) priority += PULSE_HEBBIAN_BOOST;
+
+        /* Item 3: Holon membership — field keeps boost if ANY holon is active.
+         * Only suppress to base if ALL containing holons are inactive. */
+        bool in_any_holon = false;
+        bool in_active_holon = false;
+        for (size_t h = 0; h < s_holon_count; h++) {
+            for (size_t hf = 0; hf < s_holons[h].field_count; hf++) {
+                if (s_holons[h].fields[hf] == field) {
+                    in_any_holon = true;
+                    if (s_holons[h].active) in_active_holon = true;
+                }
+            }
+        }
+        if (in_any_holon && !in_active_holon) priority = PULSE_BASE_PRIORITY;
+
+        /* Pain dampening */
+        if (pained && priority > PULSE_BASE_PRIORITY) {
+            priority -= PULSE_PAIN_PENALTY;
+            if (priority < PULSE_BASE_PRIORITY) priority = PULSE_BASE_PRIORITY;
+        }
+
+        if (priority > PULSE_MAX_PRIORITY) priority = PULSE_MAX_PRIORITY;
+
+        char task_name[16];
+        snprintf(task_name, sizeof(task_name), "p_%.13s", field->name);
+        reflex_task_handle_t h = reflex_task_get_by_name(task_name);
+        if (h) {
+            int current = reflex_task_get_priority(h);
+            if (current != priority) {
+                reflex_task_set_priority(h, priority);
+            }
+        }
+    }
+
+    if (purpose_changed) {
+        extern int printf(const char *, ...);
+        printf("[reflex.kernel] policy: purpose=%s fields=%u\n",
+               purpose_active ? s_last_purpose : "(cleared)",
+               (unsigned)supervised_field_count);
+    }
+}
+
+reflex_err_t reflex_holon_create(const char *name, const char *domain) {
+    if (s_holon_count >= MAX_HOLONS) return REFLEX_ERR_NO_MEM;
+    reflex_holon_t *h = &s_holons[s_holon_count++];
+    memset(h, 0, sizeof(*h));
+    strncpy(h->name, name, sizeof(h->name) - 1);
+    if (domain) strncpy(h->domain, domain, sizeof(h->domain) - 1);
+    h->active = true;
+    return REFLEX_OK;
+}
+
+reflex_err_t reflex_holon_add_field(const char *holon_name, goose_field_t *field) {
+    if (!holon_name || !field) return REFLEX_ERR_INVALID_ARG;
+    for (size_t i = 0; i < s_holon_count; i++) {
+        if (strcmp(s_holons[i].name, holon_name) == 0) {
+            reflex_holon_t *h = &s_holons[i];
+            if (h->field_count >= MAX_HOLON_FIELDS) return REFLEX_ERR_NO_MEM;
+            h->fields[h->field_count++] = field;
+            return REFLEX_OK;
+        }
+    }
+    return REFLEX_ERR_NOT_FOUND;
+}
+
 reflex_err_t goose_supervisor_init(void) {
     supervisor_mux = reflex_mutex_init();
     supervisor_mux_initialized = true;
     REFLEX_LOGI(TAG, "Initializing Harmonic Supervisor...");
+    reflex_kernel_set_policy(goose_kernel_policy_tick);
     return REFLEX_OK;
 }
 
 reflex_err_t goose_supervisor_register_field(goose_field_t *field) {
+    if (!field) return REFLEX_ERR_INVALID_ARG;
     reflex_critical_enter(&supervisor_mux);
     if (supervised_field_count >= MAX_SUPERVISED_FIELDS) {
         reflex_critical_exit(&supervisor_mux);

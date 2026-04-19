@@ -32,6 +32,19 @@ void reflex_task_yield(void) {
     taskYIELD();
 }
 
+reflex_task_handle_t reflex_task_get_by_name(const char *name) {
+    return (reflex_task_handle_t)xTaskGetHandle(name);
+}
+
+void reflex_task_set_priority(reflex_task_handle_t handle, int priority) {
+    if (handle) vTaskPrioritySet((TaskHandle_t)handle, (UBaseType_t)priority);
+}
+
+int reflex_task_get_priority(reflex_task_handle_t handle) {
+    if (!handle) return 0;
+    return (int)uxTaskPriorityGet((TaskHandle_t)handle);
+}
+
 reflex_queue_handle_t reflex_queue_create(uint32_t length, uint32_t item_size) {
     return (reflex_queue_handle_t)xQueueCreate(length, item_size);
 }

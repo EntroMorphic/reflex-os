@@ -36,6 +36,9 @@ reflex_err_t reflex_task_create(void (*fn)(void *), const char *name,
 void reflex_task_delete(reflex_task_handle_t handle);
 void reflex_task_delay_ms(uint32_t ms);
 void reflex_task_yield(void);
+reflex_task_handle_t reflex_task_get_by_name(const char *name);
+void reflex_task_set_priority(reflex_task_handle_t handle, int priority);
+int reflex_task_get_priority(reflex_task_handle_t handle);
 
 /* --- Queues --- */
 
