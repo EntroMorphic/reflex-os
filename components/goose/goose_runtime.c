@@ -105,12 +105,21 @@ static bool is_sanctuary_address(uint32_t addr) {
 }
 
 bool goose_loom_try_lock(goose_field_t *field) {
+    static uint32_t s_contention_count = 0;
+    static uint64_t s_last_log_us = 0;
     uint32_t start = reflex_hal_cpu_cycles();
     while (__atomic_test_and_set(&loom_authority, __ATOMIC_ACQUIRE)) {
         if ((reflex_hal_cpu_cycles() - start) > LOOM_LOCK_TIMEOUT_CYCLES) {
             if (field) field->stats.lock_contention_cycles += LOOM_LOCK_TIMEOUT_CYCLES;
-            REFLEX_LOGW(TAG, "LOOM_CONTENTION_FAULT site=%s deferred",
-                     field ? field->name : "alloc");
+            s_contention_count++;
+            uint64_t now = reflex_hal_time_us();
+            if (now - s_last_log_us > 5000000) {
+                REFLEX_LOGW(TAG, "LOOM_CONTENTION_FAULT site=%s deferred (%lu in last 5s)",
+                         field ? field->name : "alloc",
+                         (unsigned long)s_contention_count);
+                s_contention_count = 0;
+                s_last_log_us = now;
+            }
             return false;
         }
         reflex_hal_delay_us(1);

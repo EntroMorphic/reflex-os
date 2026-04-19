@@ -19,6 +19,7 @@
 #include "reflex_sched.h"
 #include "esp_rom_sys.h"
 #include "esp_intr_alloc.h"
+#include "freertos/portmacro.h"
 #include <stdint.h>
 #include <stddef.h>
 
@@ -28,6 +29,12 @@ typedef void *TaskHandle_t;
 typedef void (*TaskFunction_t)(void *);
 #define pdPASS 1
 #define configMAX_PRIORITIES 25
+
+/* reflex_portasm.S hardcodes these offsets — break the build if they drift */
+_Static_assert(PORT_OFFSET_PX_STACK == 0x30,
+    "TCB pxStack offset changed — update TCB_PX_STACK in reflex_portasm.S");
+_Static_assert(PORT_OFFSET_PX_END_OF_STACK == 0x44,
+    "TCB pxEndOfStack offset changed — update TCB_PX_END_OF_STACK in reflex_portasm.S");
 
 /* SYSTIMER registers — our tick source */
 #define SYSTIMER_BASE       0x60004000

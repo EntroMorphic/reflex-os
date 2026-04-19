@@ -1,50 +1,83 @@
 /*
- * Reflex kernel port assembly — replaces FreeRTOS's rtos_int_enter/exit.
+ * Reflex kernel port — rtos_int_enter/exit replacement.
+ * Matches FreeRTOS's portasm.S calling convention for single-core C6.
+ * Callee-saved registers (s-regs) are safe — ISR vector saves them.
  *
- * Called from ESP-IDF's vectors.S. Must be in IRAM (interrupts can
- * fire when flash cache is disabled). Uses la (absolute addressing)
- * for all global accesses to avoid gp-relative addressing issues.
+ * Assumptions: CONFIG_FREERTOS_UNICORE=y, SOC_CPU_COPROC_NUM=0.
+ * Porting to multi-core or coprocessor chips (P4) requires handling
+ * per-core arrays and coprocessor save/restore in a1.
  */
+
+#include "sdkconfig.h"
 
     .section .iram1, "ax"
     .align 4
 
     .extern pxCurrentTCBs
     .extern xIsrStackTop
+    .extern xIsrStackBottom
     .extern port_uxInterruptNesting
     .extern port_xSchedulerRunning
+    .extern xPortSwitchFlag
     .extern vTaskSwitchContext
+
+#if CONFIG_ESP_SYSTEM_HW_STACK_GUARD
+/* ASSIST_DEBUG base for hardware stack guard */
+#define ASSIST_DEBUG_BASE   0x600c2000
+#define ASSIST_DEBUG_CONF   0x600c2000
+#define SP_MIN_OFF          0x38
+#define SP_MAX_OFF          0x3C
+#endif
+
+/* TCB offsets (single-core, no integrity check bytes).
+ * Validated by _Static_assert in reflex_freertos_compat.c */
+#define TCB_PX_STACK        0x30
+#define TCB_PX_END_OF_STACK 0x44
 
     .global __wrap_rtos_int_enter
     .type __wrap_rtos_int_enter, @function
 __wrap_rtos_int_enter:
-    /* Check if scheduler is running */
-    la      t0, port_xSchedulerRunning
-    lw      t0, 0(t0)
-    beqz    t0, .Lenter_end
+    lw      a0, port_xSchedulerRunning
+    beqz    a0, .Lenter_end
 
-    /* Increment nesting */
-    la      t0, port_uxInterruptNesting
-    lw      t1, 0(t0)
-    addi    t2, t1, 1
-    sw      t2, 0(t0)
+    la      a0, port_uxInterruptNesting
+    lw      a1, 0(a0)
+    addi    a2, a1, 1
+    sw      a2, 0(a0)
 
-    /* If nested (t1 > 0), skip stack save */
     li      a0, 0
-    bnez    t1, .Lenter_end
+    bnez    a1, .Lenter_end
 
-    /* Save current SP to pxCurrentTCBs[0]->pxTopOfStack */
-    la      t0, pxCurrentTCBs
-    lw      t0, 0(t0)           /* t0 = pxCurrentTCBs[0] = TCB pointer */
-    sw      sp, 0(t0)           /* TCB->pxTopOfStack = sp */
+#if CONFIG_ESP_SYSTEM_HW_STACK_GUARD
+    /* --- Stack guard STOP --- */
+    lui     a0, %hi(ASSIST_DEBUG_CONF)
+    lw      a1, %lo(ASSIST_DEBUG_CONF)(a0)
+    andi    a1, a1, -769
+    sw      a1, %lo(ASSIST_DEBUG_CONF)(a0)
+#endif
+
+    /* Save SP to current TCB */
+    lw      a0, pxCurrentTCBs
+    sw      sp, 0(a0)
 
     /* Switch to ISR stack */
-    la      t0, xIsrStackTop
-    lw      sp, 0(t0)
+    lw      sp, xIsrStackTop
 
-    li      a0, 0               /* Return 0 (no coprocessor context) */
+#if CONFIG_ESP_SYSTEM_HW_STACK_GUARD
+    /* --- Stack guard START with ISR bounds --- */
+    lw      a0, xIsrStackBottom
+    mv      a1, sp
+    lui     a2, %hi(ASSIST_DEBUG_BASE)
+    sw      a0, SP_MIN_OFF(a2)
+    sw      a1, SP_MAX_OFF(a2)
+    lui     a0, %hi(ASSIST_DEBUG_CONF)
+    lw      a1, %lo(ASSIST_DEBUG_CONF)(a0)
+    ori     a1, a1, 768
+    sw      a1, %lo(ASSIST_DEBUG_CONF)(a0)
+#endif
+
+    li      a0, 0
 .Lenter_end:
-    li      a0, 0               /* Ensure return value is always 0 */
     ret
     .size __wrap_rtos_int_enter, .-__wrap_rtos_int_enter
 
@@ -52,31 +85,59 @@ __wrap_rtos_int_enter:
     .global __wrap_rtos_int_exit
     .type __wrap_rtos_int_exit, @function
 __wrap_rtos_int_exit:
-    /* Decrement nesting */
-    la      t0, port_uxInterruptNesting
-    lw      t1, 0(t0)
-    addi    t1, t1, -1
-    sw      t1, 0(t0)
+    /* Save ra and a0 (mstatus) in callee-saved regs.
+     * ISR vector already saved s-regs, so this is safe. */
+    mv      s10, ra
+    mv      s11, a0
 
-    /* If still nested, skip context switch */
-    bnez    t1, .Lexit_skip
+    lw      a0, port_xSchedulerRunning
+    beqz    a0, .Lexit_end
 
-    /* Only switch context if scheduler is running */
-    la      t0, port_xSchedulerRunning
-    lw      t0, 0(t0)
-    beqz    t0, .Lexit_skip
+    /* Decrement nesting (with underflow guard) */
+    la      a2, port_uxInterruptNesting
+    lw      a0, 0(a2)
+    beqz    a0, .Lexit_skip_dec
+    addi    a0, a0, -1
+    sw      a0, 0(a2)
+    bnez    a0, .Lexit_end
+.Lexit_skip_dec:
 
-    /* Call vTaskSwitchContext to pick the next task.
-     * This updates pxCurrentTCBs[0]. */
+    /* Only switch if xPortSwitchFlag is set */
+    la      s6, xPortSwitchFlag
+    lw      a1, 0(s6)
+    beqz    a1, .Lexit_restore_sp
+
     call    vTaskSwitchContext
+    sw      zero, 0(s6)
+
+.Lexit_restore_sp:
+#if CONFIG_ESP_SYSTEM_HW_STACK_GUARD
+    /* --- Stack guard STOP --- */
+    lui     a0, %hi(ASSIST_DEBUG_CONF)
+    lw      a1, %lo(ASSIST_DEBUG_CONF)(a0)
+    andi    a1, a1, -769
+    sw      a1, %lo(ASSIST_DEBUG_CONF)(a0)
+#endif
 
     /* Restore SP from (possibly new) current TCB */
-    la      t0, pxCurrentTCBs
-    lw      t0, 0(t0)
-    lw      sp, 0(t0)
+    lw      a0, pxCurrentTCBs
+    lw      sp, 0(a0)
 
-.Lexit_skip:
-    /* Return mstatus for vectors.S to restore via csrw */
-    csrr    a0, mstatus
+#if CONFIG_ESP_SYSTEM_HW_STACK_GUARD
+    /* --- Stack guard START with task's actual bounds --- */
+    lw      a1, TCB_PX_END_OF_STACK(a0)
+    lw      a0, TCB_PX_STACK(a0)
+    lui     a2, %hi(ASSIST_DEBUG_BASE)
+    sw      a0, SP_MIN_OFF(a2)
+    sw      a1, SP_MAX_OFF(a2)
+    lui     a0, %hi(ASSIST_DEBUG_CONF)
+    lw      a1, %lo(ASSIST_DEBUG_CONF)(a0)
+    ori     a1, a1, 768
+    sw      a1, %lo(ASSIST_DEBUG_CONF)(a0)
+#endif
+
+.Lexit_end:
+    mv      a0, s11
+    mv      ra, s10
     ret
     .size __wrap_rtos_int_exit, .-__wrap_rtos_int_exit
