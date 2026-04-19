@@ -1,11 +1,16 @@
 /**
  * @file reflex_freertos_compat.c
- * @brief Reflex kernel — scheduler policy engine on FreeRTOS HAL.
+ * @brief Reflex kernel — scheduler policy engine.
  *
- * The kernel supervisor runs as the highest-priority FreeRTOS task.
- * Every second it calls the registered policy function, which the
- * substrate (GOOSE) layer provides. The policy modulates task
- * priorities based on purpose, plasticity, and holon state.
+ * The kernel owns interrupt context switching via --wrap on
+ * rtos_int_enter/rtos_int_exit (see reflex_portasm.S). The
+ * supervisor task runs at highest priority and calls a policy
+ * function registered by the substrate (GOOSE) layer at 1Hz.
+ * The policy modulates task priorities based on purpose,
+ * Hebbian plasticity, and holon lifecycle state.
+ *
+ * FreeRTOS remains as the scheduling HAL behind reflex_task.h.
+ * A complete standalone backend exists in reflex_task_kernel.c.
  */
 
 #include "reflex_sched.h"
@@ -24,6 +29,8 @@ typedef void (*TaskFunction_t)(void *);
 #define pdPASS 1
 #define configMAX_PRIORITIES 25
 
+/* Validate FreeRTOS TCB layout for reflex_portasm.S stack guard offsets.
+ * These become obsolete when the Reflex scheduler is the production default. */
 _Static_assert(PORT_OFFSET_PX_STACK == 0x30,
     "TCB pxStack offset changed — update TCB_PX_STACK in reflex_portasm.S");
 _Static_assert(PORT_OFFSET_PX_END_OF_STACK == 0x44,

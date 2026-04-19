@@ -77,7 +77,7 @@ Current implementation decisions:
 - complete peripheral coverage
 - custom silicon changes
 - native CPU opcode changes
-- replacing FreeRTOS
+- fully removing FreeRTOS (ESP-IDF components depend on it internally)
 
 ## MVP Requirements
 
@@ -121,7 +121,7 @@ Acceptance criteria:
 
 ### 3. Task And Service Runtime
 
-The system must provide a runtime model for internal services built on top of FreeRTOS rather than replacing it.
+The system must provide a runtime model for internal services behind a portable task abstraction (`reflex_task.h`). FreeRTOS is the production scheduling backend; a standalone Reflex kernel backend is available via `CONFIG_REFLEX_KERNEL_SCHEDULER`.
 
 Requirements:
 
@@ -325,7 +325,7 @@ The system must support running ternary programs as managed runtime tasks.
 Requirements:
 
 - VM instance lifecycle
-- scheduling model on top of FreeRTOS
+- scheduling model via reflex_task.h abstraction
 - task naming and status
 - failure handling for VM faults
 

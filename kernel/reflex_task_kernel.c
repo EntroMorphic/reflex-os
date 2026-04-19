@@ -45,6 +45,27 @@ void reflex_task_yield(void) {
     reflex_sched_yield();
 }
 
+reflex_task_handle_t reflex_task_get_by_name(const char *name) {
+    if (!name) return NULL;
+    extern reflex_tcb_t s_tasks[];
+    for (int i = 0; i < REFLEX_SCHED_MAX_TASKS; i++) {
+        if (s_tasks[i].state != REFLEX_TASK_STATE_FREE &&
+            s_tasks[i].name && strcmp(s_tasks[i].name, name) == 0) {
+            return (reflex_task_handle_t)&s_tasks[i];
+        }
+    }
+    return NULL;
+}
+
+void reflex_task_set_priority(reflex_task_handle_t handle, int priority) {
+    if (handle) ((reflex_tcb_t *)handle)->priority = priority;
+}
+
+int reflex_task_get_priority(reflex_task_handle_t handle) {
+    if (!handle) return 0;
+    return ((reflex_tcb_t *)handle)->priority;
+}
+
 /* ---- Queues ---- */
 
 reflex_queue_handle_t reflex_queue_create(uint32_t length, uint32_t item_size) {

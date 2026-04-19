@@ -12,25 +12,27 @@
 
 1,299 ESP-IDF touch points across the codebase. The hard platform dependencies (excluding error types and return macros) break down as:
 
-| Subsystem | Hard deps | What they call |
-|---|---|---|
-| GOOSE Runtime | ~88 | FreeRTOS mutexes, tasks, timers, CPU cycles, sleep, NVS, GPIO, ROM GPIO |
-| GOOSE Atmosphere | ~69 | ESP-NOW, Wi-Fi, mbedtls HMAC, NVS, MAC read, timers, random |
-| GOOSE Supervisor | ~61 | FreeRTOS tasks, NVS, timers, random |
-| GOOSE Atlas | ~7 | ESP log |
-| GOOSE Shadow Atlas | ~0 | Pure data (generated C array) |
-| GOOSE Library | ~19 | ESP log, malloc |
-| GOOSE DMA | ~11 | ESP GDMA (scaffold) |
-| GOOSE ETM | ~23 | ESP ETM, GPIO ETM (scaffold) |
-| GOOSE Gateway | ~12 | FreeRTOS tasks, ESP log |
-| Shell | ~66 | FreeRTOS delays, printf, ESP log, NVS (via GOOSE APIs) |
-| Services (LED, Button, Temp) | ~30 | GPIO drivers, temperature sensor driver, FreeRTOS tasks |
-| Core (boot, fabric, events, services) | ~64 | FreeRTOS queues/tasks, NVS, ESP system, ESP log |
-| Storage | ~16 | NVS |
-| Net | ~30 | ESP Wi-Fi |
-| Drivers | ~19 | GPIO, LED (LEDC) |
-| VM layer | ~15 | FreeRTOS tasks (task_runtime), ESP log (syscall), ESP check macros |
-| Main | ~14 | ESP system, all of the above |
+| Subsystem | Hard deps | What they call | FreeRTOS status |
+|---|---|---|---|
+| GOOSE Runtime | ~88 | reflex_task.h, CPU cycles, sleep, NVS, GPIO, ROM GPIO | Abstracted |
+| GOOSE Atmosphere | ~69 | ESP-NOW, Wi-Fi, standalone HMAC-SHA256, NVS, MAC read, timers, random | Abstracted |
+| GOOSE Supervisor | ~61 | reflex_task.h, NVS, timers, random | Abstracted |
+| GOOSE Atlas | ~7 | ESP log | N/A |
+| GOOSE Shadow Atlas | ~0 | Pure data (generated C array) | N/A |
+| GOOSE Library | ~19 | ESP log, malloc | N/A |
+| GOOSE DMA | ~11 | ESP GDMA (scaffold) | N/A |
+| GOOSE ETM | ~23 | ESP ETM, GPIO ETM (scaffold) | N/A |
+| GOOSE Gateway | ~12 | reflex_task.h, ESP log | Abstracted |
+| Shell | ~66 | reflex_task.h, printf, ESP log, NVS (via GOOSE APIs) | Abstracted |
+| Services (LED, Button, Temp) | ~30 | GPIO drivers, temperature sensor driver, reflex_task.h | Abstracted |
+| Core (boot, fabric, events, services) | ~64 | reflex_task.h, NVS, ESP system, ESP log | Abstracted |
+| Storage | ~16 | NVS | N/A |
+| Net | ~30 | ESP Wi-Fi | Abstracted (includes removed) |
+| Drivers | ~19 | GPIO, LED (LEDC) | N/A |
+| VM layer | ~15 | reflex_task.h, ESP log (syscall), ESP check macros | Abstracted |
+| Main | ~14 | ESP system, all of the above | N/A |
+
+**FreeRTOS isolation:** Only `platform/esp32c6/reflex_task_esp32c6.c` touches FreeRTOS directly. All other code uses `reflex_task.h`. A complete standalone kernel backend exists in `kernel/reflex_task_kernel.c`.
 
 ### What's already portable
 
@@ -141,9 +143,9 @@ void reflex_critical_exit(reflex_mutex_t *m);
 reflex_mutex_t reflex_critical_init(void);
 ```
 
-**ESP-IDF implementation**: wrappers around `xTaskCreate`, `vTaskDelete`, `vTaskDelay`, `xQueueCreate/Send/Receive`, `taskENTER/EXIT_CRITICAL`, `portMUX_INITIALIZER_UNLOCKED`.
+**Production backend** (`platform/esp32c6/reflex_task_esp32c6.c`): wrappers around FreeRTOS — `xTaskCreate`, `vTaskDelay`, `xQueueCreate/Send/Receive`, `taskENTER/EXIT_CRITICAL`, `vTaskPrioritySet`, `xTaskGetHandle`.
 
-**Future implementation**: bare-metal cooperative scheduler on RISC-V, or preemptive scheduler using the C6's machine timer interrupt.
+**Reflex kernel backend** (`kernel/reflex_task_kernel.c`): complete standalone implementation — cooperative scheduler with setjmp/longjmp, ring-buffer queues, RISC-V critical sections (csrci/csrsi mstatus), priority-based round-robin. All 13 functions implemented. Selectable via `CONFIG_REFLEX_KERNEL_SCHEDULER`.
 
 ### Layer 4: Reflex Radio (`reflex_radio.h`)
 

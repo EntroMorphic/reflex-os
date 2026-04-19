@@ -1,7 +1,9 @@
 set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "reflex_kv_esp32c6.c"
                         "reflex_crypto_esp32c6.c")
 
-# FreeRTOS is always the task backend (for now).
+# Task backend: FreeRTOS (production default).
+# Alternative: CONFIG_REFLEX_KERNEL_SCHEDULER enables the Reflex kernel
+# backend in kernel/reflex_task_kernel.c (all 13 reflex_task.h functions).
 list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
 if(CONFIG_REFLEX_KERNEL_SCHEDULER)
     # Kernel hook + port assembly replacement
@@ -29,11 +31,9 @@ idf_component_register(SRCS ${REFLEX_PLATFORM_SRCS}
 target_compile_definitions(${COMPONENT_LIB} PUBLIC "REFLEX_RTC_DATA_ATTR=__attribute__((section(\".rtc.data\")))")
 
 if(CONFIG_REFLEX_KERNEL_SCHEDULER)
-    # Wrap ONLY xPortStartScheduler — the entry point where FreeRTOS
-    # starts its scheduling loop. Everything else (task creation,
-    # queues, timers, etc.) runs through FreeRTOS normally.
-    # Our kernel hook prints the banner and creates the supervisor
-    # task, then lets FreeRTOS run as the scheduling HAL.
+    # Kernel hooks via linker --wrap:
+    #   xPortStartScheduler — creates supervisor task + tick ISR
+    #   rtos_int_enter/exit — our port assembly owns interrupt context switching
     target_link_libraries(${COMPONENT_LIB} INTERFACE
         "-Wl,--wrap=xPortStartScheduler"
         "-Wl,--wrap=rtos_int_enter"

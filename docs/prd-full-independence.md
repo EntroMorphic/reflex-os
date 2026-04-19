@@ -81,29 +81,23 @@
 
 ## Dependency 4: FreeRTOS
 
-**What it is:** The RTOS kernel. Task scheduling, context switching, queues, mutexes, tick timer, interrupt management. The ESP-IDF port includes RISC-V-specific context save/restore, machine timer configuration, and interrupt vector setup.
+**What it is:** The RTOS kernel. Task scheduling, context switching, queues, mutexes, tick timer, interrupt management.
 
-**Where:** `platform/esp32c6/reflex_task_esp32c6.c` (abstracted), plus 22 direct references in Tier C files.
+**Where:** `platform/esp32c6/reflex_task_esp32c6.c` — the sole file that touches FreeRTOS.
 
-**Replaceable:** Yes, but this is the single largest remaining effort.
+**Status: SUBSTANTIALLY COMPLETE.**
 
-**Options:**
+- [x] `reflex_task.h` abstraction layer — all 13 portable functions
+- [x] All direct FreeRTOS calls eliminated from substrate, shell, services, VM, core, net
+- [x] Complete preemptive RISC-V scheduler in `kernel/reflex_task_kernel.c` (13 functions)
+- [x] Interrupt context switching owned by `kernel/reflex_portasm.S` (via `--wrap rtos_int_enter/exit`)
+- [x] Kernel supervisor active — purpose-modulated priorities, Hebbian scheduling, holon lifecycle
+- [x] Own 1kHz tick ISR on SYSTIMER TARGET1
+- [x] Hardware stack guard management with proper TCB bounds
+- [ ] Default build still uses FreeRTOS backend for production stability
+- [ ] ESP-IDF internal components (WiFi, ESP-NOW) still create FreeRTOS tasks internally
 
-**Option A: Write a Reflex scheduler.** A minimal cooperative or preemptive scheduler for single-core RISC-V. Needs: task context struct, stack initialization, context switch (save/restore 32 GP registers + CSRs), machine timer tick, yield mechanism, priority queue. This is a real RTOS kernel — 1000-2000 lines of C + assembly. Proven designs exist (FreeRTOS itself is ~5000 lines for the core).
-
-**Option B: Use Zephyr's scheduler.** Apache-2.0 licensed, supports RISC-V, designed for exactly this class of MCU. We'd write a Zephyr backend for `reflex_task.h` instead of the FreeRTOS backend. Zephyr is not Espressif — it's a Linux Foundation project.
-
-**Option C: Port a minimal RTOS.** picoRTOS, RIOT, or similar. Small, open-source, RISC-V-capable.
-
-**Recommendation:** Option A for the long term (true ownership), but Option B or C as a bridge. Writing a correct preemptive scheduler with interrupt safety takes time and the bugs are subtle (priority inversion, stack overflow, interrupt latency).
-
-**Plan:**
-1. Abstract the remaining 22 direct FreeRTOS calls in Tier C files through `reflex_task.h` (the task abstraction already exists — the Tier C files just haven't been migrated)
-2. Write a minimal cooperative scheduler as `platform/reflex_native/reflex_task_native.c` for host testing
-3. Write a preemptive RISC-V scheduler as `platform/esp32c6/reflex_scheduler.c` using the machine timer interrupt
-4. Replace the FreeRTOS backend with the Reflex scheduler
-
-**Effort:** 2-4 weeks for a working preemptive scheduler. The cooperative version (for host testing) is 1-2 days.
+**Remaining:** FreeRTOS persists as the scheduling HAL because ESP-IDF components are welded to it at source level. The Reflex kernel backend (`CONFIG_REFLEX_KERNEL_SCHEDULER`) is available and hardware-validated but not yet the production default.
 
 ---
 
@@ -119,11 +113,10 @@
 | `reflex_task_esp32c6.c` | `xTaskCreate`, `vTaskDelay`, `xQueueCreate`, `portMUX` | Reflex scheduler (Dependency 4) |
 | `reflex_kv_esp32c6.c` | `nvs_open/get/set/close` | Reflex filesystem on LittleFS or raw flash sectors |
 | `reflex_radio_esp32c6.c` | `esp_now_init/send/register_recv` | See Dependency 8 (Wi-Fi blob) |
-| `reflex_crypto_esp32c6.c` | `mbedtls_md_hmac_*` | Software SHA-256 implementation (~200 lines) or hardware SHA accelerator via direct register access (`sys.sha.*` is in our SVD catalog) |
+| `reflex_crypto_esp32c6.c` | ~~`mbedtls_md_hmac_*`~~ | **DONE** — standalone FIPS 180-4 SHA-256 + RFC 2104 HMAC, validated on 9,634 mesh packets |
+| `reflex_task_esp32c6.c` | `xTaskCreate`, `vTaskDelay`, etc. | **DONE** — standalone backend in `kernel/reflex_task_kernel.c` (all 13 functions) |
 
-**Plan:** Replace each file one at a time, validating on hardware after each. The crypto backend is the easiest (self-contained SHA-256). The HAL is next (register access). The KV store needs a filesystem. The task backend needs the scheduler. The radio backend is blocked by the Wi-Fi blob.
-
-**Effort:** 1-2 weeks for HAL + crypto + KV. Task backend depends on the scheduler. Radio backend depends on the Wi-Fi blob question.
+**Status:** Crypto and task backends are complete. HAL uses direct register access for GPIO, SYSTIMER, CPU cycles, RNG, MAC, reboot. KV store still uses NVS. Radio backend depends on Wi-Fi blob (802.15.4 blob-free alternative available).
 
 ---
 

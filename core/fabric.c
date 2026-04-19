@@ -36,7 +36,6 @@ reflex_err_t reflex_fabric_send(const reflex_message_t *msg)
     REFLEX_RETURN_ON_FALSE(msg->to < REFLEX_NODE_MAX, REFLEX_ERR_INVALID_ARG, "reflex.fabric", "invalid destination");
 
     // QoS Logic: In a full implementation, we'd check channel priority here.
-    // For MVP, we use the standard FreeRTOS queue.
     if (reflex_queue_send(s_node_inboxes[msg->to], msg, 0) != REFLEX_OK) {
         if (msg->channel == REFLEX_CHAN_TELEM) {
             return REFLEX_OK; // Silently drop telemetry if full

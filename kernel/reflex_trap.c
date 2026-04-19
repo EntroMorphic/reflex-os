@@ -32,8 +32,9 @@ uint32_t *reflex_trap_handler(uint32_t *frame) {
         }
         /* Other interrupts can be dispatched here */
     } else {
-        /* Exception — for now, just log and return to the faulting
-         * instruction (which will fault again — need a proper handler) */
+        /* Exception — fault handling is stubbed. Interrupt dispatch
+         * (tick, external) is handled by reflex_portasm.S and the
+         * ESP-IDF vector table. */
     }
 
     return frame;

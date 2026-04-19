@@ -213,7 +213,7 @@ static void reflex_cache_enable(void) {
     /* Enable IBUS and DBUS by clearing the shut bits */
     REG_CLR_BIT(EXTMEM_L1_CACHE_CTRL_REG, EXTMEM_L1_CACHE_SHUT_IBUS);
     REG_CLR_BIT(EXTMEM_L1_CACHE_CTRL_REG, EXTMEM_L1_CACHE_SHUT_DBUS);
-    /* autoload=0: the app configures cache autoload during FreeRTOS init */
+    /* autoload=0: the app configures cache autoload during startup */
     Cache_Enable_ICache(0);
 }
 

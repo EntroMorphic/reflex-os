@@ -14,11 +14,14 @@ menu "Reflex OS"
             bool "IEEE 802.15.4 (blob-free)"
     endchoice
     config REFLEX_KERNEL_SCHEDULER
-        bool "Use Reflex kernel scheduler (replaces FreeRTOS)"
+        bool "Enable Reflex kernel supervisor and port assembly"
         default n
         help
-            Use the Reflex OS kernel scheduler instead of FreeRTOS.
-            Currently cooperative-only: tasks must call yield or delay
-            explicitly. Preemptive tick-driven switching requires the
-            assembly context save/restore from Dependency 10.
+            Activates the Reflex kernel layer on top of FreeRTOS:
+            - Wraps rtos_int_enter/exit with our port assembly
+            - Creates the kernel supervisor task (purpose-modulated
+              scheduling, Hebbian priority, holon lifecycle)
+            - Registers a 1kHz tick ISR on SYSTIMER TARGET1
+            FreeRTOS remains as the scheduling HAL. A complete
+            standalone task backend exists in kernel/reflex_task_kernel.c.
 endmenu
