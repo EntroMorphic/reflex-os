@@ -6,8 +6,6 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/event_groups.h"
 
 #include "reflex_log.h"
 #include "reflex_config.h"

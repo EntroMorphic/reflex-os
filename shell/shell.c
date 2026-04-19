@@ -154,7 +154,7 @@ static void reflex_shell_bonsai_exp1_task(void *arg) {
         s->last_level = l; s->current_level = l;
         reflex_task_delay_ms(25);
     }
-    s->handle = NULL; vTaskDelete(NULL);
+    s->handle = NULL; reflex_task_delete(NULL);
 }
 
 static void reflex_shell_bonsai_exp2_task(void *arg) {
@@ -167,7 +167,7 @@ static void reflex_shell_bonsai_exp2_task(void *arg) {
         else if (s->phase == REFLEX_BONSAI_EDGE_POS) reflex_led_set(true);
         reflex_task_delay_ms(400);
     }
-    s->handle = NULL; vTaskDelete(NULL);
+    s->handle = NULL; reflex_task_delete(NULL);
 }
 
 static void reflex_shell_bonsai_exp3a_task(void *arg) {
@@ -184,7 +184,7 @@ static void reflex_shell_bonsai_exp3a_task(void *arg) {
         else reflex_led_set(false);
         reflex_task_delay_ms(250);
     }
-    s->handle = NULL; vTaskDelete(NULL);
+    s->handle = NULL; reflex_task_delete(NULL);
 }
 
 // --- Start/Status Logic ---
@@ -550,16 +550,14 @@ static void reflex_shell_atlas_verify(void) {
      * addr+mask. A scraper bug that emitted wrong type or coord
      * would otherwise slip past the verification.
      *
-     * Every 1000 entries we emit a progress dot and yield via
-     * vTaskDelay(0) so higher-priority tasks (supervisor pulse,
-     * atmosphere RX, button ISR service) can run between chunks.
-     * The verify itself doesn't take loom_authority, so yielding is
-     * courtesy to the scheduler, not a correctness requirement. */
+     * Every 1000 entries we emit a progress dot and yield so
+     * higher-priority tasks (supervisor pulse, atmosphere RX,
+     * button ISR service) can run between chunks. */
     for (uint32_t i = 0; i < total; i++) {
         if ((i % 1000) == 0) {
             putchar('.');
             fflush(stdout);
-            vTaskDelay(0);
+            reflex_task_yield();
         }
         uint32_t addr, mask;
         reflex_tryte9_t coord;
