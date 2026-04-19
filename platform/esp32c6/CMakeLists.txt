@@ -1,11 +1,12 @@
 set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "reflex_kv_esp32c6.c"
                         "reflex_crypto_esp32c6.c")
 
-# FreeRTOS is always the task backend and scheduling HAL.
+# FreeRTOS is always the task backend (for now).
 list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
 if(CONFIG_REFLEX_KERNEL_SCHEDULER)
-    # Add the kernel hook (xPortStartScheduler wrap + supervisor task)
-    list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_freertos_compat.c")
+    # Kernel hook + port assembly replacement
+    list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_freertos_compat.c"
+                                     "../../kernel/reflex_portasm.S")
 endif()
 
 set(REFLEX_PLATFORM_REQUIRES driver nvs_flash log)
@@ -34,5 +35,9 @@ if(CONFIG_REFLEX_KERNEL_SCHEDULER)
     # Our kernel hook prints the banner and creates the supervisor
     # task, then lets FreeRTOS run as the scheduling HAL.
     target_link_libraries(${COMPONENT_LIB} INTERFACE
-        "-Wl,--wrap=xPortStartScheduler")
+        "-Wl,--wrap=xPortStartScheduler"
+        "-Wl,--wrap=rtos_int_enter"
+        "-Wl,--wrap=rtos_int_exit"
+        "-Wl,--undefined=__wrap_rtos_int_enter"
+        "-Wl,--undefined=__wrap_rtos_int_exit")
 endif()
