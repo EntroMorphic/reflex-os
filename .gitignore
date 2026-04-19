@@ -35,3 +35,4 @@ session-ses_*.md
 .DS_Store
 Thumbs.db
 build-host/
+build_esp32/

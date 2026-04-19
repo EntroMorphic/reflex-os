@@ -9,8 +9,10 @@
 #include "driver/pulse_cnt.h"
 #include "driver/rmt_tx.h"
 #include "driver/rmt_encoder.h"
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
+#endif
 
 #include "reflex_types.h"
 #include "reflex_hal.h"
@@ -787,11 +789,17 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
 
 void reflex_shell_run(void) {
     char line[REFLEX_SHELL_LINE_MAX]; size_t len = 0;
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
     if (!usb_serial_jtag_is_driver_installed()) { usb_serial_jtag_driver_config_t c = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT(); usb_serial_jtag_driver_install(&c); }
     usb_serial_jtag_vfs_use_driver(); usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF); usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
+#endif
     printf("reflex> "); fflush(stdout);
     while (1) {
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
         uint8_t ch; int r = usb_serial_jtag_read_bytes(&ch, 1, 50);
+#else
+        int ch = getchar(); int r = (ch != EOF) ? 1 : 0;
+#endif
         if (r <= 0) { reflex_task_delay_ms(50); continue; }
         if (ch == '\n') {
             line[len] = 0; char *argv[8]; int argc = 0;

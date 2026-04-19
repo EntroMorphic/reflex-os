@@ -1,3 +1,8 @@
+if(NOT "${IDF_TARGET}" STREQUAL "esp32c6")
+    idf_component_register()
+    return()
+endif()
+
 set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "reflex_kv_esp32c6.c"
                         "reflex_crypto_esp32c6.c")
 
