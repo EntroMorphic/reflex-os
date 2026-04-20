@@ -30,12 +30,15 @@ typedef struct {
 
 /* --- Tasks --- */
 
+/** @param out_handle Receives the task handle (may be NULL if caller doesn't need it). */
 reflex_err_t reflex_task_create(void (*fn)(void *), const char *name,
                                 uint32_t stack_bytes, void *arg, int priority,
                                 reflex_task_handle_t *out_handle);
+/** @param handle Task to delete; NULL deletes the calling task. */
 void reflex_task_delete(reflex_task_handle_t handle);
 void reflex_task_delay_ms(uint32_t ms);
 void reflex_task_yield(void);
+/** @return Handle or NULL if not found. */
 reflex_task_handle_t reflex_task_get_by_name(const char *name);
 void reflex_task_set_priority(reflex_task_handle_t handle, int priority);
 int reflex_task_get_priority(reflex_task_handle_t handle);

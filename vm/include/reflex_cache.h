@@ -1,3 +1,6 @@
+/** @file reflex_cache.h
+ * @brief VM cache types and public API.
+ */
 #ifndef REFLEX_CACHE_H
 #define REFLEX_CACHE_H
 

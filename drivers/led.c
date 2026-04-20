@@ -1,3 +1,6 @@
+/** @file led.c
+ * @brief GPIO LED driver.
+ */
 #include "reflex_hal.h"
 #include "reflex_led.h"
 

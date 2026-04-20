@@ -1,3 +1,6 @@
+/** @file blink.c
+ * @brief Precompiled VM blink program bytecode.
+ */
 #include <stdint.h>
 #include <stddef.h>
 

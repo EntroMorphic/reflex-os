@@ -1,3 +1,6 @@
+/** @file reflex_vm_mem.h
+ * @brief VM MMU and memory region types.
+ */
 #ifndef REFLEX_VM_MEM_H
 #define REFLEX_VM_MEM_H
 

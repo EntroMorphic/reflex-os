@@ -1,3 +1,6 @@
+/** @file syscall.c
+ * @brief VM syscall dispatch handler.
+ */
 #include "reflex_vm.h"
 
 #include <stdio.h>

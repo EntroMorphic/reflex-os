@@ -1,3 +1,6 @@
+/** @file reflex_boot0.c
+ * @brief Second-stage bootloader entry point.
+ */
 /*
  * Reflex OS Boot0 — Second-Stage Bootloader
  *

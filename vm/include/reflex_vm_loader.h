@@ -1,3 +1,6 @@
+/** @file reflex_vm_loader.h
+ * @brief VM image loader types and API.
+ */
 #ifndef REFLEX_VM_LOADER_H
 #define REFLEX_VM_LOADER_H
 

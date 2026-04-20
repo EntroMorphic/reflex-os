@@ -1,3 +1,6 @@
+/** @file boot.c
+ * @brief Reflex OS boot sequence and chip info.
+ */
 #include "reflex_boot.h"
 #include "reflex_log.h"
 #include "reflex_hal.h"

@@ -1,3 +1,6 @@
+/** @file log.c
+ * @brief Logging level control implementation.
+ */
 #include "reflex_log.h"
 
 static int s_reflex_log_level = REFLEX_LOG_LEVEL_INFO;

@@ -1,3 +1,6 @@
+/** @file programs.c
+ * @brief VM built-in program registry.
+ */
 #include "programs.h"
 #include <stdbool.h>
 #include <string.h>

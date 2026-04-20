@@ -228,13 +228,13 @@ def main():
     import sys
 
     port = sys.argv[1] if len(sys.argv) > 1 else None
-    if not port:
+    if not port or port in ("--help", "-h"):
         print("Usage: reflex-cli <port>")
         print("       reflex-cli /dev/cu.usbmodem1101")
         print()
         print("Or auto-discover:")
         print("       reflex-cli --discover")
-        sys.exit(1)
+        sys.exit(0 if port in ("--help", "-h") else 1)
 
     if port == "--discover":
         nodes = discover()

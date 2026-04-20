@@ -1,3 +1,6 @@
+/** @file button.c
+ * @brief GPIO button driver with debounce.
+ */
 #include "reflex_hal.h"
 #include "reflex_task.h"
 #include "reflex_button.h"

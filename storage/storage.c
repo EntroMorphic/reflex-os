@@ -1,3 +1,6 @@
+/** @file storage.c
+ * @brief Storage subsystem init and migration.
+ */
 #include "reflex_storage.h"
 
 #include <stdbool.h>

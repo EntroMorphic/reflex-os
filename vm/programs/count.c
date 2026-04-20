@@ -1,3 +1,6 @@
+/** @file count.c
+ * @brief Precompiled VM count program bytecode.
+ */
 #include <stdint.h>
 #include <stddef.h>
 

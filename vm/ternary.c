@@ -1,3 +1,6 @@
+/** @file ternary.c
+ * @brief Ternary arithmetic and encoding primitives.
+ */
 #include "reflex_ternary.h"
 
 #include <string.h>

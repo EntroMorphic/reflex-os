@@ -1,3 +1,6 @@
+/** @file task_runtime.c
+ * @brief VM task lifecycle and scheduling wrapper.
+ */
 #include "reflex_vm_task.h"
 
 #include <string.h>

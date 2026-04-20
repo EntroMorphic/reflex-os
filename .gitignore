@@ -39,3 +39,5 @@ build_esp32/
 release/reflex-os-*/
 release/*.zip
 docs/api/
+sdk/python/dist/
+*.egg-info/

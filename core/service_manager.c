@@ -1,3 +1,6 @@
+/** @file service_manager.c
+ * @brief Service lifecycle registration and startup.
+ */
 #include "reflex_service.h"
 
 #include <string.h>

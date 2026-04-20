@@ -1,3 +1,6 @@
+/** @file led_service.c
+ * @brief LED service with fabric event handling.
+ */
 #include "reflex_hal.h"
 #include "reflex_task.h"
 #include <string.h>

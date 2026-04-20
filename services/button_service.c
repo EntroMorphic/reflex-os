@@ -1,3 +1,6 @@
+/** @file button_service.c
+ * @brief Button service descriptor and init wrapper.
+ */
 #include "reflex_hal.h"
 #include "reflex_task.h"
 #include "reflex_button_service.h"

@@ -1,3 +1,6 @@
+/** @file fabric.c
+ * @brief Inter-node message fabric transport.
+ */
 #include "reflex_fabric.h"
 
 #include <string.h>

@@ -1,3 +1,6 @@
+/** @file cache.c
+ * @brief Ternary VM memory cache implementation.
+ */
 #include "reflex_cache.h"
 
 #include <string.h>

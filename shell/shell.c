@@ -1,3 +1,6 @@
+/** @file shell.c
+ * @brief Interactive UART command shell.
+ */
 #include "reflex_shell.h"
 
 #include <stdbool.h>

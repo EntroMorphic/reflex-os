@@ -1,3 +1,6 @@
+/** @file mmu.c
+ * @brief VM memory management unit.
+ */
 #include "reflex_vm_mem.h"
 
 #include <string.h>

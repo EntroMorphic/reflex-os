@@ -1,3 +1,6 @@
+/** @file event_bus.c
+ * @brief Publish-subscribe event bus implementation.
+ */
 #include "reflex_event.h"
 
 #include <string.h>

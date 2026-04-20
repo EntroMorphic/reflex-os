@@ -1,3 +1,6 @@
+/** @file main.c
+ * @brief Application entry point.
+ */
 #include "reflex_hal.h"
 #include "reflex_task.h"
 #include <stdint.h>

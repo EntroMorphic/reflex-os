@@ -1,3 +1,6 @@
+/** @file wifi.c
+ * @brief Wi-Fi station driver for ESP32.
+ */
 #include "reflex_wifi.h"
 
 #include <string.h>

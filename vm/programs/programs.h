@@ -1,3 +1,6 @@
+/** @file programs.h
+ * @brief VM program descriptor type and table.
+ */
 #ifndef REFLEX_VM_PROGRAMS_H
 #define REFLEX_VM_PROGRAMS_H
 

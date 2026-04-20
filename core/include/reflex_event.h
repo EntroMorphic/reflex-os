@@ -1,3 +1,6 @@
+/** @file reflex_event.h
+ * @brief Event bus types and public API.
+ */
 #ifndef REFLEX_EVENT_H
 #define REFLEX_EVENT_H
 

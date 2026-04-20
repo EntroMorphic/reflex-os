@@ -1,3 +1,6 @@
+/** @file interpreter.c
+ * @brief Ternary VM opcode interpreter.
+ */
 #include "reflex_vm.h"
 
 #include <stdlib.h>

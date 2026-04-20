@@ -26,7 +26,9 @@ extern "C" {
 
 /* --- Time --- */
 
+/** @return Microseconds since boot (monotonic). */
 uint64_t reflex_hal_time_us(void);
+/** @return Raw CPU cycle counter (wraps). */
 uint32_t reflex_hal_cpu_cycles(void);
 void     reflex_hal_delay_us(uint32_t us);
 
@@ -63,6 +65,9 @@ typedef void (*reflex_intr_handler_t)(void *arg);
 
 #define REFLEX_INTR_FLAG_IRAM  (1 << 0)
 
+/** @param source Platform interrupt source number.
+ *  @param flags REFLEX_INTR_FLAG_IRAM to place handler in IRAM.
+ *  @param out_handle Receives the allocated interrupt handle. */
 reflex_err_t reflex_hal_intr_alloc(int source, int flags,
                                    reflex_intr_handler_t handler, void *arg,
                                    reflex_intr_handle_t *out_handle);

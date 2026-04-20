@@ -1,3 +1,6 @@
+/** @file reflex_fabric.h
+ * @brief Fabric messaging types and public API.
+ */
 #ifndef REFLEX_FABRIC_H
 #define REFLEX_FABRIC_H
 

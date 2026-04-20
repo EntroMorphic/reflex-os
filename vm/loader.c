@@ -1,3 +1,6 @@
+/** @file loader.c
+ * @brief VM program image loader and validator.
+ */
 #include "reflex_vm_loader.h"
 
 #include "reflex_types.h"

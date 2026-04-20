@@ -1,3 +1,6 @@
+/** @file config.c
+ * @brief Persistent configuration key-value accessors.
+ */
 #include "reflex_config.h"
 
 #include <string.h>
