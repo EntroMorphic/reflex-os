@@ -49,6 +49,18 @@ static char s_last_purpose[16] = {0};
 __attribute__((weak))
 void reflex_kernel_set_policy(reflex_kernel_policy_fn fn) { (void)fn; }
 
+static bool reflex_domain_match(const char *name, const char *domain) {
+    size_t dlen = strlen(domain);
+    const char *p = name;
+    while ((p = strstr(p, domain)) != NULL) {
+        bool left_ok = (p == name || *(p - 1) == '.');
+        bool right_ok = (p[dlen] == '\0' || p[dlen] == '.');
+        if (left_ok && right_ok) return true;
+        p++;
+    }
+    return false;
+}
+
 static void goose_kernel_policy_tick(uint32_t tick) {
     (void)tick;
     const char *purpose = goose_purpose_get_name();
@@ -91,14 +103,16 @@ static void goose_kernel_policy_tick(uint32_t tick) {
         int priority = PULSE_BASE_PRIORITY;
 
         /* Item 1: Purpose boost — domain-specific. Only boost fields
-         * whose routes touch cells in the active purpose domain. */
+         * whose routes touch cells in the active purpose domain.
+         * Domain matching uses dot-boundary: purpose "led" matches
+         * "agency.led.intent" but not "misled" or "ledger". */
         if (purpose_active) {
             bool has_domain_route = false;
             for (size_t r = 0; r < field->route_count && !has_domain_route; r++) {
                 const char *src = goonies_resolve_name_by_coord(field->routes[r].source_coord);
                 const char *snk = goonies_resolve_name_by_coord(field->routes[r].sink_coord);
-                if ((src && strstr(src, s_last_purpose)) ||
-                    (snk && strstr(snk, s_last_purpose))) {
+                if ((src && reflex_domain_match(src, s_last_purpose)) ||
+                    (snk && reflex_domain_match(snk, s_last_purpose))) {
                     has_domain_route = true;
                 }
             }
@@ -185,6 +199,9 @@ reflex_err_t goose_supervisor_init(void) {
     supervisor_mux_initialized = true;
     REFLEX_LOGI(TAG, "Initializing Harmonic Supervisor...");
     reflex_kernel_set_policy(goose_kernel_policy_tick);
+    reflex_holon_create("autonomy", "");
+    reflex_holon_create("comm", "mesh");
+    reflex_holon_create("agency", "led");
     return REFLEX_OK;
 }
 

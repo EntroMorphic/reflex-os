@@ -379,6 +379,7 @@ reflex_err_t goose_supervisor_weave_sync(void) {
         autonomy_field = f;
         goose_field_start_pulse(autonomy_field);
         goose_supervisor_register_field(autonomy_field);
+        reflex_holon_add_field("autonomy", autonomy_field);
     }
     for (uint32_t i = 0; i < fabric_cell_count; i++) {
         goose_cell_t *need = &fabric_cells[i];

@@ -2,7 +2,7 @@
 
 ## Abstract
 
-We present Reflex OS, a microcontroller operating system that introduces three novel architectural primitives absent from existing embedded operating systems: (1) balanced ternary state propagation as the fundamental scheduling signal, (2) purpose-modulated kernel scheduling where user-declared intent directly adjusts task priorities through a domain-matching policy engine, and (3) Hebbian reinforcement learning integrated into the scheduler itself, enabling the OS to learn which task-routing patterns best serve the user's evolving goals. The system runs on ESP32-C6 (RISC-V) and ESP32 (Xtensa) hardware, owns its interrupt context switching via linker-level wraps on the preemptive scheduler, and has been validated end-to-end: purpose declaration → domain-biased routing → amplified learning → priority adjustment → NVS persistence → reboot recovery.
+We present Reflex OS, a microcontroller operating system built on six architectural primitives absent from existing embedded systems: (1) balanced ternary state propagation as the fundamental routing signal, (2) purpose-modulated kernel scheduling where user-declared intent directly adjusts task priorities, (3) geometric coordinate addressing for spatial resource identification, (4) reward-gated Hebbian learning embedded in the scheduler's regulation pass, (5) holonic lifecycle management where named field groups activate/deactivate based on purpose domain, and (6) a policy-on-mechanism kernel architecture using linker-level interception of interrupt context switching. The system runs on ESP32-C6 (RISC-V) and ESP32 (Xtensa) hardware and has been validated end-to-end: purpose declaration → domain-biased routing → amplified learning → priority adjustment → NVS persistence → reboot recovery.
 
 ---
 
@@ -69,20 +69,35 @@ static void reflex_kernel_supervisor(void *arg) {
 }
 ```
 
-The policy function resolves route endpoint names against the purpose domain:
+The policy function resolves route endpoint names and checks for dot-delimited domain boundaries:
 
 ```c
-// goose_supervisor.c:96-107
+// goose_supervisor.c — domain matching with boundary check
+static bool reflex_domain_match(const char *name, const char *domain) {
+    size_t dlen = strlen(domain);
+    const char *p = name;
+    while ((p = strstr(p, domain)) != NULL) {
+        bool left_ok = (p == name || *(p - 1) == '.');
+        bool right_ok = (p[dlen] == '\0' || p[dlen] == '.');
+        if (left_ok && right_ok) return true;
+        p++;
+    }
+    return false;
+}
+
+// Policy tick — per field
 for (size_t r = 0; r < field->route_count && !has_domain_route; r++) {
     const char *src = goonies_resolve_name_by_coord(field->routes[r].source_coord);
     const char *snk = goonies_resolve_name_by_coord(field->routes[r].sink_coord);
-    if ((src && strstr(src, s_last_purpose)) ||
-        (snk && strstr(snk, s_last_purpose))) {
+    if ((src && reflex_domain_match(src, s_last_purpose)) ||
+        (snk && reflex_domain_match(snk, s_last_purpose))) {
         has_domain_route = true;
     }
 }
 if (has_domain_route) priority += PULSE_PURPOSE_BOOST;
 ```
+
+Domain matching uses dot boundaries: purpose "led" matches "agency.led.intent" but not "misled" or "ledger".
 
 Fields with routes touching the purpose domain receive a +3 priority boost. Non-matching fields receive +1. Deactivated holons are forced to base priority.
 
@@ -135,7 +150,7 @@ reflex_tryte9_t goose_make_coord(int8_t field, int8_t region, int8_t cell) {
 }
 ```
 
-Each coordinate level uses balanced ternary (-1, 0, +1), giving 3^3 = 27 positions per level and 27^3 = 19,683 addressable cells in the full 9-trit space.
+Each coordinate level uses balanced ternary (-1, 0, +1), giving 3^3 = 27 positions per level and 27^3 = 19,683 addressable cells in the full 9-trit space. The current implementation allocates 256 cells (`GOOSE_FABRIC_MAX_CELLS`) — a practical limit for MCU RAM, utilizing ~1.3% of the theoretical address space.
 
 ### 3.3 Properties
 
@@ -150,7 +165,7 @@ Each coordinate level uses balanced ternary (-1, 0, +1), giving 3^3 = 27 positio
 
 ### 4.1 Motivation
 
-Machine learning in operating systems typically exists as a user-space application. The OS itself doesn't learn. Reflex OS embeds a **reward-gated Hebbian learning rule** directly in the scheduler's regulation pass.
+Machine learning in operating systems typically exists as a user-space application. The OS itself doesn't learn. Reflex OS embeds a **reward-gated Hebbian associative learning rule** directly in the scheduler's regulation pass. This is not reinforcement learning (no value function, no policy gradient) — it is correlation-based associative learning gated by explicit reward/pain signals from the substrate.
 
 ### 4.2 The Learning Rule
 
@@ -199,6 +214,8 @@ if (learned_routes > 0) priority += PULSE_HEBBIAN_BOOST;
 ```
 
 This creates a **positive feedback loop**: mature routes get more CPU time, which means they evaluate faster, which means they respond to stimuli quicker. The OS becomes more responsive in domains where it has learned.
+
+**Stability bounds:** The priority boost is capped at `PULSE_MAX_PRIORITY` (15, on a 0-24 scale), preventing unbounded escalation. The pain signal provides negative feedback — under pain, counters decay and boosts shrink. Fields not in any active holon are forced to base priority regardless of maturity. These three mechanisms (cap, pain decay, holon deactivation) prevent runaway priority starvation.
 
 ---
 
@@ -262,11 +279,11 @@ A field keeps its boost if ANY containing holon is active. Only when ALL are ina
 
 ---
 
-## 6. Cooperative-on-Preemptive Architecture
+## 6. Policy-on-Mechanism Kernel Architecture
 
 ### 6.1 Motivation
 
-Embedded operating systems are either cooperative (simple, predictable, no preemption) or preemptive (complex, interrupt-driven, full context switching). Reflex OS is both: a **cooperative policy layer** riding on a **preemptive scheduling HAL**.
+Embedded operating systems are either cooperative (simple, predictable, no preemption) or preemptive (complex, interrupt-driven, full context switching). Reflex OS separates the concerns: a **periodic policy evaluation layer** riding on a **preemptive scheduling HAL**. The policy decides *what* should run; the HAL executes *how* to switch.
 
 ### 6.2 Mechanism: Linker-Level Interception
 
@@ -363,20 +380,44 @@ FreeRTOS is fully contained behind `reflex_task.h`:
 
 ## 8. Related Work
 
-| System | Ternary | Purpose-aware scheduling | Hebbian in kernel | Holonic lifecycle |
+### 8.1 Embedded RTOSes
+
+| System | Ternary | Purpose-aware scheduling | Learning in kernel | Holonic lifecycle |
 |--------|---------|--------------------------|-------------------|-------------------|
 | FreeRTOS | No | No | No | No |
 | Zephyr | No | No | No | No |
-| Linux CFS | No | Nice/ionice (reactive) | No | cgroups (manual) |
 | RIOT | No | No | No | No |
+| NuttX | No | No | No | No |
 | Reflex OS | **Yes** | **Yes** (proactive) | **Yes** | **Yes** (automatic) |
 
-No existing operating system combines ternary state propagation, proactive purpose-driven scheduling, embedded learning in the scheduler, and automatic holonic lifecycle management.
+### 8.2 General-Purpose OS Mechanisms
+
+**Linux CFS with cgroups** provides CPU share allocation per group. This is the closest analog to purpose-modulated scheduling, but it is *reactive* (administrator configures shares) rather than *proactive* (system reads declared purpose and adjusts automatically). cgroups require explicit management; Reflex holons activate/deactivate based on purpose domain matching without operator intervention.
+
+**Linux nice/ionice** adjusts process priority, but the adjustment is static and user-applied, not derived from intent.
+
+### 8.3 Neuromorphic and Bio-Inspired Systems
+
+**SpiNNaker** (Manchester) and **Intel Loihi** implement spiking neural networks in hardware with bio-inspired routing. These are specialized processors, not general-purpose operating systems. They do not schedule user tasks or manage I/O — they execute neural simulations. Reflex OS's Hebbian learning operates at the OS scheduling layer, modulating which *tasks* receive CPU time based on learned correlations, not which *neurons* fire.
+
+**STDP (Spike-Timing-Dependent Plasticity)** is a more sophisticated learning rule than our Hebbian implementation. Reflex OS uses a simpler reward-gated correlation rule (fire-together-wire-together with commitment threshold). Upgrading to STDP-lite is architecturally possible without changing the per-route field layout.
+
+### 8.4 Intent-Based Systems
+
+**Intent-based networking** (Cisco ACI, OpenDaylight) translates high-level intent into network configuration. The concept of "declare what you want, system figures out how" is shared with Reflex OS's purpose mechanism. The difference: IBN operates at the network layer on enterprise equipment; Reflex OS operates at the kernel scheduling layer on microcontrollers, and the purpose feeds back into a learning system that improves over time.
+
+### 8.5 Holonic Architectures
+
+**Koestler's holons** (1967) and the **PROSA reference architecture** (Van Brussel 1998) describe holonic manufacturing systems where autonomous units (holons) cooperate hierarchically. Reflex OS borrows the concept but implements it at OS granularity: a holon is a group of pulse-driven fields that share a domain tag and are activated/deactivated as a unit by the kernel policy. This is simpler than PROSA's negotiation protocols but operates at millisecond timescales on constrained hardware.
+
+### 8.6 Summary
+
+No existing system combines all six primitives. Neuromorphic hardware has bio-inspired learning but not OS-level scheduling. Intent-based networking has purpose declaration but not kernel integration. Linux has cgroups but not automatic domain-matching activation. Reflex OS is the first system to close the loop: purpose → routing → learning → scheduling → persistence, all within a single embedded kernel.
 
 ---
 
 ## 9. Conclusion
 
-Reflex OS demonstrates that operating system design has unexplored territory at the intersection of ternary logic, neuromorphic learning, and intentional computing. The system is not a simulation — it runs on commodity hardware, handles real interrupts, manages real tasks, and learns from real signals. The entire substrate, VM, and kernel are original work: ~15,000 lines of C and assembly, hardware-validated on multiple architectures.
+Reflex OS demonstrates that operating system design has unexplored territory at the intersection of ternary logic, neuromorphic learning, and intentional computing. The system is not a simulation — it runs on commodity hardware, handles real interrupts, manages real tasks, and learns from real signals. The entire substrate, VM, and kernel are original work: ~24,500 lines of C and assembly across 6 platform backends, hardware-validated on two architectures (RISC-V and Xtensa).
 
 The key insight: **an operating system that knows what the user is trying to do can allocate resources better than one that only reacts to contention.** Purpose is not a hint — it's a first-class kernel primitive that reshapes scheduling topology in real time.
