@@ -96,7 +96,7 @@ When Reflex OS boots, you see this sequence:
   ║       Reflex OS Kernel Active        ║  ← Kernel supervisor started
   ╚══════════════════════════════════════╝
 
-[reflex.kernel] tick=1000Hz supervisor=active
+[reflex.kernel] tick=100Hz supervisor=active
 purpose restored from NVS: "liberated"       ← Previous purpose loaded
 service_started=led                          ← Services coming online
 service_started=temp
@@ -109,10 +109,15 @@ Type `help` to see all available commands:
 
 ```
 reflex> help
-commands: help, reboot, sleep <s>, led status, temp, bonsai <..>,
-goonies <ls|find name>, atlas verify, services, config <get|set>,
-vm info, aura setkey <hex>, heartbeat, mesh <..>,
-snapshot <save|load|clear>, purpose <set|get|clear>
+system:  help, reboot, sleep <s>, status, services, config <get|set>
+led:     led <on|off|status>
+fabric:  goonies <ls|find name>, atlas verify, temp, heartbeat
+purpose: purpose <set name|get|clear>
+learn:   snapshot <save|load|clear>
+mesh:    mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>
+vm:      vm <info|run name|stop|list|loadhex hex>
+aura:    aura setkey <32 hex chars>
+bonsai:  bonsai <exp1|exp2|exp3a|exp4|exp5|runtime> <start|status|...>
 ```
 
 ---
@@ -184,7 +189,7 @@ purpose: cleared
 
 ```
 reflex> temp
-temp: 28.5°C state=0 (normal)
+temp=28.5C state=0
 ```
 
 ### GOOSE Fabric
@@ -192,14 +197,12 @@ temp: 28.5°C state=0 (normal)
 | Command | Description |
 |---------|-------------|
 | `goonies ls` | List all registered cell names |
-| `goonies find <name>` | Look up a cell by name (live + shadow atlas) |
-| `atlas verify` | Verify shadow atlas integrity (9,531 entries) |
-| `loom` | Show active Loom state |
-| `tapestry` | Show supervised field summary |
+| `goonies find <name>` | Look up a cell by name (live, shadow, or phantom) |
+| `atlas verify` | Verify shadow atlas integrity (9,527 entries) |
 
 ```
 reflex> goonies find agency.led.intent
-agency.led.intent coord=[0,0,1] addr=0 type=INTENT state=0
+agency.led.intent coord=(0,0,1) state=0 type=5 [live]
 ```
 
 ### Mesh
@@ -212,7 +215,7 @@ agency.led.intent coord=[0,0,1] addr=0 type=INTENT state=0
 | `mesh mac` | Show this board's MAC address |
 | `mesh emit [state]` | Broadcast an arc with the given state (-1, 0, or 1) |
 | `mesh query <name>` | Query a cell by name across the mesh |
-| `mesh posture` | Show current postural swarm state and weight |
+| `mesh posture <state> <weight>` | Broadcast a postural swarm arc (state: -1/0/1, weight: 0-4) |
 | `mesh peer add <name> <mac>` | Register a named peer by MAC address (XX:XX:XX:XX:XX:XX) |
 | `mesh peer ls` | List all registered mesh peers |
 
@@ -238,13 +241,22 @@ reflex> config set wifi_pass secret123
 reflex> reboot
 ```
 
+### Ternary VM
+
+| Command | Description |
+|---------|-------------|
+| `vm info` | VM status (status, IP, steps, loaded program) |
+| `vm run <name>` | Load and execute an embedded program by name |
+| `vm stop` | Halt the running VM |
+| `vm list` | List all embedded programs |
+| `vm loadhex <hex>` | Load a packed binary image from hex string |
+
 ### Debug
 
 | Command | Description |
 |---------|-------------|
-| `vm info` | Ternary VM status |
 | `heartbeat` | LP coprocessor pulse count |
-| `bonsai <exp1\|exp2\|exp3a> <start\|stop\|status>` | Bonsai hardware experiments |
+| `bonsai <exp> <start\|status>` | Bonsai hardware experiments (exp1-exp5, runtime) |
 
 ---
 
@@ -325,8 +337,10 @@ Board B> aura setkey 0123456789abcdef0123456789abcdef
 
 ```
 Board A> mesh ping
+mesh ping: broadcast rc=0x0
 Board A> mesh status
-peers=1 tx=1 rx=1
+mesh: peers=1 rx=54 tx=0 sync=54 mmio_sync_rx=0 mmio_sync_tx=0
+  boardb active (last: 0.0s)
 ```
 
 ---
@@ -346,13 +360,14 @@ Every Reflex node broadcasts "arcs" — authenticated packets containing cell st
 
 ### Security
 
-All mesh packets are authenticated with HMAC-SHA256 ("Aura"). Boards with different keys ignore each other's arcs. A 16-slot replay cache prevents packet replay attacks.
+All mesh packets are authenticated with HMAC-SHA256 ("Aura"). Boards with different keys ignore each other's arcs. A 64-slot replay cache prevents packet replay attacks.
 
 ### Monitoring
 
 ```
 reflex> mesh status
-mesh: radio=espnow peers=2 tx_arcs=47 rx_arcs=31 rx_drop=0
+mesh: peers=1 rx=54 tx=0 sync=54 mmio_sync_rx=0 mmio_sync_tx=0
+  charlie active (last: 0.0s)
 ```
 
 ---
@@ -547,9 +562,11 @@ The onboard LED is projected into the substrate as `agency.led.intent`:
 
 ```
 reflex> led on
+led=on
 reflex> led off
+led=off
 reflex> led status
-led: on
+led=on
 ```
 
 When purpose is "led", the LED responds to substrate state changes — routes connecting to `agency.led.intent` control it automatically.
@@ -560,10 +577,10 @@ The die temperature sensor reads every 5 seconds and projects into `perception.t
 
 ```
 reflex> temp
-temp: 31.2°C state=0
-
-States: -1 (cold, <30°C), 0 (normal, 30-55°C), +1 (warm, >55°C)
+temp=31.2C state=0
 ```
+
+States: -1 (cold, <30C), 0 (normal, 30-55C), +1 (warm, >55C)
 
 ### Button
 
