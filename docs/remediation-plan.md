@@ -190,7 +190,7 @@ A minimal assembler (Python script) that:
 
 ### Implementation
 
-`tools/tasm/tasm.py` (~400 LOC):
+`tools/tasm.py` (~400 LOC):
 
 ```python
 # tasm.py — Ternary Assembly Compiler
@@ -218,7 +218,7 @@ The compiler outputs a `.c` file with `const uint8_t program[] = {...}` for comp
 ### Validation
 
 ```bash
-python tools/tasm/tasm.py examples/tasm/blink.tasm -o blink.c
+python tools/tasm.py examples/tasm/blink.tasm -o blink.c
 # Rebuild firmware with embedded program
 idf.py build && idf.py flash
 reflex> vm run blink

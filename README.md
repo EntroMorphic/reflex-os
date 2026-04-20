@@ -2,6 +2,8 @@
 
 A purpose-aware ternary operating system for embedded mesh networks. ~26,000 lines of C and assembly, hardware-validated on RISC-V (ESP32-C6) and Xtensa (ESP32).
 
+**In plain terms:** Reflex OS is firmware for ESP32 microcontrollers that represents hardware state using three values (-1, 0, +1) instead of binary. You tell the OS what you're trying to do (`purpose set led`), and it prioritizes the hardware routes that serve that goal — learning which connections matter through a reward signal, like a nervous system forming habits.
+
 Reflex OS reinterprets physical hardware as a coherent **Geometric Tapestry**, replacing traditional binary software abstractions with a ternary execution substrate known as **GOOSE** — the **G**eometric **O**ntologic **O**perating **S**ystem **E**xecution. The kernel owns interrupt context switching, modulates task priorities based on user-declared purpose, and learns from reward signals via Hebbian associative learning.
 
 ## Architecture
@@ -44,12 +46,18 @@ Reflex OS reinterprets physical hardware as a coherent **Geometric Tapestry**, r
 
 ## Build & Flash
 
+### Prerequisites
+
+- [ESP-IDF v5.5](https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32c6/get-started/) — Espressif's IoT Development Framework
+- Python 3.8+ (for TASM compiler and SDK)
+- `clang-format` (optional, for `make format-check`: `brew install clang-format` / `apt install clang-format`)
+
 ```bash
 # ESP32-C6 (primary)
-source ~/Projects/esp-idf/export.sh
+source ~/Projects/esp-idf/export.sh   # Adjust path to your ESP-IDF install
 idf.py set-target esp32c6
 idf.py build
-idf.py -p /dev/cu.usbmodem1101 flash
+idf.py -p /dev/cu.usbmodem1101 flash  # Adjust port for your board
 
 # ESP32 (mesh peer)
 idf.py -B build_esp32 set-target esp32
@@ -69,9 +77,11 @@ idf.py menuconfig → Reflex OS → Radio backend
 | Command | Description |
 |---|---|
 | `help` | List available commands |
+| `status` | System summary (uptime, purpose, LED, MAC, peers) |
 | `reboot` | Warm software reset |
 | `sleep <secs>` | Enter deep sleep for N seconds (LP-timer wake) |
-| `led status` | Query the physical LED state via the Tapestry |
+| `led on` / `led off` | Control the onboard LED |
+| `led status` | Query the physical LED state |
 | `goonies ls` | List the hierarchical hardware DNS registry |
 | `goonies find <name>` | Resolve a name: live registry first, then fall through to the 9527-entry shadow catalog. Output is labeled `[live]` or `[shadow]`. |
 | `atlas verify` | Walk the entire SVD-documented MMIO shadow catalog (full round-trip + duplicate sweep). Prints progress dots; reports `ok=N/N, duplicates=D, failures=F`. |
@@ -94,6 +104,8 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `mesh query <name>` | Broadcast an `ARC_OP_QUERY` for `<name>`; peers respond with `ARC_OP_ADVERTISE` if they have the name locally |
 | `mesh posture <state> <weight>` | Broadcast an `ARC_OP_POSTURE` with weight clamped to `SWARM_WEIGHT_MAX=4` |
 | `mesh stat` | Dump the mesh RX counters (sync/query/advertise/posture/mmio_sync, plus version_mismatch, aura_fail, replay_drop, self_drop) |
+| `mesh status` | Mesh summary (peer count, total RX/TX, per-peer status) |
+| `mesh ping` | Broadcast a sync arc to all peers |
 | `mesh peer add <name> <mac>` | Register a named peer for MMIO sync (e.g., `mesh peer add bravo B4:3A:45:8A:C8:24`) |
 | `mesh peer ls` | List registered peers with active/stale status and last-seen time |
 | `services` | List registered services |
@@ -112,6 +124,8 @@ Canonical project documentation lives in [`docs/`](docs/):
 - [`docs/ternary-architecture.md`](docs/ternary-architecture.md) — Background on the ternary data model.
 - [`docs/vm/`](docs/vm/) — Ternary VM internals: cache, loader, state, syscalls.
 - [`SECURITY.md`](SECURITY.md) — Sanctuary Guard, Authority Sentry, Aura protocol.
+- [`sdk/python/README.md`](sdk/python/README.md) — Python SDK: serial control of Reflex boards.
+- [`examples/tasm/README.md`](examples/tasm/README.md) — TASM assembler: write programs for the ternary VM.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — How to contribute.
 - [`CHANGELOG.md`](CHANGELOG.md) — Release notes.
 

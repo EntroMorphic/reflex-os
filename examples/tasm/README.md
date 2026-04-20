@@ -1,0 +1,68 @@
+# TASM Examples
+
+TASM (Ternary Assembly) is the assembly language for the Reflex OS ternary VM.
+
+## Compiling
+
+Compile to binary image (.rfxv):
+
+```bash
+python3 tools/tasm.py examples/tasm/blink.tasm /tmp/blink.rfxv
+```
+
+Compile to C array for firmware embedding:
+
+```bash
+python3 tools/tasm.py examples/tasm/blink.tasm vm/programs/blink.c
+```
+
+## Loading onto a Device
+
+**Via shell** -- hex-encode the .rfxv file and load it:
+
+```
+reflex> vm loadhex <hex>
+```
+
+You must hex-encode the raw .rfxv binary before pasting it into the shell.
+
+**Via firmware embedding** -- compile to .c, add the array to the
+`vm/programs/programs.c` registry, rebuild, and flash:
+
+```bash
+idf.py build && idf.py -p /dev/cu.usbmodem1101 flash
+reflex> vm run blink
+```
+
+## Example Programs
+
+| File | Description |
+|------|-------------|
+| `blink.tasm` | Toggle state (+1/-1) every 500ms using TSUB negation. Logs each state. |
+| `count.tasm` | Count from 0 to 9 in balanced ternary, log each value, then halt. |
+| `respond.tasm` | Read system uptime every 1 second and log it in a loop. |
+
+## Register Conventions
+
+The VM has 8 general-purpose registers: `r0` through `r7`.
+There are no reserved registers -- all are available for program use.
+`r7` is conventionally used as a throwaway destination for syscall results.
+
+## Syscalls
+
+Syscalls are invoked with the `TSYS` instruction. The syscall selector
+is specified as a name in the immediate field:
+
+| Name | Description |
+|------|-------------|
+| `LOG` | Print a register value as a signed integer |
+| `UPTIME` | Return system uptime in milliseconds |
+| `CONFIG_GET` | Read a config value (key index in source register) |
+| `DELAY` | Yield execution for N milliseconds |
+
+Example:
+
+```asm
+TSYS r7, r2, r0, DELAY   ; sleep r2 milliseconds
+TSYS r1, r0, r0, UPTIME  ; store uptime in r1
+```

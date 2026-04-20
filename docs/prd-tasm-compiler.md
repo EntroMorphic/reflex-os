@@ -9,7 +9,7 @@ The ternary VM exists (interpreter, loader, memory, cache, syscalls) and passes 
 A developer writes a `.tasm` file, compiles it, rebuilds firmware, and runs it:
 
 ```bash
-python tools/tasm/tasm.py examples/tasm/blink.tasm -o vm/programs/blink.c
+python tools/tasm.py examples/tasm/blink.tasm -o vm/programs/blink.c
 idf.py build && idf.py flash
 reflex> vm run blink
 reflex> vm info
@@ -43,12 +43,14 @@ From `vm/loader.c` (`reflex_vm_validate_image`), the binary format is:
 
 ```
 Offset  Size  Field
-0x00    4     Magic (must match REFLEX_VM_IMAGE_MAGIC)
-0x04    2     Version
-0x06    2     Instruction count
-0x08    2     Entry point (instruction index)
-0x0A    2     Register count (must be ≤ VM max)
-0x0C    N×4   Instructions (packed 18-trit words as uint32_t)
+0x00    4     Magic (0x52465856 = 'RFXV')
+0x04    2     Version (2)
+0x06    4     CRC32 checksum (over payload only)
+0x0A    2     Entry IP (instruction index)
+0x0C    2     Instruction count
+0x0E    2     Data count (word18 items)
+0x10    N×4   Instructions (32-bit packed words)
+0x10+N  M×5   Data segment (word18 packed as 5 bytes each)
 ```
 
 Each instruction is a 32-bit packed word encoding:
@@ -102,7 +104,7 @@ From `vm/include/reflex_vm_opcode.h`:
 
 ### Phase 1: Assembler (Python)
 
-`tools/tasm/tasm.py` (~400 LOC):
+`tools/tasm.py` (~400 LOC):
 
 ```python
 class Assembler:
@@ -220,7 +222,7 @@ def test_image_validation():
 ### End-to-End
 
 ```bash
-python tools/tasm/tasm.py examples/tasm/blink.tasm -o vm/programs/blink.c
+python tools/tasm.py examples/tasm/blink.tasm -o vm/programs/blink.c
 idf.py build && idf.py -p /dev/cu.usbmodem1101 flash
 # Connect serial
 reflex> vm run blink

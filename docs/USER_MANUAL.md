@@ -207,7 +207,14 @@ agency.led.intent coord=[0,0,1] addr=0 type=INTENT state=0
 | Command | Description |
 |---------|-------------|
 | `mesh status` | Show mesh state (peers, packets sent/received) |
+| `mesh stat` | Detailed mesh stats (rx/tx totals, sync counts, per-peer info) |
 | `mesh ping` | Broadcast a ping arc to all peers |
+| `mesh mac` | Show this board's MAC address |
+| `mesh emit [state]` | Broadcast an arc with the given state (-1, 0, or 1) |
+| `mesh query <name>` | Query a cell by name across the mesh |
+| `mesh posture` | Show current postural swarm state and weight |
+| `mesh peer add <name> <mac>` | Register a named peer by MAC address (XX:XX:XX:XX:XX:XX) |
+| `mesh peer ls` | List all registered mesh peers |
 
 ### Learning
 

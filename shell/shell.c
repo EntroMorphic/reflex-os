@@ -624,7 +624,28 @@ static void reflex_shell_loom_bloat_test(void) {
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) printf("commands: help, reboot, sleep <s>, led status, temp, bonsai <..>, goonies <ls|find name>, atlas verify, services, config <get|set>, vm info, aura setkey <hex>, heartbeat, mesh <..>, snapshot <save|load|clear>, purpose <set|get|clear>\n");
+    if (strcmp(argv[0], "help") == 0) {
+        printf("system:  help, reboot, sleep <s>, status, services, config <get|set>\n");
+        printf("led:     led <on|off|status>\n");
+        printf("fabric:  goonies <ls|find name>, atlas verify, temp, heartbeat\n");
+        printf("purpose: purpose <set name|get|clear>\n");
+        printf("learn:   snapshot <save|load|clear>\n");
+        printf("mesh:    mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n");
+        printf("vm:      vm <info|run name|stop|list|loadhex hex>\n");
+        printf("aura:    aura setkey <32 hex chars>\n");
+        printf("bonsai:  bonsai <exp1|exp2|exp3a|exp4|exp5|runtime> <start|status|...>\n");
+    }
+    else if (strcmp(argv[0], "status") == 0) {
+        const char *purpose = goose_purpose_get_name();
+        uint8_t mac[6]; reflex_hal_mac_read(mac);
+        uint64_t up = reflex_hal_time_us();
+        printf("reflex-os uptime=%lu.%lus purpose=%s led=%s mac=%02x:%02x:%02x:%02x:%02x:%02x peers=%u\n",
+               (unsigned long)(up / 1000000), (unsigned long)((up / 100000) % 10),
+               (purpose && purpose[0]) ? purpose : "(none)",
+               reflex_led_get() ? "on" : "off",
+               mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+               (unsigned)goose_mmio_sync_peer_count());
+    }
     else if (strcmp(argv[0], "reboot") == 0) reflex_hal_reboot();
     else if (strcmp(argv[0], "sleep") == 0) {
         int secs = (argc >= 2) ? atoi(argv[1]) : 3;
@@ -641,8 +662,11 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         if (argc >= 2 && strcmp(argv[1], "verify") == 0) reflex_shell_atlas_verify();
         else printf("atlas <verify>\n");
     }
-    else if (strcmp(argv[0], "led") == 0) { 
-        if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off"); 
+    else if (strcmp(argv[0], "led") == 0) {
+        if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off");
+        else if (argc >= 2 && strcmp(argv[1], "on") == 0) { reflex_led_set(true); printf("led=on\n"); }
+        else if (argc >= 2 && strcmp(argv[1], "off") == 0) { reflex_led_set(false); printf("led=off\n"); }
+        else printf("led <on|off|status>\n");
     }
     else if (strcmp(argv[0], "bonsai") == 0) {
         if (argc < 3) return;
@@ -789,8 +813,30 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
                        p->active ? "active" : "stale",
                        (unsigned long)(age_us / 1000000), (unsigned long)((age_us / 100000) % 10));
             }
+        } else if (argc >= 2 && strcmp(argv[1], "status") == 0) {
+            goose_mesh_stats_t s = goose_atmosphere_get_stats();
+            size_t peers = goose_mmio_sync_peer_count();
+            uint32_t rx_total = s.rx_sync + s.rx_query + s.rx_advertise + s.rx_posture + s.rx_mmio_sync;
+            uint32_t tx_total = s.tx_mmio_sync;
+            printf("mesh: peers=%u rx=%lu tx=%lu sync=%lu mmio_sync_rx=%lu mmio_sync_tx=%lu\n",
+                   (unsigned)peers, (unsigned long)rx_total, (unsigned long)tx_total,
+                   (unsigned long)s.rx_sync, (unsigned long)s.rx_mmio_sync, (unsigned long)s.tx_mmio_sync);
+            for (size_t i = 0; i < peers; i++) {
+                const reflex_peer_t *p = goose_mmio_sync_get_peer(i);
+                if (!p) continue;
+                uint64_t age_us = reflex_hal_time_us() - p->last_seen_us;
+                printf("  %s %s (last: %lu.%lus)\n", p->name, p->active ? "active" : "stale",
+                       (unsigned long)(age_us / 1000000), (unsigned long)((age_us / 100000) % 10));
+            }
+        } else if (argc >= 2 && strcmp(argv[1], "ping") == 0) {
+            goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
+            if (!c) { printf("mesh ping: no agency cell\n"); return; }
+            goose_cell_t tx = *c;
+            tx.state = 1;
+            reflex_err_t rc = goose_atmosphere_emit_arc(&tx);
+            printf("mesh ping: broadcast rc=0x%x\n", rc);
         } else {
-            printf("mesh <mac|emit state|query name|posture state weight|stat|peer add/ls>\n");
+            printf("mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n");
         }
     } else if (strcmp(argv[0], "aura") == 0) {
         if (argc >= 3 && strcmp(argv[1], "setkey") == 0) {

@@ -9,8 +9,9 @@
 
 ## Development Setup
 
-1. Install ESP-IDF 5.5 or a compatible version.
-2. Export the ESP-IDF environment. The path depends on where you
+1. Install [ESP-IDF v5.5](https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32c6/get-started/).
+2. Install `clang-format` for code formatting checks (`brew install clang-format` on macOS, `apt install clang-format` on Linux).
+3. Export the ESP-IDF environment. The path depends on where you
    installed ESP-IDF; typical locations are `~/esp-idf/export.sh` or
    `~/Projects/esp-idf/export.sh`:
 
@@ -18,11 +19,18 @@
 source /path/to/esp-idf/export.sh
 ```
 
-3. Build the firmware:
+4. Build the firmware:
 
 ```bash
 idf.py set-target esp32c6   # first time only
 idf.py build
+```
+
+5. Run host tests (no hardware needed):
+
+```bash
+make test                    # C tests (26 tests)
+python3 tests/host/test_tasm.py  # TASM compiler tests (9 tests)
 ```
 
 ## Project Conventions
