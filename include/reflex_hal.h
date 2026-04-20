@@ -56,6 +56,18 @@ typedef void *reflex_temp_handle_t;
 reflex_err_t reflex_hal_temp_init(reflex_temp_handle_t *out);
 reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius);
 
+/* --- Interrupts --- */
+
+typedef void *reflex_intr_handle_t;
+typedef void (*reflex_intr_handler_t)(void *arg);
+
+#define REFLEX_INTR_FLAG_IRAM  (1 << 0)
+
+reflex_err_t reflex_hal_intr_alloc(int source, int flags,
+                                   reflex_intr_handler_t handler, void *arg,
+                                   reflex_intr_handle_t *out_handle);
+reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle);
+
 /* --- Log --- */
 
 #define REFLEX_LOG_LEVEL_ERROR   1

@@ -15,8 +15,8 @@
 
 #include "reflex_sched.h"
 #include "reflex_kernel.h"
+#include "reflex_hal.h"
 #include "esp_rom_sys.h"
-#include "esp_intr_alloc.h"
 #include "freertos/portmacro.h"
 #include <stdint.h>
 #include <stddef.h>
@@ -44,7 +44,7 @@ _Static_assert(PORT_OFFSET_PX_END_OF_STACK == 0x44,
 #define SYSTIMER_INT_CLR    (SYSTIMER_BASE + 0x6C)
 #define REG32(a) (*(volatile uint32_t *)(a))
 #define TICK_PERIOD (40000000 / 1000)
-#define SYSTIMER_TARGET1_INTR_SOURCE 38
+#define SYSTIMER_TARGET1_INTR_SOURCE 58  /* register offset 0xe8/4 in interrupt matrix */
 #define MS_TO_TICKS(ms) ((ms) / (1000 / 100))
 
 extern BaseType_t __real_xPortStartScheduler(void);
@@ -94,9 +94,9 @@ BaseType_t __wrap_xPortStartScheduler(void) {
     esp_rom_printf("\n");
 
     setup_kernel_tick();
-    intr_handle_t isr_handle;
-    esp_intr_alloc(SYSTIMER_TARGET1_INTR_SOURCE, ESP_INTR_FLAG_IRAM,
-                   reflex_tick_isr, NULL, &isr_handle);
+    reflex_intr_handle_t isr_handle;
+    reflex_hal_intr_alloc(SYSTIMER_TARGET1_INTR_SOURCE, REFLEX_INTR_FLAG_IRAM,
+                          reflex_tick_isr, NULL, &isr_handle);
 
     xTaskCreatePinnedToCore(reflex_kernel_supervisor, "reflex-kern",
                             4096, NULL, configMAX_PRIORITIES - 1, NULL, 0);

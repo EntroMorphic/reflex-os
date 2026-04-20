@@ -185,6 +185,135 @@ reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
     return (reflex_err_t)temperature_sensor_get_celsius((temperature_sensor_handle_t)h, celsius);
 }
 
+/* --- Interrupt allocation via direct PLIC register writes ---
+ *
+ * The ESP32-C6 uses a custom interrupt controller (not standard PLIC).
+ * CPU interrupts 0-31 are available. The interrupt matrix routes
+ * peripheral sources (0-63) to CPU interrupt numbers.
+ *
+ * ROM dependency: intr_handler_set() lives in mask ROM and registers
+ * the handler in the ROM's interrupt vector table. The ROM calls the
+ * handler with (int cpu_int, void *arg) — our dispatch reads the
+ * handler from s_intr_table[cpu_int]. */
+
+#define INTMTX_BASE           0x60010000
+#define INTMTX_SOURCE_MAX     63
+#define PLIC_MX_BASE          0x20001000
+#define PLIC_MXINT_ENABLE     (PLIC_MX_BASE + 0x00)
+#define PLIC_MXINT_TYPE       (PLIC_MX_BASE + 0x04)
+#define PLIC_MXINT_CLEAR      (PLIC_MX_BASE + 0x08)
+#define PLIC_MXINT_PRI(n)     (PLIC_MX_BASE + 0x10 + (n) * 4)
+#define PLIC_MXINT_THRESH     (PLIC_MX_BASE + 0x90)
+
+/* CPU interrupt bitmap allocator. Bits 0-9 reserved for ESP-IDF/ROM.
+ * CPU interrupt 10 is verified safe on C6 with ESP-IDF 5.5. */
+#define REFLEX_INTR_MIN       10
+#define REFLEX_INTR_MAX       31
+static uint32_t s_intr_alloc_bitmap = 0;
+
+typedef struct {
+    reflex_intr_handler_t handler;
+    void *arg;
+} reflex_intr_entry_t;
+
+static reflex_intr_entry_t s_intr_table[32];
+
+/* The ROM vector table calls registered handlers as fn(void).
+ * We use a single dispatch that scans the pending interrupt from
+ * the PLIC claim register would be ideal, but the C6's interrupt
+ * controller doesn't expose a standard claim. Instead, we use the
+ * mcause CSR which holds the interrupt number during an ISR. */
+static void __attribute__((section(".iram1")))
+reflex_intr_dispatch(void) {
+    uint32_t mcause;
+    __asm__ volatile ("csrr %0, mcause" : "=r"(mcause));
+    int cpu_int = (int)(mcause & 0x1F);
+    if (cpu_int < 32) {
+        reflex_intr_entry_t *e = &s_intr_table[cpu_int];
+        if (e->handler) e->handler(e->arg);
+    }
+}
+
+reflex_err_t reflex_hal_intr_alloc(int source, int flags,
+                                   reflex_intr_handler_t handler, void *arg,
+                                   reflex_intr_handle_t *out_handle) {
+    (void)flags;
+
+    if (source < 0 || source > INTMTX_SOURCE_MAX)
+        return REFLEX_ERR_INVALID_ARG;
+    if (!handler)
+        return REFLEX_ERR_INVALID_ARG;
+
+    /* Allocate a free CPU interrupt number */
+    int cpu_int = -1;
+    for (int i = REFLEX_INTR_MIN; i <= REFLEX_INTR_MAX; i++) {
+        if (!(s_intr_alloc_bitmap & (1U << i))) {
+            s_intr_alloc_bitmap |= (1U << i);
+            cpu_int = i;
+            break;
+        }
+    }
+    if (cpu_int < 0) return REFLEX_ERR_NO_MEM;
+
+    s_intr_table[cpu_int].handler = handler;
+    s_intr_table[cpu_int].arg = arg;
+
+    /* Route peripheral source → CPU interrupt via interrupt matrix */
+    REG32_HAL(INTMTX_BASE + 4 * source) = cpu_int;
+
+    /* Set priority (1 = lowest non-zero) */
+    REG32_HAL(PLIC_MXINT_PRI(cpu_int)) = 1;
+
+    /* Disable interrupts for atomic RMW of shared registers */
+    __asm__ volatile ("csrci mstatus, 0x8");
+
+    /* Level-triggered (clear the type bit) */
+    uint32_t type = REG32_HAL(PLIC_MXINT_TYPE);
+    type &= ~(1U << cpu_int);
+    REG32_HAL(PLIC_MXINT_TYPE) = type;
+
+    /* Enable the CPU interrupt in PLIC */
+    REG32_HAL(PLIC_MXINT_ENABLE) |= (1U << cpu_int);
+
+    __asm__ volatile ("csrsi mstatus, 0x8");
+
+    /* Register dispatch with ROM's interrupt vector table */
+    extern void intr_handler_set(int n, void (*fn)(void), void *arg);
+    intr_handler_set(cpu_int, (void (*)(void))reflex_intr_dispatch, NULL);
+
+    /* Enable in mie CSR (bit 16+n for external interrupts on C6) */
+    uint32_t mie;
+    __asm__ volatile ("csrr %0, mie" : "=r"(mie));
+    mie |= (1U << (16 + cpu_int));
+    __asm__ volatile ("csrw mie, %0" : : "r"(mie));
+
+    if (out_handle) *out_handle = (reflex_intr_handle_t)(uintptr_t)(cpu_int + 1);
+    return REFLEX_OK;
+}
+
+reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
+    int cpu_int = (int)(uintptr_t)handle - 1;
+    if (cpu_int < REFLEX_INTR_MIN || cpu_int > REFLEX_INTR_MAX)
+        return REFLEX_ERR_INVALID_ARG;
+
+    /* Disable with interrupts off to prevent RMW race */
+    __asm__ volatile ("csrci mstatus, 0x8");
+    REG32_HAL(PLIC_MXINT_ENABLE) &= ~(1U << cpu_int);
+    __asm__ volatile ("csrsi mstatus, 0x8");
+
+    /* Clear interrupt matrix routing */
+    for (int s = 0; s <= INTMTX_SOURCE_MAX; s++) {
+        if (REG32_HAL(INTMTX_BASE + 4 * s) == (uint32_t)cpu_int) {
+            REG32_HAL(INTMTX_BASE + 4 * s) = 0;
+        }
+    }
+
+    s_intr_table[cpu_int].handler = NULL;
+    s_intr_table[cpu_int].arg = NULL;
+    s_intr_alloc_bitmap &= ~(1U << cpu_int);
+    return REFLEX_OK;
+}
+
 void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
     /* Use esp_log_writev to route through the VFS layer to the
      * USB-JTAG console. esp_rom_printf goes to UART0 which is
