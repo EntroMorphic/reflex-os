@@ -33,6 +33,7 @@
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
 #include "goose.h"
+#include "programs.h"
 
 #define REFLEX_SHELL_LINE_MAX 256
 #define REFLEX_SHELL_ARGV_MAX 8
@@ -759,8 +760,37 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
             printf("version_mismatch=%lu aura_fail=%lu replay_drop=%lu self_drop=%lu\n",
                    (unsigned long)s.rx_version_mismatch, (unsigned long)s.rx_aura_fail,
                    (unsigned long)s.rx_replay_drop, (unsigned long)s.rx_self_drop);
+        } else if (argc >= 4 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "add") == 0) {
+            if (argc < 5) { printf("mesh peer add <name> <mac_hex>\n"); return; }
+            const char *pname = argv[3];
+            const char *hex = argv[4];
+            uint8_t mac[6];
+            if (strlen(hex) != 17) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return; }
+            bool mac_ok = true;
+            for (int i = 0; i < 5; i++) { if (hex[i*3+2] != ':') mac_ok = false; }
+            if (!mac_ok) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return; }
+            for (int i = 0; i < 6; i++) {
+                char p[3] = {hex[i*3], hex[i*3+1], 0};
+                mac[i] = (uint8_t)strtoul(p, NULL, 16);
+            }
+            reflex_err_t rc = goose_mmio_sync_add_peer(pname, mac);
+            printf("mesh peer add: %s %02x:%02x:%02x:%02x:%02x:%02x rc=0x%x\n",
+                   pname, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], rc);
+        } else if (argc >= 3 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "ls") == 0) {
+            size_t count = goose_mmio_sync_peer_count();
+            if (count == 0) { printf("no peers\n"); return; }
+            for (size_t i = 0; i < count; i++) {
+                const reflex_peer_t *p = goose_mmio_sync_get_peer(i);
+                if (!p) continue;
+                uint64_t age_us = reflex_hal_time_us() - p->last_seen_us;
+                printf("  %u: %-11s %02x:%02x:%02x:%02x:%02x:%02x  %s (last: %lu.%lus ago)\n",
+                       (unsigned)(i+1), p->name,
+                       p->mac[0], p->mac[1], p->mac[2], p->mac[3], p->mac[4], p->mac[5],
+                       p->active ? "active" : "stale",
+                       (unsigned long)(age_us / 1000000), (unsigned long)((age_us / 100000) % 10));
+            }
         } else {
-            printf("mesh <mac|emit state|query name|posture state weight|stat>\n");
+            printf("mesh <mac|emit state|query name|posture state weight|stat|peer add/ls>\n");
         }
     } else if (strcmp(argv[0], "aura") == 0) {
         if (argc >= 3 && strcmp(argv[1], "setkey") == 0) {
@@ -777,12 +807,41 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
             printf("aura setkey <32 hex chars>\n");
         }
     } else if (strcmp(argv[0], "vm") == 0) {
-        if (argc >= 2 && strcmp(argv[1], "info") == 0) printf("vm status=%s fault=%s ip=%lu steps=%lu\n", reflex_shell_vm_status_name(reflex_shell_vm.status), "none", (unsigned long)0, (unsigned long)0);
-        else if (argc >= 3 && strcmp(argv[1], "loadhex") == 0) {
+        if (argc >= 2 && strcmp(argv[1], "info") == 0) {
+            printf("vm status=%s ip=%lu steps=%lu program=%s\n",
+                   reflex_shell_vm_status_name(reflex_shell_vm.status),
+                   (unsigned long)reflex_shell_vm.ip,
+                   (unsigned long)reflex_shell_vm.steps_executed,
+                   reflex_shell_vm_loaded ? "loaded" : "none");
+        } else if (argc >= 3 && strcmp(argv[1], "run") == 0) {
+            extern const vm_program_t *vm_program_find(const char *name);
+            const vm_program_t *prog = vm_program_find(argv[2]);
+            if (!prog) { printf("vm run: program '%s' not found\n", argv[2]); return; }
+            reflex_err_t rc = reflex_vm_load_binary(&reflex_shell_vm, prog->data, prog->len);
+            if (rc != REFLEX_OK) { printf("vm run: load failed rc=0x%x\n", rc); return; }
+            reflex_shell_vm_loaded = true;
+            extern reflex_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps);
+            rc = reflex_vm_run(&reflex_shell_vm, 100000);
+            printf("vm run: %s status=%s steps=%lu\n", argv[2],
+                   reflex_shell_vm_status_name(reflex_shell_vm.status),
+                   (unsigned long)reflex_shell_vm.steps_executed);
+        } else if (argc >= 2 && strcmp(argv[1], "stop") == 0) {
+            reflex_shell_vm.status = REFLEX_VM_STATUS_HALTED;
+            printf("vm stopped\n");
+        } else if (argc >= 2 && strcmp(argv[1], "list") == 0) {
+            extern const vm_program_t vm_programs[];
+            extern const size_t vm_program_count;
+            if (vm_program_count == 0) { printf("no embedded programs\n"); return; }
+            for (size_t i = 0; i < vm_program_count; i++) {
+                printf("  %s (%u bytes)\n", vm_programs[i].name, (unsigned)vm_programs[i].len);
+            }
+        } else if (argc >= 3 && strcmp(argv[1], "loadhex") == 0) {
             size_t blen = strlen(argv[2]) / 2; uint8_t *b = malloc(blen);
             for(size_t i=0; i<blen; i++) { char p[3]={argv[2][i*2], argv[2][i*2+1], 0}; b[i]=(uint8_t)strtoul(p,NULL,16); }
             if(reflex_vm_load_binary(&reflex_shell_vm, b, blen)==REFLEX_OK) { reflex_shell_vm_loaded=true; printf("vm loaded\n"); } else printf("vm load failed\n");
             free(b);
+        } else {
+            printf("vm <info|run name|stop|list|loadhex hex>\n");
         }
     }
 }

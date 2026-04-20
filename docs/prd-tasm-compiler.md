@@ -51,43 +51,50 @@ Offset  Size  Field
 0x0C    N×4   Instructions (packed 18-trit words as uint32_t)
 ```
 
-Each instruction is a 32-bit packed trit representation encoding:
-- Opcode (first 3 trits)
-- Destination register (next 3 trits)
-- Source A register (next 3 trits)  
-- Source B register or immediate (next 9 trits)
+Each instruction is a 32-bit packed word encoding:
+- Opcode (bits 5:0, 6 bits)
+- Destination register (bits 8:6, 3 bits)
+- Source A register (bits 11:9, 3 bits)
+- Source B register (bits 14:12, 3 bits)
+- Signed immediate (bits 31:15, 17 bits)
 
 ### Instruction Set
 
 From `vm/include/reflex_vm_opcode.h`:
 
-| Opcode | Mnemonic | Description |
-|--------|----------|-------------|
-| 0x00 | NOP | No operation |
-| 0x01 | MOV | Move register to register |
-| 0x02 | LOAD | Load from memory |
-| 0x03 | STORE | Store to memory |
-| 0x04 | ADD | Ternary addition |
-| 0x05 | MUL | Ternary multiplication |
-| 0x06 | CMP | Compare (result: -1, 0, +1) |
-| 0x07 | BR | Branch (unconditional) |
-| 0x08 | BRZ | Branch if zero |
-| 0x09 | BRP | Branch if positive |
-| 0x0A | BRN | Branch if negative |
-| 0x0B | SYSCALL | System call (delay, log, read_cell, write_cell, uptime) |
-| 0x0C | HALT | Stop execution |
-| 0x0D | SELECT | Ternary select (mux) |
-| 0x0E | NEGATE | Ternary negation |
+| ID | Mnemonic | Description |
+|----|----------|-------------|
+| 0 | TNOP | No operation |
+| 1 | TLDI | Load immediate into DST |
+| 2 | TMOV | Copy register SRC_A into DST |
+| 3 | TLD | Load from private memory |
+| 4 | TST | Store to private memory |
+| 5 | TADD | DST := SRC_A + SRC_B (balanced ternary) |
+| 6 | TSUB | DST := SRC_A - SRC_B (balanced ternary) |
+| 7 | TCMP | Compare SRC_A, SRC_B; sign into DST trit[0] |
+| 8 | TSEL | Three-way select on SRC_A's sign |
+| 9 | TJMP | Unconditional branch to IMM target |
+| 10 | TBRNEG | Branch if SRC_A trit[0] < 0 |
+| 11 | TBRZERO | Branch if SRC_A trit[0] == 0 |
+| 12 | TBRPOS | Branch if SRC_A trit[0] > 0 |
+| 13 | TSEND | Send fabric message |
+| 14 | TRECV | Receive fabric message |
+| 15 | TFLUSH | Flush soft cache line |
+| 16 | TINV | Invalidate soft cache line |
+| 17 | TSYS | Host syscall (selector in IMM) |
+| 18 | THALT | Halt VM cleanly |
+| 19 | TROUTE | Establish GOOSE route |
+| 20 | TBIAS | Update route orientation |
+| 21 | TSENSE | Sample cell state |
 
 ### Syscalls
 
 | ID | Name | Args | Description |
 |----|------|------|-------------|
-| 0 | LOG | r_val | Print register value |
-| 1 | DELAY | r_ms | Sleep for N ms |
-| 2 | READ_CELL | r_name | Read cell state into register |
-| 3 | WRITE_CELL | r_name, r_val | Write value to cell |
-| 4 | UPTIME | r_dest | Get system uptime in ms |
+| 0 | LOG | SRC_A | Print register value as signed integer |
+| 1 | UPTIME | DST | Return uptime in milliseconds |
+| 2 | CONFIG_GET | SRC_A, DST | Return config value (SRC_A = key) |
+| 3 | DELAY | SRC_A | Yield task for SRC_A milliseconds |
 
 ---
 
@@ -121,20 +128,21 @@ class Assembler:
         """Output as const uint8_t program_<name>[] = {...};"""
 ```
 
-**TASM Syntax:**
+**TASM Syntax (actual — from `examples/tasm/blink.tasm`):**
 
 ```asm
-; blink.tasm — toggle LED cell every 500ms
+; blink.tasm — toggle state every 500ms
 .entry main
 
 main:
-    MOV r0, 1           ; state = positive
+    TLDI r0, 1           ; state = +1
+    TLDI r1, 0           ; zero register
 loop:
-    SYSCALL WRITE_CELL, r0   ; write state to LED cell
-    NEGATE r0           ; flip state
-    MOV r1, 500
-    SYSCALL DELAY, r1   ; wait 500ms
-    BR loop             ; repeat
+    TSYS r7, r0, r0, LOG ; log state
+    TSUB r0, r1, r0      ; negate: 0 - state = -state
+    TLDI r2, 500
+    TSYS r7, r2, r0, DELAY ; wait 500ms
+    TJMP @loop
 ```
 
 ### Phase 2: Shell Command
@@ -168,9 +176,9 @@ const uint8_t vm_program_blink[] = { 0x52, 0x46, ... };
 
 | Program | Instructions | What it does |
 |---------|-------------|-------------|
-| `blink.tasm` | ~6 | Toggle LED cell every 500ms |
-| `count.tasm` | ~8 | Count 0-9 in ternary, log each value |
-| `respond.tasm` | ~10 | Read temp cell, write inverse to LED cell |
+| `blink.tasm` | 7 | Toggle state (+1/-1) every 500ms via TSUB negation |
+| `count.tasm` | 9 | Count 0-9 in ternary, log each value, halt |
+| `respond.tasm` | 6 | Read uptime every 1s, log it |
 
 ---
 

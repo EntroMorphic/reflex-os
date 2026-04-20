@@ -1,6 +1,6 @@
 # Reflex OS
 
-A purpose-aware ternary operating system for embedded mesh networks. ~24,500 lines of C and assembly, hardware-validated on RISC-V (ESP32-C6) and Xtensa (ESP32).
+A purpose-aware ternary operating system for embedded mesh networks. ~26,000 lines of C and assembly, hardware-validated on RISC-V (ESP32-C6) and Xtensa (ESP32).
 
 Reflex OS reinterprets physical hardware as a coherent **Geometric Tapestry**, replacing traditional binary software abstractions with a ternary execution substrate known as **GOOSE** — the **G**eometric **O**ntologic **O**perating **S**ystem **E**xecution. The kernel owns interrupt context switching, modulates task priorities based on user-declared purpose, and learns from reward signals via Hebbian associative learning.
 
@@ -32,7 +32,7 @@ Reflex OS reinterprets physical hardware as a coherent **Geometric Tapestry**, r
 - **Hardware Independent** — In 802.15.4 mode, the platform depends on ONE open-source component (ieee802154). All drivers are direct register writes. Custom bootloader (Boot0, 5.2KB).
 - **Global G.O.O.N.I.E.S.** — Hardware addressable by name across physical devices via secure atmospheric mesh.
 - **Recursive Holons** — Named field groups managed as lifecycle units, activated/deactivated by purpose domain matching.
-- **The All-Seeing Atlas** — 9,531-node shadow catalog of the ESP32-C6 MMIO surface, 104 nodes pre-woven at boot.
+- **The All-Seeing Atlas** — 9,527-node shadow catalog of the ESP32-C6 MMIO surface, 104 nodes pre-woven at boot.
 - **Coherent Heartbeat** — LP RISC-V coprocessor mirroring intent state at 1Hz across the RTC boundary.
 
 ## Hardware
@@ -82,15 +82,20 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `snapshot save` | Persist supervised-route plasticity (learned_orientation + hebbian_counter) to NVS |
 | `snapshot load` | Restore plasticity from the last snapshot |
 | `snapshot clear` | Erase all snapshot blobs from NVS |
-| `vm info` | Inspect the ternary VM state |
-| `vm loadhex <HEX>` | Load a CRC32-verified packed image |
+| `vm info` | Inspect the ternary VM state (status, IP, steps) |
+| `vm run <name>` | Load and execute an embedded program by name |
+| `vm stop` | Halt the running VM |
+| `vm list` | List all embedded programs |
+| `vm loadhex <HEX>` | Load a CRC32-verified packed image from hex string |
 | `heartbeat` | Read the LP core's parallel pulse counter |
 | `aura setkey <32 hex>` | Provision the HMAC-SHA256 Aura key into NVS |
 | `mesh mac` | Print the local Wi-Fi STA MAC (used to identify boards in a mesh trial) |
 | `mesh emit <state>` | Broadcast an `ARC_OP_SYNC` packet with the given ternary state (`-1\|0\|1`) without mutating the local cell |
 | `mesh query <name>` | Broadcast an `ARC_OP_QUERY` for `<name>`; peers respond with `ARC_OP_ADVERTISE` if they have the name locally |
 | `mesh posture <state> <weight>` | Broadcast an `ARC_OP_POSTURE` with weight clamped to `SWARM_WEIGHT_MAX=4` |
-| `mesh stat` | Dump the mesh RX counters (sync/query/advertise/posture, plus version_mismatch, aura_fail, replay_drop, self_drop) |
+| `mesh stat` | Dump the mesh RX counters (sync/query/advertise/posture/mmio_sync, plus version_mismatch, aura_fail, replay_drop, self_drop) |
+| `mesh peer add <name> <mac>` | Register a named peer for MMIO sync (e.g., `mesh peer add bravo B4:3A:45:8A:C8:24`) |
+| `mesh peer ls` | List registered peers with active/stale status and last-seen time |
 | `services` | List registered services |
 | `config <get\|set>` | Persistence management |
 | `bonsai <experiment>` | Run one of the in-tree bonsai experiments — see `bonsai/EXPERIMENT-*.md` |

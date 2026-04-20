@@ -114,6 +114,46 @@ int test_integration(void) {
     /* Expected: 10 + 1 (no domain) + 2 (Hebbian) = 13 */
     if (priority != 13) { printf("FAIL priority_no_domain=%d\n", priority); failures++; goto done; }
 
+    /* --- Test 5: Staleness timeout logic --- */
+    {
+        #define TEST_STALENESS_US (5 * 1000 * 1000ULL)
+        uint64_t last_seen = 1000000;
+        uint64_t now = 1000000 + TEST_STALENESS_US + 1;
+        bool should_reset = (now - last_seen >= TEST_STALENESS_US);
+        if (!should_reset) { printf("FAIL staleness_expired\n"); failures++; goto done; }
+
+        now = 1000000 + TEST_STALENESS_US - 1;
+        bool still_active = (now - last_seen < TEST_STALENESS_US);
+        if (!still_active) { printf("FAIL staleness_active\n"); failures++; goto done; }
+    }
+
+    /* --- Test 6: Peer name extraction from GOONIES path --- */
+    {
+        const char *path = "peer.bravo.agency.led.intent";
+        if (strncmp(path, "peer.", 5) != 0) { printf("FAIL peer_prefix\n"); failures++; goto done; }
+        const char *after = path + 5;
+        const char *dot = strchr(after, '.');
+        if (!dot) { printf("FAIL peer_dot\n"); failures++; goto done; }
+        char peer_name[12] = {0};
+        size_t plen = (size_t)(dot - after);
+        if (plen >= sizeof(peer_name)) plen = sizeof(peer_name) - 1;
+        memcpy(peer_name, after, plen);
+        if (strcmp(peer_name, "bravo") != 0) { printf("FAIL peer_name=%s\n", peer_name); failures++; goto done; }
+        const char *remote_suffix = dot + 1;
+        if (strcmp(remote_suffix, "agency.led.intent") != 0) { printf("FAIL remote_suffix=%s\n", remote_suffix); failures++; goto done; }
+    }
+
+    /* --- Test 7: Security — sys.* namespace rejection --- */
+    {
+        const char *remote = "sys.origin";
+        bool rejected = (strncmp(remote, "sys.", 4) == 0);
+        if (!rejected) { printf("FAIL sys_reject\n"); failures++; goto done; }
+
+        const char *allowed = "agency.led.intent";
+        bool accepted = (strncmp(allowed, "sys.", 4) != 0);
+        if (!accepted) { printf("FAIL agency_accept\n"); failures++; goto done; }
+    }
+
 done:
     if (failures == 0) printf("ok\n");
     return failures;

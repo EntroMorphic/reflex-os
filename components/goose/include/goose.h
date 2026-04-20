@@ -64,6 +64,7 @@ typedef struct {
     reflex_tryte9_t coord;   ///< Geometric Primary Key
     int8_t state;            ///< Current ternary state (-1, 0, +1)
     int8_t type;             ///< Role of the cell (goose_cell_type_t)
+    uint8_t peer_id;         ///< 0 = local, 1-255 = remote peer index
     uint32_t hardware_addr;  ///< Physical mapping (GPIO num or MMIO addr)
     uint32_t bit_mask;       ///< Mask for multi-bit register mappings
 } __attribute__((aligned(4))) goose_cell_t;
@@ -479,6 +480,8 @@ typedef struct {
     uint32_t rx_aura_fail;
     uint32_t rx_replay_drop;
     uint32_t rx_self_drop;
+    uint32_t rx_mmio_sync;
+    uint32_t tx_mmio_sync;
 } goose_mesh_stats_t;
 
 goose_mesh_stats_t goose_atmosphere_get_stats(void);
@@ -540,6 +543,27 @@ void goose_loom_unlock(void);
 
 reflex_err_t reflex_holon_create(const char *name, const char *domain);
 reflex_err_t reflex_holon_add_field(const char *holon_name, goose_field_t *field);
+
+/* --- MMIO Sync Layer (Distributed Hardware Surface) --- */
+
+#define MAX_PEERS 8
+#define MMIO_SYNC_STALENESS_US (5 * 1000 * 1000ULL)
+
+typedef struct {
+    char name[12];
+    uint8_t mac[6];
+    uint64_t last_seen_us;
+    bool active;
+} reflex_peer_t;
+
+reflex_err_t goose_mmio_sync_init(void);
+reflex_err_t goose_mmio_sync_add_peer(const char *name, const uint8_t mac[6]);
+size_t goose_mmio_sync_peer_count(void);
+const reflex_peer_t *goose_mmio_sync_get_peer(size_t idx);
+uint8_t goose_mmio_sync_find_peer_by_mac(const uint8_t mac[6]);
+reflex_err_t goose_mmio_sync_emit(goose_cell_t *cell, const char *cell_name);
+void goose_mmio_sync_recv(const uint8_t *src_mac, uint32_t name_hash, int8_t state);
+void goose_mmio_sync_staleness_check(void);
 
 #endif
 

@@ -1,0 +1,12 @@
+; blink.tasm — toggle state every 500ms
+.entry main
+
+main:
+    TLDI r0, 1           ; state = +1
+    TLDI r1, 0           ; zero register
+loop:
+    TSYS r7, r0, r0, LOG ; log state
+    TSUB r0, r1, r0      ; negate: 0 - state = -state
+    TLDI r2, 500
+    TSYS r7, r2, r0, DELAY ; wait 500ms
+    TJMP @loop

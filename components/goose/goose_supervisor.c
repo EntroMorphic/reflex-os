@@ -538,5 +538,11 @@ reflex_err_t goose_supervisor_pulse(void) {
         goose_supervisor_swarm_sync();
         sync_div = 0;
     }
+
+    static int stale_div = 0;
+    if (stale_div++ >= 50) {
+        goose_mmio_sync_staleness_check();
+        stale_div = 0;
+    }
     return REFLEX_OK;
 }

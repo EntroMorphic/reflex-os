@@ -29,6 +29,7 @@ static uint8_t goose_aura_key[16];
 #define ARC_OP_QUERY     0xDE
 #define ARC_OP_ADVERTISE 0xAD
 #define ARC_OP_POSTURE   0xCC
+#define ARC_OP_MMIO_SYNC 0x10
 
 #pragma pack(push, 1)
 typedef struct {
@@ -289,6 +290,10 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
             else posture_cell->state = 0;
         }
     }
+    else if (arc->op == ARC_OP_MMIO_SYNC) {
+        mesh_stats.rx_mmio_sync++;
+        goose_mmio_sync_recv(recv_info->src_addr, arc->name_hash, arc->state);
+    }
 }
 
 reflex_err_t goose_atmosphere_init(void) {
@@ -333,6 +338,19 @@ reflex_err_t goose_atmosphere_advertise(uint32_t name_hash, goose_cell_t *cell, 
     };
     arc.aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_ADVERTISE, arc.coord, name_hash, arc.state, nonce);
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
+}
+
+reflex_err_t goose_atmosphere_emit_sync_arc(uint32_t name_hash, int8_t state) {
+    uint32_t nonce = (uint32_t)reflex_hal_time_us();
+    goose_arc_packet_t arc = {
+        .version = GOOSE_ARC_VERSION,
+        .op = ARC_OP_MMIO_SYNC, .coord = {{0}}, .state = state,
+        .name_hash = name_hash, .nonce = nonce,
+        .aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_MMIO_SYNC, (reflex_tryte9_t){{0}}, name_hash, state, nonce)
+    };
+    uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    mesh_stats.tx_mmio_sync++;
     return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
 

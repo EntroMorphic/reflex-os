@@ -3,6 +3,7 @@ import sys
 import struct
 import re
 import zlib
+import os
 
 OPCODES = {
     "TNOP": 0,
@@ -24,6 +25,16 @@ OPCODES = {
     "TINV": 16,
     "TSYS": 17,
     "THALT": 18,
+    "TROUTE": 19,
+    "TBIAS": 20,
+    "TSENSE": 21,
+}
+
+SYSCALL_NAMES = {
+    "LOG": 0,
+    "UPTIME": 1,
+    "CONFIG_GET": 2,
+    "DELAY": 3,
 }
 
 
@@ -49,6 +60,8 @@ def parse_imm(lit, labels):
         if target not in labels:
             raise ValueError(f"Unknown label: {target}")
         return labels[target]
+    if lit.upper() in SYSCALL_NAMES:
+        return SYSCALL_NAMES[lit.upper()]
     return int(lit)
 
 
@@ -56,18 +69,27 @@ def assemble(filename, output_name):
     with open(filename, "r") as f:
         lines = f.readlines()
 
-    # Pass 1: Labels
+    # Pass 1: Labels and directives
     labels = {}
     instr_lines = []
+    entry_label = None
     for line in lines:
         line = line.split(";")[0].split("#")[0].strip()
         if not line:
             continue
 
-        if line.endswith(":"):
+        if line.startswith(".entry"):
+            entry_label = line.split()[1]
+        elif line.endswith(":"):
             labels[line[:-1]] = len(instr_lines)
         else:
             instr_lines.append(line)
+
+    entry_ip = 0
+    if entry_label is not None:
+        if entry_label not in labels:
+            raise ValueError(f"Unknown entry label: {entry_label}")
+        entry_ip = labels[entry_label]
 
     # Pass 2: Encoding
     packed_instrs = []
@@ -152,6 +174,23 @@ def assemble(filename, output_name):
             src_a = parse_reg(operands[1])
             src_b = parse_reg(operands[2])
             imm = parse_imm(operands[3], labels)
+        elif op_name == "TROUTE":
+            if len(operands) != 3:
+                raise ValueError(f"Line {idx}: TROUTE requires DST, SRC_A, IMM")
+            dst = parse_reg(operands[0])
+            src_a = parse_reg(operands[1])
+            imm = parse_imm(operands[2], labels)
+        elif op_name == "TBIAS":
+            if len(operands) != 2:
+                raise ValueError(f"Line {idx}: TBIAS requires DST, SRC_A")
+            dst = parse_reg(operands[0])
+            src_a = parse_reg(operands[1])
+        elif op_name == "TSENSE":
+            if len(operands) != 3:
+                raise ValueError(f"Line {idx}: TSENSE requires DST, SRC_A, IMM")
+            dst = parse_reg(operands[0])
+            src_a = parse_reg(operands[1])
+            imm = parse_imm(operands[2], labels)
         else:
             raise ValueError(f"Line {idx}: Unhandled opcode {op_name}")
 
@@ -174,17 +213,35 @@ def assemble(filename, output_name):
 
     checksum = zlib.crc32(payload) & 0xFFFFFFFF
 
-    # Write Header and Payload
-    # Magic(4), Ver(2), Checksum(4), Entry(2), InstrCount(2), DataCount(2) = 16B
-    with open(output_name, "wb") as f:
-        f.write(
-            struct.pack("<IHIHHH", 0x52465856, 2, checksum, 0, len(packed_instrs), 0)
-        )
-        f.write(payload)
-
-    print(
-        f"Assembled {len(packed_instrs)} instructions to {output_name} (checksum: {checksum:08X})"
+    # Build full binary image
+    header = struct.pack(
+        "<IHIHHH", 0x52465856, 2, checksum, entry_ip, len(packed_instrs), 0
     )
+    image = header + payload
+
+    if output_name.endswith(".c"):
+        # C array output mode
+        base = os.path.splitext(os.path.basename(filename))[0]
+        base = re.sub(r"[^a-zA-Z0-9_]", "_", base)
+        hex_bytes = ", ".join(f"0x{b:02X}" for b in image)
+        c_src = (
+            '#include <stdint.h>\n'
+            '#include <stddef.h>\n\n'
+            f'const uint8_t vm_program_{base}[] = {{ {hex_bytes} }};\n'
+            f'const size_t vm_program_{base}_len = sizeof(vm_program_{base});\n'
+        )
+        with open(output_name, "w") as f:
+            f.write(c_src)
+        print(
+            f"Assembled {len(packed_instrs)} instructions to {output_name} (C array, checksum: {checksum:08X})"
+        )
+    else:
+        # Binary output
+        with open(output_name, "wb") as f:
+            f.write(image)
+        print(
+            f"Assembled {len(packed_instrs)} instructions to {output_name} (checksum: {checksum:08X})"
+        )
 
 
 if __name__ == "__main__":

@@ -55,7 +55,14 @@ Atmospheric discovery and swarming are protected from external interference.
 - **Accumulator Saturation:** To prevent consensus hijacking, the swarm accumulator is capped at +/- 100. This ensures the mesh remains responsive to the majority and prevents a single node from "locking" the system state indefinitely.
 - **Self-Arc Suppression:** Nodes ignore postural arcs originating from their own MAC address, preventing atmospheric feedback loops and radio saturation.
 
-## 7. Application Integrity (LoomScript Quotas)
+## 7. MMIO Sync Layer Security (Distributed Surface)
+The MMIO Sync Layer extends the mesh to carry cell state across boards. Security enforcement:
+- **Namespace restriction:** Remote writes only to `agency.*` cells. The receive handler rejects any sync arc targeting a `sys.*` cell.
+- **Phantom cell isolation:** Remote state lives in phantom cells (peer_id != 0) which are separate from local cells. A stale peer's phantom cells reset to state=0 after 5 seconds without update.
+- **Aura protection:** All sync arcs (`ARC_OP_MMIO_SYNC`) carry the same HMAC-SHA256 Aura as other arc types. Unauthenticated sync arcs are dropped.
+- **Peer registry:** max 8 peers. Auto-registration from unknown MACs creates an `auto_XXXX` entry for observability but does not bypass Aura checks.
+
+## 8. Application Integrity (LoomScript Quotas)
 To protect the system from resource exhaustion at the application layer, LoomScript fragments are strictly managed.
 - **Fragment Quotas:** The system limits the number of active LoomScript fragments (max 8) and the routes per fragment (max 32).
 - **Allocation Validation:** Fragment manifests are validated before heap allocation to prevent memory exhaustion attacks.

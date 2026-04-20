@@ -89,7 +89,29 @@ goose_cell_t* goonies_resolve_cell(const char *name) {
         goose_atmosphere_query(name);
         static int ghost_counter = 0;
         reflex_tryte9_t g_coord = goose_make_coord(5, 0, (int8_t)ghost_counter++);
-        return goose_fabric_alloc_cell(name, g_coord, false);
+        goose_cell_t *phantom = goose_fabric_alloc_cell(name, g_coord, false);
+        if (phantom) {
+            const char *after_peer = name + 5;
+            const char *dot = strchr(after_peer, '.');
+            if (dot) {
+                char peer_name[12] = {0};
+                size_t plen = (size_t)(dot - after_peer);
+                if (plen >= sizeof(peer_name)) plen = sizeof(peer_name) - 1;
+                memcpy(peer_name, after_peer, plen);
+                extern uint8_t goose_mmio_sync_find_peer_by_mac(const uint8_t *);
+                extern size_t goose_mmio_sync_peer_count(void);
+                extern const reflex_peer_t *goose_mmio_sync_get_peer(size_t);
+                size_t pc = goose_mmio_sync_peer_count();
+                for (size_t pi = 0; pi < pc; pi++) {
+                    const reflex_peer_t *p = goose_mmio_sync_get_peer(pi);
+                    if (p && strncmp(p->name, peer_name, sizeof(p->name)) == 0) {
+                        phantom->peer_id = (uint8_t)(pi + 1);
+                        break;
+                    }
+                }
+            }
+        }
+        return phantom;
     }
     uint32_t addr, mask; goose_cell_type_t type;
     if (goose_shadow_resolve(name, &addr, &mask, &coord, &type) == REFLEX_OK) {
@@ -585,14 +607,27 @@ static reflex_err_t internal_process_transitions(goose_field_t *field, int depth
         if (r->coupling == GOOSE_COUPLING_SOFTWARE) {
             reflex_trit_t effective_orient = r->learned_orientation ? r->learned_orientation : r->orientation;
             reflex_trit_t control = r->cached_control ? (reflex_trit_t)r->cached_control->state : effective_orient;
-            r->cached_sink->state = (int8_t)((int)r->cached_source->state * (int)control);
-            if (r->cached_sink->hardware_addr > 0 && r->cached_sink->hardware_addr < 32) { reflex_hal_gpio_set_level(r->cached_sink->hardware_addr, r->cached_sink->state == 1 ? 1 : 0); } 
-            else if (r->cached_sink->hardware_addr >= 0x60000000) {
-                reflex_critical_enter(&agency_mux);
-                volatile uint32_t *reg = (volatile uint32_t *)r->cached_sink->hardware_addr;
-                uint32_t mask = r->cached_sink->bit_mask ? r->cached_sink->bit_mask : 0xFFFFFFFF;
-                if (r->cached_sink->state == 1) *reg |= mask; else if (r->cached_sink->state == -1) *reg &= ~mask;
-                reflex_critical_exit(&agency_mux);
+            int8_t new_state = (int8_t)((int)r->cached_source->state * (int)control);
+            if (r->cached_sink->peer_id != 0) {
+                const char *sink_name = goonies_resolve_name_by_coord(r->sink_coord);
+                if (sink_name && strncmp(sink_name, "peer.", 5) == 0) {
+                    const char *dot = strchr(sink_name + 5, '.');
+                    if (dot) {
+                        r->cached_sink->state = new_state;
+                        extern reflex_err_t goose_mmio_sync_emit(goose_cell_t *, const char *);
+                        goose_mmio_sync_emit(r->cached_sink, dot + 1);
+                    }
+                }
+            } else {
+                r->cached_sink->state = new_state;
+                if (r->cached_sink->hardware_addr > 0 && r->cached_sink->hardware_addr < 32) { reflex_hal_gpio_set_level(r->cached_sink->hardware_addr, r->cached_sink->state == 1 ? 1 : 0); }
+                else if (r->cached_sink->hardware_addr >= 0x60000000) {
+                    reflex_critical_enter(&agency_mux);
+                    volatile uint32_t *reg = (volatile uint32_t *)r->cached_sink->hardware_addr;
+                    uint32_t mask = r->cached_sink->bit_mask ? r->cached_sink->bit_mask : 0xFFFFFFFF;
+                    if (r->cached_sink->state == 1) *reg |= mask; else if (r->cached_sink->state == -1) *reg &= ~mask;
+                    reflex_critical_exit(&agency_mux);
+                }
             }
         } else if (r->coupling == GOOSE_COUPLING_RADIO) {
             extern reflex_err_t goose_atmosphere_emit_arc(goose_cell_t *source);

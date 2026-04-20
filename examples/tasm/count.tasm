@@ -1,0 +1,15 @@
+; count.tasm — count 0 to 9, log each value
+.entry main
+
+main:
+    TLDI r0, 0           ; counter
+    TLDI r1, 1           ; increment
+    TLDI r2, 9           ; limit
+loop:
+    TSYS r7, r0, r0, LOG ; log counter
+    TADD r0, r0, r1      ; counter++
+    TCMP r3, r0, r2      ; compare counter to limit
+    TBRPOS r3, @done     ; if counter > limit, done
+    TJMP @loop
+done:
+    THALT

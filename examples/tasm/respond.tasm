@@ -1,0 +1,11 @@
+; respond.tasm — read uptime, log it, loop
+.entry main
+
+main:
+    TLDI r0, 0
+loop:
+    TSYS r1, r0, r0, UPTIME ; get uptime
+    TSYS r7, r1, r0, LOG    ; log it
+    TLDI r2, 1000
+    TSYS r7, r2, r0, DELAY  ; wait 1s
+    TJMP @loop
