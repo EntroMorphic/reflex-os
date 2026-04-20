@@ -1,4 +1,4 @@
-# Implementation Status (v2.5.1)
+# Implementation Status (v2.6.0)
 
 ## Summary
 

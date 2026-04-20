@@ -117,6 +117,11 @@ idf.py menuconfig → Reflex OS → Radio backend
 Canonical project documentation lives in [`docs/`](docs/):
 
 - [`docs/architecture.md`](docs/architecture.md) — Module layout and the GOOSE substrate.
+- [`docs/boot.md`](docs/boot.md) — Boot sequence: what happens from power-on to shell.
+- [`docs/holons.md`](docs/holons.md) — Holon lifecycle: purpose-driven field group activation.
+- [`docs/learning.md`](docs/learning.md) — Hebbian learning: reward, pain, and route plasticity.
+- [`docs/sleep.md`](docs/sleep.md) — Deep sleep: what survives, what's lost, wakeup.
+- [`docs/storage.md`](docs/storage.md) — Persistent storage: KV store and config patterns.
 - [`docs/implementation-status.md`](docs/implementation-status.md) — What is built, validated, and what limits are known.
 - [`docs/strategy.md`](docs/strategy.md) — The Chronicler's Path: gaps, advantages, and next phases.
 - [`docs/potentials.md`](docs/potentials.md) — Realized milestones and the biological-frontier roadmap.

@@ -541,7 +541,9 @@ void goose_loom_unlock(void);
 
 /* --- Holon Lifecycle (kernel-managed field groups) --- */
 
+/** @brief Create a named holon with a purpose-matching domain tag. */
 reflex_err_t reflex_holon_create(const char *name, const char *domain);
+/** @brief Add a field to a holon's lifecycle group. */
 reflex_err_t reflex_holon_add_field(const char *holon_name, goose_field_t *field);
 
 /* --- MMIO Sync Layer (Distributed Hardware Surface) --- */
@@ -556,13 +558,21 @@ typedef struct {
     bool active;
 } reflex_peer_t;
 
+/** @brief Initialize the MMIO sync peer registry. */
 reflex_err_t goose_mmio_sync_init(void);
+/** @brief Register a named peer for distributed state sync. */
 reflex_err_t goose_mmio_sync_add_peer(const char *name, const uint8_t mac[6]);
+/** @return Number of registered peers. */
 size_t goose_mmio_sync_peer_count(void);
+/** @brief Retrieve peer info by zero-based index. */
 const reflex_peer_t *goose_mmio_sync_get_peer(size_t idx);
+/** @return 1-based peer index, or 0 if not found. */
 uint8_t goose_mmio_sync_find_peer_by_mac(const uint8_t mac[6]);
+/** @brief Broadcast a cell's state to all peers via sync arc. */
 reflex_err_t goose_mmio_sync_emit(goose_cell_t *cell, const char *cell_name);
+/** @brief Process an incoming sync arc from a remote peer. */
 void goose_mmio_sync_recv(const uint8_t *src_mac, uint32_t name_hash, int8_t state);
+/** @brief Reset phantom cells for peers not seen in MMIO_SYNC_STALENESS_US. */
 void goose_mmio_sync_staleness_check(void);
 
 #endif

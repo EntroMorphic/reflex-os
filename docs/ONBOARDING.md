@@ -44,8 +44,18 @@ screen /dev/cu.usbmodem1101 115200
 ## 6. Try the Python SDK
 
 ```bash
-pip install pyserial
-python examples/blink/blink.py /dev/cu.usbmodem1101
+pip install -e sdk/python/
+reflex-cli --discover                           # find boards
+reflex-cli /dev/cu.usbmodem1101                 # connect and print status
+```
+
+Or use the SDK in Python directly (see `sdk/python/README.md`):
+
+```python
+from reflex import ReflexNode
+with ReflexNode("/dev/cu.usbmodem1101") as node:
+    print(node.status())
+    node.led_on()
 ```
 
 ## 7. Understand the Architecture

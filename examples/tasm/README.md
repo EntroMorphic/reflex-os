@@ -26,13 +26,23 @@ reflex> vm loadhex <hex>
 
 You must hex-encode the raw .rfxv binary before pasting it into the shell.
 
-**Via firmware embedding** -- compile to .c, add the array to the
-`vm/programs/programs.c` registry, rebuild, and flash:
+**Via firmware embedding** -- compile to .c, register it, rebuild, and flash:
 
-```bash
-idf.py build && idf.py -p /dev/cu.usbmodem1101 flash
-reflex> vm run blink
-```
+1. Compile: `python3 tools/tasm.py my_prog.tasm vm/programs/my_prog.c`
+2. Edit `vm/programs/programs.c` -- add externs and registry entry:
+   ```c
+   extern const uint8_t vm_program_my_prog[];
+   extern const size_t vm_program_my_prog_len;
+   // In ensure_init():
+   s_programs[N] = (vm_program_t){"my_prog", vm_program_my_prog, vm_program_my_prog_len};
+   ```
+3. Add `"programs/my_prog.c"` to `vm/CMakeLists.txt` SRCS list
+4. Rebuild and flash:
+   ```bash
+   idf.py build && idf.py -p /dev/cu.usbmodem1101 flash
+   reflex> vm list
+   reflex> vm run my_prog
+   ```
 
 ## Example Programs
 
