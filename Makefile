@@ -5,7 +5,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 RELEASE_NAME := reflex-os-$(VERSION)-esp32c6
 RELEASE_DIR := release/$(RELEASE_NAME)
 
-.PHONY: build flash release clean test format config-reset
+.PHONY: build flash release clean test format config-reset docs
 
 build:
 	idf.py build
@@ -39,6 +39,10 @@ test:
 
 format:
 	find . -name '*.c' -o -name '*.h' | grep -v build | grep -v esp-idf | xargs clang-format -i
+
+docs:
+	doxygen Doxyfile
+	@echo "API docs: docs/api/html/index.html"
 
 config-reset:
 	rm -f sdkconfig

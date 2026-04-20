@@ -38,3 +38,4 @@ build-host/
 build_esp32/
 release/reflex-os-*/
 release/*.zip
+docs/api/

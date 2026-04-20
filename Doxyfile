@@ -1,0 +1,10 @@
+PROJECT_NAME = "Reflex OS"
+PROJECT_BRIEF = "Purpose-aware ternary operating system"
+OUTPUT_DIRECTORY = docs/api
+INPUT = include/ kernel/reflex_kernel.h components/goose/include/goose.h
+RECURSIVE = NO
+GENERATE_HTML = YES
+GENERATE_LATEX = NO
+EXTRACT_ALL = YES
+OPTIMIZE_OUTPUT_FOR_C = YES
+QUIET = YES
