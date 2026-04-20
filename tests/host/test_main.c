@@ -137,6 +137,7 @@ int main(void) {
     printf("=====================\n\n");
 
     extern int test_scheduler(void);
+    extern int test_kv(void);
 
     test_ternary();
     test_crypto();
@@ -144,6 +145,7 @@ int main(void) {
     test_queues();
     test_hal();
     s_failed += test_scheduler();
+    s_failed += test_kv();
 
     printf("\n%d passed, %d failed\n", s_passed, s_failed);
     return s_failed > 0 ? 1 : 0;

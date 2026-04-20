@@ -166,6 +166,71 @@ static reflex_err_t kv_find(uint8_t ns, const char *key, uint32_t *out_offset,
     return REFLEX_OK;
 }
 
+/* Track last-seen offset per key during forward scan for compaction */
+typedef struct { uint8_t ns; char key[KV_KEY_MAX + 1]; uint32_t offset; } kv_dedup_t;
+
+static reflex_err_t kv_compact(void) {
+    uint32_t old_base = sector_addr(s_active_sector);
+    uint32_t new_sector = (s_active_sector + 1) % KV_NUM_SECTORS;
+    uint32_t new_base = sector_addr(new_sector);
+
+    /* Forward scan: build dedup table (last offset per unique key) */
+    kv_dedup_t dedup[KV_ENTRY_MAX];
+    int dedup_count = 0;
+    uint32_t off = sizeof(kv_page_header_t);
+
+    while (off < KV_SECTOR_SIZE) {
+        kv_entry_header_t eh;
+        flash_read(old_base + off, &eh, sizeof(eh));
+        if (eh.key_len == 0xFF || eh.key_len == 0) break;
+
+        char k[KV_KEY_MAX + 1];
+        flash_read(old_base + off + sizeof(eh), k, eh.key_len);
+        k[eh.key_len] = '\0';
+
+        /* Update or add to dedup table */
+        bool found = false;
+        for (int i = 0; i < dedup_count; i++) {
+            if (dedup[i].ns == eh.ns_hash && strcmp(dedup[i].key, k) == 0) {
+                dedup[i].offset = off;
+                found = true;
+                break;
+            }
+        }
+        if (!found && dedup_count < KV_ENTRY_MAX) {
+            dedup[dedup_count].ns = eh.ns_hash;
+            memcpy(dedup[dedup_count].key, k, eh.key_len + 1);
+            dedup[dedup_count].offset = off;
+            dedup_count++;
+        }
+
+        off += sizeof(eh) + eh.key_len + eh.val_len;
+    }
+
+    /* Erase new sector and write header */
+    esp_rom_spiflash_erase_sector(new_base / KV_SECTOR_SIZE);
+    kv_page_header_t hdr = { .magic = KV_MAGIC, .sequence = s_active_seq + 1 };
+    flash_write(new_base, &hdr, sizeof(hdr));
+
+    /* Copy live entries to new sector */
+    uint32_t new_off = sizeof(kv_page_header_t);
+    for (int i = 0; i < dedup_count; i++) {
+        kv_entry_header_t eh;
+        flash_read(old_base + dedup[i].offset, &eh, sizeof(eh));
+        size_t entry_size = sizeof(eh) + eh.key_len + eh.val_len;
+
+        uint8_t buf[sizeof(kv_entry_header_t) + KV_KEY_MAX + KV_VAL_MAX];
+        flash_read(old_base + dedup[i].offset, buf, entry_size);
+        flash_write(new_base + new_off, buf, entry_size);
+        new_off += entry_size;
+    }
+
+    s_active_sector = new_sector;
+    s_active_seq = hdr.sequence;
+    s_write_offset = new_off;
+    return REFLEX_OK;
+}
+
 static reflex_err_t kv_write_entry(uint8_t ns, const char *key,
                                    uint8_t type, const void *val, size_t val_len) {
     size_t key_len = strlen(key);
@@ -173,8 +238,9 @@ static reflex_err_t kv_write_entry(uint8_t ns, const char *key,
 
     size_t entry_size = sizeof(kv_entry_header_t) + key_len + val_len;
     if (s_write_offset + entry_size >= KV_SECTOR_SIZE) {
-        /* TODO: compact to next sector */
-        return REFLEX_ERR_NO_MEM;
+        reflex_err_t rc = kv_compact();
+        if (rc != REFLEX_OK) return rc;
+        if (s_write_offset + entry_size >= KV_SECTOR_SIZE) return REFLEX_ERR_NO_MEM;
     }
 
     uint32_t base = sector_addr(s_active_sector);
