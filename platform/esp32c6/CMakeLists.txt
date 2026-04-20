@@ -16,13 +16,12 @@ if(CONFIG_REFLEX_KERNEL_SCHEDULER)
                                      "../../kernel/reflex_portasm.S")
 endif()
 
-set(REFLEX_PLATFORM_REQUIRES driver nvs_flash log)
+set(REFLEX_PLATFORM_REQUIRES driver nvs_flash log ieee802154)
 set(REFLEX_PLATFORM_PRIV_REQUIRES esp_driver_tsens)
 
 # Radio backend selection
 if(CONFIG_REFLEX_RADIO_802154)
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_radio_802154.c")
-    list(APPEND REFLEX_PLATFORM_REQUIRES ieee802154)
 else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_radio_esp32c6.c")
     list(APPEND REFLEX_PLATFORM_REQUIRES esp_wifi)

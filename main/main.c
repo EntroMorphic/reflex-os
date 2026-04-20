@@ -18,7 +18,9 @@
 #include "reflex_led_service.h"
 #include "reflex_button_service.h"
 #include "reflex_temp_service.h"
+#if !CONFIG_REFLEX_RADIO_802154
 #include "reflex_wifi.h"
+#endif
 #include "reflex_shell.h"
 #include "reflex_cache.h"
 #include "reflex_ternary.h"
