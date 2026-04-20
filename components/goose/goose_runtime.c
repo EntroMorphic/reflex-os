@@ -30,7 +30,7 @@ static REFLEX_RTC_DATA_ATTR volatile bool lattice_stable = false;
 static REFLEX_RTC_DATA_ATTR uint32_t fabric_magic = 0;
 
 typedef struct {
-    char name[24]; 
+    char name[40];
     reflex_tryte9_t coord;
 } goonies_entry_t;
 
@@ -58,7 +58,7 @@ reflex_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_s
         }
     }
     if ((in_shadow || is_protected) && !is_system_weaving) { return REFLEX_ERR_NOT_SUPPORTED; }
-    snprintf(goonies_registry[goonies_count].name, 24, "%s", name);
+    snprintf(goonies_registry[goonies_count].name, 40, "%s", name);
     goonies_registry[goonies_count].coord = coord;
     goonies_count++;
     return REFLEX_OK;
@@ -98,7 +98,7 @@ goose_cell_t* goonies_resolve_cell(const char *name) {
                 size_t plen = (size_t)(dot - after_peer);
                 if (plen >= sizeof(peer_name)) plen = sizeof(peer_name) - 1;
                 memcpy(peer_name, after_peer, plen);
-                extern uint8_t goose_mmio_sync_find_peer_by_mac(const uint8_t *);
+                extern uint8_t goose_mmio_sync_find_peer_by_mac(const uint8_t mac[6]);
                 extern size_t goose_mmio_sync_peer_count(void);
                 extern const reflex_peer_t *goose_mmio_sync_get_peer(size_t);
                 size_t pc = goose_mmio_sync_peer_count();

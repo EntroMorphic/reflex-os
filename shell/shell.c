@@ -501,17 +501,27 @@ static void reflex_shell_loom_list(void) {
 }
 
 static void reflex_shell_goonies_find(const char *name) {
-    reflex_tryte9_t coord;
-    /* Live registry first — fastest path, and the one that reflects
-     * the currently-woven active Loom. */
-    if (goonies_resolve(name, &coord) == REFLEX_OK) {
-        printf("GOONIES: Resolved '%s' to (%d,%d,%d) [live]\n",
-               name, coord.trits[0], coord.trits[3], coord.trits[6]);
+    /* Use the full resolver — it checks live registry, peer allocation,
+     * and shadow catalog in that order. */
+    goose_cell_t *cell = goonies_resolve_cell(name);
+    if (cell) {
+        if (cell->peer_id != 0) {
+            printf("%s coord=(%d,%d,%d) state=%d peer_id=%u [phantom]\n",
+                   name, cell->coord.trits[0], cell->coord.trits[3], cell->coord.trits[6],
+                   cell->state, cell->peer_id);
+        } else if (cell->hardware_addr >= 0x60000000) {
+            printf("%s coord=(%d,%d,%d) addr=0x%08lx state=%d [shadow]\n",
+                   name, cell->coord.trits[0], cell->coord.trits[3], cell->coord.trits[6],
+                   (unsigned long)cell->hardware_addr, cell->state);
+        } else {
+            printf("%s coord=(%d,%d,%d) state=%d type=%d [live]\n",
+                   name, cell->coord.trits[0], cell->coord.trits[3], cell->coord.trits[6],
+                   cell->state, cell->type);
+        }
         return;
     }
-    /* Fall through to the shadow catalog. This lets any of the 9527
-     * MMIO names resolve without having to page a cell into the Loom
-     * first, giving the shell full-surface name queries. */
+    /* Read-only shadow lookup (doesn't allocate into the Loom). */
+    reflex_tryte9_t coord;
     uint32_t addr, mask;
     goose_cell_type_t type;
     if (goose_shadow_resolve(name, &addr, &mask, &coord, &type) == REFLEX_OK) {
@@ -520,7 +530,7 @@ static void reflex_shell_goonies_find(const char *name) {
             (type == GOOSE_CELL_HARDWARE_OUT) ? "HARDWARE_OUT" :
             (type == GOOSE_CELL_SYSTEM_ONLY)  ? "SYSTEM_ONLY" :
             (type == GOOSE_CELL_VIRTUAL)      ? "VIRTUAL" : "?";
-        printf("GOONIES: Resolved '%s' [shadow] addr=0x%08lx mask=0x%08lx type=%s\n",
+        printf("GOONIES: '%s' addr=0x%08lx mask=0x%08lx type=%s [shadow-only]\n",
                name, (unsigned long)addr, (unsigned long)mask, type_str);
         return;
     }
