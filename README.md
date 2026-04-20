@@ -1,35 +1,68 @@
-# Reflex OS v2.6.0
+# Reflex OS
 
-[![Build](https://github.com/EntroMorphic/reflex-os/actions/workflows/build.yml/badge.svg)](https://github.com/EntroMorphic/reflex-os/actions/workflows/build.yml)
+A purpose-aware ternary operating system for embedded mesh networks. ~24,500 lines of C and assembly, hardware-validated on RISC-V (ESP32-C6) and Xtensa (ESP32).
 
-Reflex OS is a binary-hosted ternary operating environment for the Seeed Studio XIAO ESP32-C6. It reinterprets physical hardware as a coherent **Geometric Tapestry**, replacing traditional binary software abstractions with a software-defined ternary execution substrate known as **GOOSE** — the **G**eometric **O**ntologic **O**perating **S**ystem **E**xecution.
+Reflex OS reinterprets physical hardware as a coherent **Geometric Tapestry**, replacing traditional binary software abstractions with a ternary execution substrate known as **GOOSE** — the **G**eometric **O**ntologic **O**perating **S**ystem **E**xecution. The kernel owns interrupt context switching, modulates task priorities based on user-declared purpose, and learns from reward signals via Hebbian associative learning.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│  Substrate (GOOSE)                              │
+│  Cells → Routes → Fields → Holons              │
+│  Ternary state propagation + Hebbian learning   │
+├─────────────────────────────────────────────────┤
+│  Kernel Supervisor                              │
+│  Purpose-modulated priorities, 1Hz policy tick  │
+├─────────────────────────────────────────────────┤
+│  Port Assembly (reflex_portasm.S)               │
+│  Owns rtos_int_enter/exit via --wrap            │
+├─────────────────────────────────────────────────┤
+│  Scheduling HAL (FreeRTOS or reflex_task_kernel)│
+├─────────────────────────────────────────────────┤
+│  Hardware (ESP32-C6 / ESP32)                    │
+└─────────────────────────────────────────────────┘
+```
 
 ## Highlights
 
-- **Global G.O.O.N.I.E.S.** — Hardware is addressable by name across physical devices. Peer resources (e.g. `peer.worker.agency.led`) are paged into the local Loom via secure atmospheric discovery.
-- **Recursive Holons** — Hierarchical manifolds let complex subsystems be treated as single ternary cells for recursive regulation without losing real-time determinism.
-- **Postural Swarms** — Multi-node coordination via a geometric hive mind. Swarms reach consensus using ternary summation with per-peer weight caps and inertial hysteresis.
-- **The All-Seeing Atlas** — A 9,531-node shadow catalog of the ESP32-C6 MMIO surface, with 104 high-priority nodes pre-woven at boot and the remainder paged on demand into a 256-slot active Loom via shadow paging and round-robin eviction.
-- **The Sanctuary Guard** — Substrate-level security including MMIO isolation, authority sentries, HMAC-SHA256 **Aura** packets with replay cache, and NVS-provisioned keys for secure inter-system arcing.
-- **Coherent Heartbeat** — A LP RISC-V coprocessor program that ticks in parallel to HP at 1 Hz, mirroring geometric intent state across the RTC boundary.
+- **Purpose-Modulated Scheduling** — User declares intent (`purpose set photography`); the kernel boosts tasks serving that domain, learns faster under reward, deactivates non-matching holons.
+- **Hebbian Learning in the Kernel** — Fire-together-wire-together: routes that co-activate under reward commit learned orientations. The OS literally rewires its routing topology through experience.
+- **Multi-Architecture** — Runs on ESP32-C6 (RISC-V) and ESP32 (Xtensa). One codebase, platform-specific backends behind `reflex_task.h` / `reflex_hal.h`.
+- **Hardware Independent** — In 802.15.4 mode, the platform depends on ONE open-source component (ieee802154). All drivers are direct register writes. Custom bootloader (Boot0, 5.2KB).
+- **Global G.O.O.N.I.E.S.** — Hardware addressable by name across physical devices via secure atmospheric mesh.
+- **Recursive Holons** — Named field groups managed as lifecycle units, activated/deactivated by purpose domain matching.
+- **The All-Seeing Atlas** — 9,531-node shadow catalog of the ESP32-C6 MMIO surface, 104 nodes pre-woven at boot.
+- **Coherent Heartbeat** — LP RISC-V coprocessor mirroring intent state at 1Hz across the RTC boundary.
 
 ## Hardware
 
-- **Board:** Seeed Studio XIAO ESP32-C6
-- **Architecture:** RISC-V HP Core + RISC-V LP Core (Coherent Heartbeat via the ULP LP-core coprocessor)
-- **Memory:** Region-protected shared ternary memory with a three-state (I/E/M) MESI-lite soft-cache and host-side coherency proxy
-- **I/O:** Full peripheral mapping (the Atlas) including GPIO, LEDC, RMT, PMU, and the LP I/O subsystem
+| Target | Architecture | Role | Status |
+|--------|-------------|------|--------|
+| Seeed XIAO ESP32-C6 | RISC-V | Primary (kernel, substrate, mesh) | Production |
+| ESP32 (original) | Xtensa | Mesh peer | Validated |
 
 ## Build & Flash
 
 ```bash
+# ESP32-C6 (primary)
 source ~/Projects/esp-idf/export.sh
-idf.py set-target esp32c6     # only needed on first build
+idf.py set-target esp32c6
 idf.py build
 idf.py -p /dev/cu.usbmodem1101 flash
+
+# ESP32 (mesh peer)
+idf.py -B build_esp32 set-target esp32
+SDKCONFIG_DEFAULTS="sdkconfig.defaults.esp32" idf.py -B build_esp32 build
 ```
 
-A clean checkout regenerates `sdkconfig` from `sdkconfig.defaults`. The target is pinned via `CONFIG_IDF_TARGET="esp32c6"` in the defaults file.
+### Radio Backend Selection
+
+```
+idf.py menuconfig → Reflex OS → Radio backend
+  [*] IEEE 802.15.4 (blob-free)    ← fully independent of ESP-IDF
+  [ ] ESP-NOW (Wi-Fi)              ← requires WiFi binary blob
+```
 
 ## Shell
 

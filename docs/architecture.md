@@ -1,10 +1,30 @@
-# Reflex OS Architecture (v2.5.1)
+# Reflex OS Architecture
 
 ## Intent
 
-Reflex OS is split into a binary host layer and a ternary execution substrate known as **GOOSE** (Geometric Ontologic Operating System Execution).
+Reflex OS is a purpose-aware ternary operating system. It consists of three layers:
 
-The binary host layer (ESP-IDF) owns boot, hardware drivers, and low-level scheduling. The GOOSE layer reinterprets the machine as a **Tapestry** of geometric nodes (Cells) and signal flows (Routes).
+1. **Reflex Kernel** — owns interrupt context switching, tick generation, and scheduling policy. Modulates task priorities based on purpose, Hebbian maturity, and holon lifecycle.
+2. **GOOSE Substrate** — the ternary execution fabric. Cells, routes, fields, and holons propagate balanced ternary state and learn from reward signals.
+3. **Platform HAL** — direct register access to hardware (GPIO, timers, RNG, flash, radio). Abstracted behind `reflex_hal.h`, `reflex_task.h`, `reflex_kv.h`, `reflex_radio.h`.
+
+The system builds for ESP32-C6 (RISC-V, primary) and ESP32 (Xtensa, mesh peer). In 802.15.4 mode, the platform depends on ONE open-source component. All other hardware access is direct register writes or mask ROM calls.
+
+## The Reflex Kernel
+
+### Port Assembly (`kernel/reflex_portasm.S`)
+Intercepts FreeRTOS's `rtos_int_enter`/`rtos_int_exit` via `--wrap` linker flags. Handles: TCB pivot (save/restore SP), ISR stack switching, hardware stack guard (ASSIST_DEBUG peripheral). Runs in IRAM.
+
+### Supervisor (`kernel/reflex_freertos_compat.c`)
+Highest-priority task. Calls a registered policy function at 1Hz. The policy is provided by the GOOSE substrate via weak/strong symbol linkage — the kernel doesn't know about cells or routes.
+
+### Policy Engine (`components/goose/goose_supervisor.c`)
+Reads purpose, resolves route endpoint names via `goonies_resolve_name_by_coord`, applies domain-specific priority boost (+3 for matching, +1 general). Hebbian maturity adds +2. Pain signal dampens. Deactivated holons force base priority.
+
+### Standalone Backend (`kernel/reflex_task_kernel.c`)
+Complete implementation of all 13 `reflex_task.h` functions: create, delete, delay, yield, get_by_name, set/get_priority, queue create/send/recv, critical enter/exit, mutex init. Uses setjmp/longjmp cooperative scheduling with SYSTIMER tick. Selectable via `CONFIG_REFLEX_KERNEL_SCHEDULER`.
+
+## The GOOSE Substrate
 
 ## The GOOSE Substrate
 

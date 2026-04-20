@@ -8,12 +8,39 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 ## [Unreleased]
 
 ### Added
-- **Purpose name persistence** — `goose_purpose_set_name` persists the user-declared purpose name (max 15 chars) to NVS under `goose/purpose`. `goose_fabric_init` restores it on boot, re-allocating the `sys.purpose` cell. `purpose get` now reports the stored name. `purpose clear` erases from both memory and NVS.
-- **Purpose-modulated routing in `weave_sync`** — when a purpose is active, autonomous fabrication preferentially routes needs to sinks whose name contains the purpose domain as a segment boundary (e.g., `purpose set sensor` biases toward cells with `.sensor.` in their name). Falls back to generic suffix matching when no domain candidate exists. Purpose now has two effects: faster learning (Hebbian 2×) and directional routing.
-- **`GOOSE_CELL_PURPOSE` (intent cells)** — first-class cell type for user-declared operating intent. `purpose set/get/clear` shell commands. When active, Hebbian reward increments are doubled — the OS learns faster when the user tells it what they're trying to do.
-- **Phase 29 Tapestry Snapshots** — `goose_snapshot_save/load/clear` serialize and restore `learned_orientation` + `hebbian_counter` from supervised routes to NVS. `snapshot save/load/clear` shell commands.
-- **Internal temperature sensor service** — the ESP32-C6 die temperature is projected into the fabric as `perception.temp.reading`, a live cell updated every 5 seconds with ternary state cold (-1, <40C) / normal (0, 40-55C) / warm (+1, >55C). `temp` shell command reads raw celsius + ternary state. First real perception on the substrate.
-- **Session essay** — `docs/essay-substrate-as-interface.md`: ~1800-word narrative covering the substrate model, the audit arc, the mesh trial, and the ternary-as-interface argument.
+- **Reflex kernel port assembly** — owns interrupt context switching via `--wrap` on `rtos_int_enter/rtos_int_exit`. Hardware stack guard management with proper TCB bounds (pxStack=0x30, pxEndOfStack=0x44). Compile-time assertions prevent silent offset drift.
+- **Kernel supervisor (purpose-modulated scheduling)** — 1Hz policy tick adjusts FreeRTOS task priorities based on purpose, Hebbian maturity, holon lifecycle, and pain signals. Domain-specific: `reflex_domain_match` uses dot-boundary matching (purpose "led" matches "agency.led.intent" but not "misled").
+- **Holonic lifecycle management** — named field groups with domain tags. Holons matching the current purpose stay active; non-matching ones are deactivated and drop to base priority. Three holons created at boot: autonomy, comm (mesh), agency (led). `reflex_holon_create`/`reflex_holon_add_field` API.
+- **ESP32 (Xtensa) platform** — Reflex OS builds and runs on original ESP32 as mesh peer. New `platform/esp32/` backend with HAL, task, KV, radio, crypto. Build system auto-selects platform by IDF_TARGET.
+- **802.15.4 radio independence** — in 802.15.4 mode, WiFi/ESP-NOW/esp_event/esp_netif completely absent. Net component no-ops. Platform REQUIRES: `ieee802154` only.
+- **Own interrupt allocation** — `reflex_hal_intr_alloc` uses direct PLIC register writes (interrupt matrix routing, priority, type, enable). Bitmap allocator for CPU interrupt numbers. `esp_intr_alloc.h` eliminated.
+- **Own logging** — `reflex_hal_log` writes directly to USB-JTAG CDC-ACM FIFO registers (0x6000F000). `esp_log.h` eliminated.
+- **Own temperature sensor** — direct APB_SARADC TSENS register reads. `driver/temperature_sensor.h` eliminated.
+- **Own key-value storage** — `reflex_kv_flash.c` uses ROM spiflash functions for page-based KV store. `nvs_flash` eliminated in 802.15.4 mode.
+- **Own sleep** — wakeup cause via PMU register read, sleep entry via LP AON + software reset. `esp_sleep.h` eliminated.
+- **802.15.4 extraction shim** — `radio/ieee802154/reflex_ieee802154_shim.h` maps all ESP-IDF runtime dependencies to Reflex OS primitives (16 call sites).
+- **Complete kernel task backend** — `kernel/reflex_task_kernel.c` implements all 13 `reflex_task.h` functions with zero FreeRTOS: create, delete, delay, yield, get_by_name, set/get_priority, queue create/send/recv, critical enter/exit, mutex init.
+- **Portable task API extensions** — `reflex_task_get_by_name`, `reflex_task_set_priority`, `reflex_task_get_priority` added to `reflex_task.h`.
+- **`goonies_resolve_name_by_coord`** — reverse lookup from geometric coordinate to registered cell name.
+- **Paper** — `docs/paper-novel-contributions.md`: 6 novel contributions with code evidence, red-teamed and remediated. 24,500 LOC, two architectures.
+- **Purpose name persistence** — `goose_purpose_set_name` persists the user-declared purpose name (max 15 chars) to NVS under `goose/purpose`. `goose_fabric_init` restores it on boot.
+- **Purpose-modulated routing in `weave_sync`** — autonomous fabrication preferentially routes needs to sinks in the purpose domain.
+- **Phase 29 Tapestry Snapshots** — `goose_snapshot_save/load/clear` serialize learned_orientation + hebbian_counter to NVS.
+- **Internal temperature sensor service** — die temperature projected into fabric as `perception.temp.reading`.
+
+### Fixed
+- **Port assembly ra clobber** — `call vTaskSwitchContext` clobbered return address; `ret` jumped to garbage. Fixed by saving ra/mstatus in callee-saved registers (s10/s11).
+- **Port assembly mstatus passthrough** — was reading from CSR instead of passing caller's value through. ISR vector expects mstatus returned in a0.
+- **LOOM_CONTENTION_FAULT spam** — rate-limited from per-interrupt to once per 5 seconds with contention count.
+- **FreeRTOS leaks** — eliminated all direct FreeRTOS calls from shell (vTaskDelete→reflex_task_delete, vTaskDelay→reflex_task_yield) and net/wifi.c (dead includes removed).
+- **SYSTIMER interrupt source number** — was 38 (wrong, worked by accident via esp_intr_alloc remapping), corrected to 58 (actual interrupt matrix register offset).
+- **Multi-holon priority logic** — field keeps boost if ANY containing holon is active; only suppressed when ALL are inactive.
+- **NULL validation** — added to `reflex_holon_add_field` and `goose_supervisor_register_field`.
+
+### Changed
+- **Kernel compat layer** — rewritten as policy-on-mechanism architecture. Supervisor calls registered policy function at 1Hz via weak/strong symbol linkage.
+- **CMakeLists** — target-gated platform selection, conditional ULP/bootloader, WiFi requirement conditional on radio backend.
+- **Documentation** — all stale comments updated, PRD/independence-plan/Kconfig reflect completed milestones.
 
 ## [2.6.0] — 2026-04-15
 
