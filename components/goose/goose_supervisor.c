@@ -90,8 +90,24 @@ static void goose_kernel_policy_tick(uint32_t tick) {
         goose_field_t *field = supervised_fields[f];
         int priority = PULSE_BASE_PRIORITY;
 
-        /* Item 1: Purpose boost — active purpose lifts all substrate work */
-        if (purpose_active) priority += PULSE_PURPOSE_BOOST;
+        /* Item 1: Purpose boost — domain-specific. Only boost fields
+         * whose routes touch cells in the active purpose domain. */
+        if (purpose_active) {
+            bool has_domain_route = false;
+            for (size_t r = 0; r < field->route_count && !has_domain_route; r++) {
+                const char *src = goonies_resolve_name_by_coord(field->routes[r].source_coord);
+                const char *snk = goonies_resolve_name_by_coord(field->routes[r].sink_coord);
+                if ((src && strstr(src, s_last_purpose)) ||
+                    (snk && strstr(snk, s_last_purpose))) {
+                    has_domain_route = true;
+                }
+            }
+            if (has_domain_route) {
+                priority += PULSE_PURPOSE_BOOST;
+            } else {
+                priority += 1;
+            }
+        }
 
         /* Item 2: Hebbian maturity — fields with learned routes are stable */
         int learned_routes = 0;

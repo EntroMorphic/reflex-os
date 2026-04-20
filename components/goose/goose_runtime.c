@@ -71,6 +71,15 @@ reflex_err_t goonies_resolve(const char *name, reflex_tryte9_t *out_coord) {
     return REFLEX_ERR_NOT_FOUND;
 }
 
+const char *goonies_resolve_name_by_coord(reflex_tryte9_t coord) {
+    for (uint32_t i = 0; i < goonies_count; i++) {
+        if (goose_coord_equal(goonies_registry[i].coord, coord)) {
+            return goonies_registry[i].name;
+        }
+    }
+    return NULL;
+}
+
 goose_cell_t* goonies_resolve_cell(const char *name) {
     if (!name) return NULL;
     reflex_tryte9_t coord;

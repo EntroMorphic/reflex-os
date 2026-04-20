@@ -421,6 +421,7 @@ reflex_err_t goonies_resolve(const char *name, reflex_tryte9_t *out_coord);
  * @brief Resolve a name. If not in the active Loom, attempt to pull from the Shadow Atlas.
  */
 goose_cell_t* goonies_resolve_cell(const char *name);
+const char *goonies_resolve_name_by_coord(reflex_tryte9_t coord);
 
 /**
  * @brief Manually page-in a hardware node from the Shadow Atlas.
