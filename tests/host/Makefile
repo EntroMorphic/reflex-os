@@ -4,13 +4,15 @@
 # Usage: make test
 
 CC ?= cc
-CFLAGS = -Wall -Wextra -O2 -g -DREFLEX_RTC_DATA_ATTR=
+CFLAGS = -Wall -Wextra -O2 -g -DREFLEX_RTC_DATA_ATTR= -DREFLEX_HOST_BUILD
 INCLUDES = -I../../include -I../../vm/include -I../../kernel -I../stub_headers
 
 SRCS = test_main.c \
+       test_scheduler.c \
        mock_hal.c \
        mock_task.c \
        ../../vm/ternary.c \
+       ../../kernel/reflex_sched.c \
        ../../platform/esp32c6/reflex_crypto_esp32c6.c
 
 OUT = build/reflex_test

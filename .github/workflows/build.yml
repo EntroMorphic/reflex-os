@@ -9,6 +9,15 @@ jobs:
       - name: Run host tests
         run: make test
 
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format
+        run: sudo apt-get install -y clang-format
+      - name: Check formatting
+        run: make format-check
+
   build-esp32c6:
     runs-on: ubuntu-latest
     container: espressif/idf:release-v5.5
@@ -30,6 +39,18 @@ jobs:
           . $IDF_PATH/export.sh
           sed -i 's/CONFIG_REFLEX_RADIO_ESPNOW=y/# CONFIG_REFLEX_RADIO_ESPNOW is not set/' sdkconfig.defaults 2>/dev/null || true
           echo "CONFIG_REFLEX_RADIO_802154=y" >> sdkconfig.defaults
+          idf.py set-target esp32c6
+          idf.py build
+
+  build-esp32c6-kernel:
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ESP32-C6 (kernel scheduler mode)
+        run: |
+          . $IDF_PATH/export.sh
+          echo "CONFIG_REFLEX_KERNEL_SCHEDULER=y" >> sdkconfig.defaults
           idf.py set-target esp32c6
           idf.py build
 

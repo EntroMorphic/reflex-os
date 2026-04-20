@@ -1,6 +1,6 @@
 """Blink the onboard LED via Python SDK."""
 import sys, time
-sys.path.insert(0, "../../sdk/python")
+import os; sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdk", "python"))
 from reflex import ReflexNode
 
 port = sys.argv[1] if len(sys.argv) > 1 else "/dev/cu.usbmodem1101"

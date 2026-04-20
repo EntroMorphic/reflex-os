@@ -1,6 +1,6 @@
 """Read temperature from all mesh nodes and display aggregate."""
 import sys, time
-sys.path.insert(0, "../../sdk/python")
+import os; sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdk", "python"))
 from reflex import discover
 
 print("Mesh Temperature Monitor")

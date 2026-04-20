@@ -136,11 +136,14 @@ int main(void) {
     printf("Reflex OS Host Tests\n");
     printf("=====================\n\n");
 
+    extern int test_scheduler(void);
+
     test_ternary();
     test_crypto();
     test_tasks();
     test_queues();
     test_hal();
+    s_failed += test_scheduler();
 
     printf("\n%d passed, %d failed\n", s_passed, s_failed);
     return s_failed > 0 ? 1 : 0;

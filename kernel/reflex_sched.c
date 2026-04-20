@@ -145,19 +145,24 @@ reflex_tcb_t *reflex_sched_get_current(void) {
 /* ---- Critical sections ---- */
 
 void reflex_sched_enter_critical(void) {
+#ifndef REFLEX_HOST_BUILD
     __asm__ volatile ("csrci mstatus, 0x8");
+#endif
     s_critical_nesting++;
 }
 
 void reflex_sched_exit_critical(void) {
     if (s_critical_nesting > 0) s_critical_nesting--;
     if (s_critical_nesting == 0) {
+#ifndef REFLEX_HOST_BUILD
         __asm__ volatile ("csrsi mstatus, 0x8");
+#endif
     }
 }
 
 /* ---- Timer tick setup ---- */
 
+#ifndef REFLEX_HOST_BUILD
 static void setup_systimer_tick(void) {
     REG32(SYSTIMER_CONF) |= (1 << 0);
     REG32(SYSTIMER_TARGET1_CONF) = (1 << 30) | SYSTIMER_TICK_PERIOD;
@@ -166,13 +171,16 @@ static void setup_systimer_tick(void) {
     REG32(SYSTIMER_INT_CLR) = (1 << 1);
     REG32(SYSTIMER_INT_ENA) |= (1 << 1);
 }
+#endif
 
 /* ---- Init and start ---- */
 
 static void idle_task(void *arg) {
     (void)arg;
     while (1) {
+#ifndef REFLEX_HOST_BUILD
         __asm__ volatile ("wfi");
+#endif
     }
 }
 
@@ -186,6 +194,9 @@ reflex_err_t reflex_sched_init(void) {
                                     NULL, 0, NULL);
 }
 
+#ifdef REFLEX_HOST_BUILD
+reflex_err_t reflex_sched_start(void) { return REFLEX_OK; }
+#else
 reflex_err_t reflex_sched_start(void) {
     setup_systimer_tick();
     s_started = true;
@@ -229,3 +240,4 @@ reflex_err_t reflex_sched_start(void) {
 
     return REFLEX_OK;
 }
+#endif /* !REFLEX_HOST_BUILD */

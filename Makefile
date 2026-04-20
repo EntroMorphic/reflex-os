@@ -5,7 +5,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 RELEASE_NAME := reflex-os-$(VERSION)-esp32c6
 RELEASE_DIR := release/$(RELEASE_NAME)
 
-.PHONY: build flash release clean test format config-reset docs
+.PHONY: build flash release clean test format format-check config-reset docs
 
 build:
 	idf.py build
@@ -40,7 +40,12 @@ test:
 format:
 	find . -name '*.c' -o -name '*.h' | grep -v build | grep -v esp-idf | xargs clang-format -i
 
+format-check:
+	@find . -name '*.c' -o -name '*.h' | grep -v build | grep -v esp-idf | xargs clang-format --dry-run --Werror 2>&1 | head -20
+	@echo "Format check passed."
+
 docs:
+	@command -v doxygen >/dev/null 2>&1 || { echo "Error: doxygen not installed. Install with: brew install doxygen"; exit 1; }
 	doxygen Doxyfile
 	@echo "API docs: docs/api/html/index.html"
 
