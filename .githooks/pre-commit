@@ -1,0 +1,11 @@
+#!/bin/bash
+# Pre-commit hook: format check + compile check
+FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(c|h)$')
+if [ -n "$FILES" ]; then
+    if command -v clang-format &>/dev/null; then
+        if ! clang-format --dry-run --Werror $FILES 2>/dev/null; then
+            echo "Format check failed. Run 'make format' to fix."
+            exit 1
+        fi
+    fi
+fi

@@ -5,7 +5,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 RELEASE_NAME := reflex-os-$(VERSION)-esp32c6
 RELEASE_DIR := release/$(RELEASE_NAME)
 
-.PHONY: build flash release clean
+.PHONY: build flash release clean test format config-reset
 
 build:
 	idf.py build
@@ -33,6 +33,17 @@ release: build
 	@echo ""
 	@echo "Release: release/$(RELEASE_NAME).zip"
 	@ls -lh release/$(RELEASE_NAME).zip
+
+test:
+	$(MAKE) -C tests/host test
+
+format:
+	find . -name '*.c' -o -name '*.h' | grep -v build | grep -v esp-idf | xargs clang-format -i
+
+config-reset:
+	rm -f sdkconfig
+	idf.py set-target esp32c6
+	@echo "sdkconfig regenerated from defaults"
 
 clean:
 	idf.py fullclean

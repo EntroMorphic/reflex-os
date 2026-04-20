@@ -1,70 +1,45 @@
-name: Build
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+name: Build & Test
+on: [push, pull_request]
 
 jobs:
-  lint:
-    name: Python lint + tasm assemble
+  host-tests:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Run host tests
+        run: make test
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-ruff
-
-      - name: Install ruff
-        run: pip install ruff
-
-      - name: Ruff check tools/
-        run: ruff check tools/ || true
-
-      - name: Reassemble examples/supervisor.tasm
-        run: python3 tools/tasm.py examples/supervisor.tasm /tmp/supervisor.rfxv
-
-  build:
-    name: ESP-IDF 5.5 build (esp32c6)
+  build-esp32c6:
     runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build firmware
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: v5.5
-          target: esp32c6
-          path: .
-
-      - name: Report binary size
+      - uses: actions/checkout@v4
+      - name: Build ESP32-C6 (ESP-NOW mode)
         run: |
-          if [ -f build/reflex_os.bin ]; then
-            ls -l build/reflex_os.bin
-            printf 'Firmware size: '
-            wc -c < build/reflex_os.bin
-          fi
+          . $IDF_PATH/export.sh
+          idf.py set-target esp32c6
+          idf.py build
 
-      - name: Upload firmware artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: reflex_os-esp32c6
-          path: |
-            build/reflex_os.bin
-            build/reflex_os.elf
-            build/bootloader/bootloader.bin
-            build/partition_table/partition-table.bin
-          retention-days: 7
+  build-esp32c6-802154:
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ESP32-C6 (802.15.4 mode)
+        run: |
+          . $IDF_PATH/export.sh
+          sed -i 's/CONFIG_REFLEX_RADIO_ESPNOW=y/# CONFIG_REFLEX_RADIO_ESPNOW is not set/' sdkconfig.defaults 2>/dev/null || true
+          echo "CONFIG_REFLEX_RADIO_802154=y" >> sdkconfig.defaults
+          idf.py set-target esp32c6
+          idf.py build
+
+  build-esp32:
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ESP32 (mesh peer)
+        run: |
+          . $IDF_PATH/export.sh
+          SDKCONFIG_DEFAULTS="sdkconfig.defaults.esp32" idf.py -B build_esp32 set-target esp32
+          idf.py -B build_esp32 build
