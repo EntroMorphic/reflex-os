@@ -10,6 +10,7 @@ INCLUDES = -I../../include -I../../vm/include -I../../kernel -I../stub_headers
 SRCS = test_main.c \
        test_scheduler.c \
        test_kv.c \
+       test_integration.c \
        mock_hal.c \
        mock_task.c \
        ../../vm/ternary.c \
