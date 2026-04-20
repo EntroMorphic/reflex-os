@@ -4,7 +4,6 @@
  */
 
 #include "reflex_hal.h"
-#include "driver/temperature_sensor.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -15,7 +14,6 @@
 #define SYSTIMER_UNIT0_VAL_LO   (SYSTIMER_BASE_ADDR + 0x44)
 #define REG32_HAL(a) (*(volatile uint32_t *)(a))
 #include "esp_rom_sys.h"
-#include "esp_log.h"
 
 /* PMU registers for deep sleep */
 #define PMU_BASE              0x600B0000
@@ -170,19 +168,28 @@ reflex_err_t reflex_hal_mac_read(uint8_t mac[6]) {
     return REFLEX_OK;
 }
 
+/* Temperature sensor via APB_SARADC TSENS registers */
+#define TSENS_CTRL_REG   (0x6000E000 + 0x58)
+#define TSENS_CTRL2_REG  (0x6000E000 + 0x5C)
+#define TSENS_PU_BIT     (1U << 22)
+#define TSENS_CLK_SEL    (1U << 15)
+#define TSENS_OUT_MASK   0xFF
+
 reflex_err_t reflex_hal_temp_init(reflex_temp_handle_t *out) {
-    temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 50);
-    temperature_sensor_handle_t h = NULL;
-    esp_err_t rc = temperature_sensor_install(&cfg, &h);
-    if (rc != ESP_OK) return (reflex_err_t)rc;
-    rc = temperature_sensor_enable(h);
-    if (rc != ESP_OK) return (reflex_err_t)rc;
-    *out = (reflex_temp_handle_t)h;
+    /* Enable TSENS clock and power up */
+    REG32_HAL(TSENS_CTRL2_REG) |= TSENS_CLK_SEL;
+    REG32_HAL(TSENS_CTRL_REG) |= TSENS_PU_BIT;
+    reflex_hal_delay_us(300);
+    if (out) *out = (reflex_temp_handle_t)1;
     return REFLEX_OK;
 }
 
 reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
-    return (reflex_err_t)temperature_sensor_get_celsius((temperature_sensor_handle_t)h, celsius);
+    (void)h;
+    if (!celsius) return REFLEX_ERR_INVALID_ARG;
+    uint32_t raw = REG32_HAL(TSENS_CTRL_REG) & TSENS_OUT_MASK;
+    *celsius = (float)raw * 0.4386f - 27.88f;
+    return REFLEX_OK;
 }
 
 /* --- Interrupt allocation via direct PLIC register writes ---
@@ -314,20 +321,35 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
     return REFLEX_OK;
 }
 
-void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
-    /* Use esp_log_writev to route through the VFS layer to the
-     * USB-JTAG console. esp_rom_printf goes to UART0 which is
-     * not connected on the C6's USB-JTAG interface. */
-    esp_log_level_t esp_level;
-    switch (level) {
-        case REFLEX_LOG_LEVEL_ERROR: esp_level = ESP_LOG_ERROR; break;
-        case REFLEX_LOG_LEVEL_WARN:  esp_level = ESP_LOG_WARN;  break;
-        case REFLEX_LOG_LEVEL_INFO:  esp_level = ESP_LOG_INFO;  break;
-        case REFLEX_LOG_LEVEL_DEBUG: esp_level = ESP_LOG_DEBUG;  break;
-        default:                     esp_level = ESP_LOG_INFO;   break;
+/* --- Logging via USB-JTAG CDC-ACM FIFO (direct register write) --- */
+
+#define USJ_BASE      0x6000F000
+#define USJ_EP1_DATA  (USJ_BASE + 0x00)
+#define USJ_EP1_CONF  (USJ_BASE + 0x04)
+
+static void usj_write_bytes(const char *data, int len) {
+    for (int i = 0; i < len; i++) {
+        while (!(REG32_HAL(USJ_EP1_CONF) & (1U << 1))) {}
+        REG32_HAL(USJ_EP1_DATA) = (uint32_t)(uint8_t)data[i];
     }
+    REG32_HAL(USJ_EP1_CONF) |= (1U << 0);
+}
+
+void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
+    static char log_buf[256];
+    const char *prefix;
+    switch (level) {
+        case REFLEX_LOG_LEVEL_ERROR: prefix = "E"; break;
+        case REFLEX_LOG_LEVEL_WARN:  prefix = "W"; break;
+        case REFLEX_LOG_LEVEL_INFO:  prefix = "I"; break;
+        case REFLEX_LOG_LEVEL_DEBUG: prefix = "D"; break;
+        default:                     prefix = "I"; break;
+    }
+    int off = snprintf(log_buf, sizeof(log_buf), "%s (%s) ", prefix, tag);
     va_list args;
     va_start(args, fmt);
-    esp_log_writev(esp_level, tag, fmt, args);
+    off += vsnprintf(log_buf + off, sizeof(log_buf) - off, fmt, args);
     va_end(args);
+    if (off < (int)sizeof(log_buf) - 1) { log_buf[off++] = '\n'; }
+    usj_write_bytes(log_buf, off);
 }

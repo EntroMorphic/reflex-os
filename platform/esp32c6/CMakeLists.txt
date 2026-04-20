@@ -3,8 +3,14 @@ if(NOT "${IDF_TARGET}" STREQUAL "esp32c6")
     return()
 endif()
 
-set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "reflex_kv_esp32c6.c"
-                        "reflex_crypto_esp32c6.c")
+set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "reflex_crypto_esp32c6.c")
+
+# KV backend selection: raw flash (802.15.4 mode) or NVS (WiFi mode)
+if(CONFIG_REFLEX_RADIO_802154)
+    list(APPEND REFLEX_PLATFORM_SRCS "reflex_kv_flash.c")
+else()
+    list(APPEND REFLEX_PLATFORM_SRCS "reflex_kv_esp32c6.c")
+endif()
 
 # Task backend: FreeRTOS (production default).
 # Alternative: CONFIG_REFLEX_KERNEL_SCHEDULER enables the Reflex kernel
@@ -16,8 +22,11 @@ if(CONFIG_REFLEX_KERNEL_SCHEDULER)
                                      "../../kernel/reflex_portasm.S")
 endif()
 
-set(REFLEX_PLATFORM_REQUIRES driver nvs_flash log ieee802154)
-set(REFLEX_PLATFORM_PRIV_REQUIRES esp_driver_tsens)
+set(REFLEX_PLATFORM_REQUIRES ieee802154)
+if(NOT CONFIG_REFLEX_RADIO_802154)
+    list(APPEND REFLEX_PLATFORM_REQUIRES nvs_flash)
+endif()
+set(REFLEX_PLATFORM_PRIV_REQUIRES)
 
 # Radio backend selection
 if(CONFIG_REFLEX_RADIO_802154)
