@@ -14,5 +14,6 @@ extern const vm_program_t vm_programs[];
 extern const size_t vm_program_count;
 
 const vm_program_t *vm_program_find(const char *name);
+const vm_program_t *vm_program_get(size_t idx);
 
 #endif

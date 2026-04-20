@@ -876,6 +876,8 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
             reflex_err_t rc = reflex_vm_load_binary(&reflex_shell_vm, prog->data, prog->len);
             if (rc != REFLEX_OK) { printf("vm run: load failed rc=0x%x\n", rc); return; }
             reflex_shell_vm_loaded = true;
+            extern void reflex_vm_use_default_syscalls(reflex_vm_state_t *vm);
+            reflex_vm_use_default_syscalls(&reflex_shell_vm);
             extern reflex_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps);
             rc = reflex_vm_run(&reflex_shell_vm, 100000);
             printf("vm run: %s status=%s steps=%lu\n", argv[2],
@@ -885,11 +887,11 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
             reflex_shell_vm.status = REFLEX_VM_STATUS_HALTED;
             printf("vm stopped\n");
         } else if (argc >= 2 && strcmp(argv[1], "list") == 0) {
-            extern const vm_program_t vm_programs[];
             extern const size_t vm_program_count;
             if (vm_program_count == 0) { printf("no embedded programs\n"); return; }
             for (size_t i = 0; i < vm_program_count; i++) {
-                printf("  %s (%u bytes)\n", vm_programs[i].name, (unsigned)vm_programs[i].len);
+                const vm_program_t *p = vm_program_get(i);
+                if (p) printf("  %s (%u bytes)\n", p->name, (unsigned)p->len);
             }
         } else if (argc >= 3 && strcmp(argv[1], "loadhex") == 0) {
             size_t blen = strlen(argv[2]) / 2; uint8_t *b = malloc(blen);
