@@ -1,6 +1,3 @@
-/** @file respond.c
- * @brief Precompiled VM respond program bytecode.
- */
 #include <stdint.h>
 #include <stddef.h>
 

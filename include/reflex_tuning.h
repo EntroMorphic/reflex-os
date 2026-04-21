@@ -83,4 +83,15 @@
 #define REFLEX_MAX_REBALANCE_ITERATIONS 10
 #endif
 
+/* Autonomous reward/pain evaluation */
+#ifndef REFLEX_SUPERVISOR_EVAL_DIV
+#define REFLEX_SUPERVISOR_EVAL_DIV      10   /* 1Hz at 10Hz supervisor */
+#endif
+#ifndef REFLEX_AUTO_REWARD_THRESHOLD
+#define REFLEX_AUTO_REWARD_THRESHOLD    2
+#endif
+#ifndef REFLEX_AUTO_PAIN_STUCK_TICKS
+#define REFLEX_AUTO_PAIN_STUCK_TICKS    5
+#endif
+
 #endif

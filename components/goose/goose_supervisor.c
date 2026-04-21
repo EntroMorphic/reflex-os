@@ -8,6 +8,7 @@
 #include "reflex_kv.h"
 #include "reflex_task.h"
 #include "reflex_kernel.h"
+#include "reflex_service.h"
 #include "reflex_tuning.h"
 #include <stdio.h>
 #include <string.h>
@@ -281,6 +282,58 @@ reflex_err_t goose_supervisor_swarm_sync(void) {
 /* Hebbian constants now live in reflex_tuning.h:
  * REFLEX_HEBBIAN_COMMIT_THRESHOLD, REFLEX_HEBBIAN_COUNTER_MAX */
 
+static uint8_t s_stuck_ticks[MAX_SUPERVISED_FIELDS];
+
+reflex_err_t goose_supervisor_evaluate(void) {
+    const char *purpose = goose_purpose_get_name();
+    if (!purpose || !purpose[0]) return REFLEX_OK;
+
+    int reward_score = 0;
+    bool pain_triggered = false;
+
+    for (size_t f = 0; f < supervised_field_count; f++) {
+        goose_field_t *field = supervised_fields[f];
+        bool field_stuck = false;
+        for (size_t r = 0; r < field->route_count; r++) {
+            goose_route_t *route = &field->routes[r];
+            if (!route->cached_source || !route->cached_sink) continue;
+
+            const char *src = goonies_resolve_name_by_coord(route->source_coord);
+            const char *snk = goonies_resolve_name_by_coord(route->sink_coord);
+            bool touches_purpose = (src && reflex_domain_match(src, purpose)) ||
+                                   (snk && reflex_domain_match(snk, purpose));
+            if (!touches_purpose) continue;
+
+            if (route->cached_source->state != 0 &&
+                route->cached_source->state == route->cached_sink->state)
+                reward_score++;
+
+            if (route->cached_sink->type == GOOSE_CELL_HARDWARE_OUT) {
+                reflex_trit_t orient = route->learned_orientation ? route->learned_orientation : route->orientation;
+                int8_t expected = (int8_t)((int)route->cached_source->state * (int)orient);
+                if (route->cached_sink->state != expected && expected != 0)
+                    field_stuck = true;
+            }
+        }
+        if (field_stuck) {
+            if (f < MAX_SUPERVISED_FIELDS && ++s_stuck_ticks[f] >= REFLEX_AUTO_PAIN_STUCK_TICKS)
+                pain_triggered = true;
+        } else if (f < MAX_SUPERVISED_FIELDS) {
+            s_stuck_ticks[f] = 0;
+        }
+    }
+
+    if (reward_score >= REFLEX_AUTO_REWARD_THRESHOLD) {
+        goose_cell_t *rc = goonies_resolve_cell("sys.ai.reward");
+        if (rc) rc->state = 1;
+    }
+    if (pain_triggered) {
+        goose_cell_t *pc = goonies_resolve_cell("sys.ai.pain");
+        if (pc) pc->state = -1;
+    }
+    return REFLEX_OK;
+}
+
 reflex_err_t goose_supervisor_learn_sync(void) {
     goose_cell_t *pain_cell = goonies_resolve_cell("sys.ai.pain");
     goose_cell_t *reward_cell = goonies_resolve_cell("sys.ai.reward");
@@ -510,6 +563,12 @@ reflex_err_t goose_supervisor_pulse(void) {
         weave_div = 0;
     }
 
+    static int eval_div = 0;
+    if (eval_div++ >= REFLEX_SUPERVISOR_EVAL_DIV) {
+        goose_supervisor_evaluate();
+        eval_div = 0;
+    }
+
     static int learn_div = 0;
     if (learn_div++ >= REFLEX_SUPERVISOR_LEARN_DIV) {
         goose_supervisor_learn_sync();
@@ -532,6 +591,18 @@ reflex_err_t goose_supervisor_pulse(void) {
     if (snap_div++ >= REFLEX_SUPERVISOR_SNAP_DIV) {
         goose_snapshot_save();
         snap_div = 0;
+    }
+
+    static int watchdog_div = 0;
+    if (watchdog_div++ >= REFLEX_SUPERVISOR_WEAVE_DIV) {
+        reflex_service_watchdog_tick();
+        watchdog_div = 0;
+    }
+
+    static int discover_div = 0;
+    if (discover_div++ >= 100) {
+        goose_atmosphere_emit_discover();
+        discover_div = 0;
     }
     return REFLEX_OK;
 }

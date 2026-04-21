@@ -483,6 +483,9 @@ reflex_err_t goose_atmosphere_query(const char *name);
  */
 reflex_err_t goose_atmosphere_emit_sync_arc(uint32_t name_hash, int8_t state);
 
+/** @brief Broadcast ARC_OP_DISCOVER with this board's identity. */
+reflex_err_t goose_atmosphere_emit_discover(void);
+
 /**
  * @brief Emit a swarm-wide postural consensus arc.
  */
@@ -507,6 +510,8 @@ typedef struct {
     uint32_t rx_self_drop;
     uint32_t rx_mmio_sync;
     uint32_t tx_mmio_sync;
+    uint32_t rx_discover;
+    uint32_t tx_discover;
 } goose_mesh_stats_t;
 
 goose_mesh_stats_t goose_atmosphere_get_stats(void);

@@ -145,16 +145,17 @@ int reflex_hal_sleep_wakeup_cause(void) {
 }
 
 void reflex_hal_sleep_enter(uint64_t duration_us) {
-    /* For now: store duration in LP AON register and software-reset.
-     * On wake, bootloader detects the magic and resumes quickly.
-     * True PMU deep sleep requires ~400 lines of chip-revision-specific
-     * register writes (pmu_sleep.c). This "timed reboot" approach gives
-     * identical behavior (state in NVS, quick resume) at slightly higher
-     * sleep current. Full PMU sleep is a future optimization. */
+#if CONFIG_IDF_TARGET_ESP32C6
+    extern int esp_sleep_enable_timer_wakeup(uint64_t time_in_us);
+    extern void esp_deep_sleep_start(void) __attribute__((noreturn));
+    esp_sleep_enable_timer_wakeup(duration_us);
+    esp_deep_sleep_start();
+#else
     uint32_t duration_sec = (uint32_t)(duration_us / 1000000);
     if (duration_sec > 0xFFFF) duration_sec = 0xFFFF;
     REG32_HAL(LP_AON_STORE1_REG) = REFLEX_SLEEP_MAGIC | (duration_sec & 0xFFFF);
     reflex_hal_reboot();
+#endif
 }
 
 void reflex_hal_random_fill(uint8_t *buf, size_t len) {

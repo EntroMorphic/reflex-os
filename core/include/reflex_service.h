@@ -70,6 +70,9 @@ reflex_err_t reflex_service_start_all(void);
 /** @brief Call stop() on every registered service in reverse order. */
 reflex_err_t reflex_service_stop_all(void);
 
+/** @brief Run one watchdog pass: check status, restart faulted services. */
+void reflex_service_watchdog_tick(void);
+
 /** @brief Count of registered services (for shell iteration). */
 size_t reflex_service_get_count(void);
 

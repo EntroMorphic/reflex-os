@@ -32,6 +32,7 @@ static uint8_t goose_aura_key[16];
 #define ARC_OP_ADVERTISE 0xAD
 #define ARC_OP_POSTURE   0xCC
 #define ARC_OP_MMIO_SYNC 0x10
+#define ARC_OP_DISCOVER  0xD0
 
 #pragma pack(push, 1)
 typedef struct {
@@ -301,6 +302,39 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
         mesh_stats.rx_mmio_sync++;
         goose_mmio_sync_recv(recv_info->src_addr, arc->name_hash, arc->state);
     }
+    else if (arc->op == ARC_OP_DISCOVER) {
+        mesh_stats.rx_discover++;
+        char name[9] = {0};
+        memcpy(name, arc->coord.trits, 8);
+        name[8] = '\0';
+        if (name[0]) {
+            reflex_radio_add_peer(recv_info->src_addr);
+            goose_mmio_sync_add_peer(name, recv_info->src_addr);
+        }
+    }
+}
+
+reflex_err_t goose_atmosphere_emit_discover(void) {
+    char device_name[32] = {0};
+    extern reflex_err_t reflex_config_get_device_name(char *, size_t);
+    if (reflex_config_get_device_name(device_name, sizeof(device_name)) != REFLEX_OK ||
+        !device_name[0]) {
+        uint8_t mac[6];
+        reflex_hal_mac_read(mac);
+        snprintf(device_name, sizeof(device_name), "rx_%02x%02x", mac[4], mac[5]);
+    }
+    reflex_tryte9_t name_coord = {{0}};
+    memcpy(name_coord.trits, device_name, 8 < strlen(device_name) ? 8 : strlen(device_name));
+    uint32_t nonce = (uint32_t)reflex_hal_time_us();
+    uint32_t nhash = goose_fnv1a(device_name);
+    goose_arc_packet_t arc = {
+        .version = GOOSE_ARC_VERSION, .op = ARC_OP_DISCOVER,
+        .coord = name_coord, .state = 0, .name_hash = nhash, .nonce = nonce,
+        .aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_DISCOVER, name_coord, nhash, 0, nonce)
+    };
+    uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    mesh_stats.tx_discover++;
+    return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
 
 reflex_err_t goose_atmosphere_init(void) {
@@ -312,6 +346,7 @@ reflex_err_t goose_atmosphere_init(void) {
     reflex_radio_register_recv(atmosphere_recv_cb);
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     reflex_radio_add_peer(broadcast_mac);
+    goose_atmosphere_emit_discover();
     return REFLEX_OK;
 }
 

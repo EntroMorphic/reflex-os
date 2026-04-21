@@ -244,8 +244,47 @@ def assemble(filename, output_name):
         )
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: tasm.py <input.tasm> <output.rfxv>")
+def upload(filename, port, baud=115200):
+    """Compile a .tasm file and upload to device via serial."""
+    import tempfile
+    tmp = tempfile.mktemp(suffix=".rfxv")
+    assemble(filename, tmp)
+    with open(tmp, "rb") as f:
+        data = f.read()
+    os.unlink(tmp)
+    hex_str = data.hex()
+
+    try:
+        import serial
+    except ImportError:
+        print("Error: pyserial required. Install with: pip install pyserial")
         sys.exit(1)
-    assemble(sys.argv[1], sys.argv[2])
+
+    ser = serial.Serial(port, baud, timeout=3)
+    import time
+    time.sleep(0.5)
+    ser.read(ser.in_waiting)
+    cmd = f"vm loadhex {hex_str}\n"
+    ser.write(cmd.encode())
+    time.sleep(1.5)
+    out = ser.read(ser.in_waiting).decode(errors="replace")
+    ser.close()
+
+    if "vm loaded" in out:
+        print(f"Uploaded {len(data)} bytes to {port}")
+    else:
+        print(f"Upload may have failed. Device response:")
+        for line in out.strip().split("\n"):
+            if line.strip():
+                print(f"  {line.strip()}")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) >= 4 and sys.argv[2] == "--upload":
+        upload(sys.argv[1], sys.argv[3])
+    elif len(sys.argv) >= 3:
+        assemble(sys.argv[1], sys.argv[2])
+    else:
+        print("Usage: tasm.py <input.tasm> <output.rfxv|output.c>")
+        print("       tasm.py <input.tasm> --upload <port>")
+        sys.exit(1)

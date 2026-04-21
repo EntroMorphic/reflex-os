@@ -71,6 +71,52 @@ reflex_err_t reflex_service_stop_all(void)
     return REFLEX_OK;
 }
 
+static uint32_t s_restart_backoff_ms[REFLEX_SERVICE_MAX];
+static uint32_t s_restart_count[REFLEX_SERVICE_MAX];
+static uint64_t s_next_restart_us[REFLEX_SERVICE_MAX];
+
+#define WATCHDOG_BACKOFF_INIT_MS  1000
+#define WATCHDOG_BACKOFF_MAX_MS  30000
+
+void reflex_service_watchdog_tick(void) {
+    if (!s_reflex_service_manager_ready) return;
+    uint64_t now = reflex_hal_time_us();
+
+    for (size_t i = 0; i < s_reflex_service_count; i++) {
+        const reflex_service_desc_t *svc = s_reflex_services[i];
+        if (!svc->status || !svc->start) continue;
+
+        reflex_service_status_t st = svc->status(svc->context);
+        if (st != REFLEX_SERVICE_STATUS_FAULTED) {
+            if (s_restart_count[i] > 0 && st == REFLEX_SERVICE_STATUS_STARTED) {
+                s_restart_count[i] = 0;
+                s_restart_backoff_ms[i] = 0;
+            }
+            continue;
+        }
+
+        if (s_next_restart_us[i] > now) continue;
+
+        if (s_restart_backoff_ms[i] == 0)
+            s_restart_backoff_ms[i] = WATCHDOG_BACKOFF_INIT_MS;
+        else if (s_restart_backoff_ms[i] < WATCHDOG_BACKOFF_MAX_MS)
+            s_restart_backoff_ms[i] *= 2;
+
+        REFLEX_LOGW("reflex.svc", "restarting %s (attempt %lu, backoff %lums)",
+                     svc->name, (unsigned long)(s_restart_count[i] + 1),
+                     (unsigned long)s_restart_backoff_ms[i]);
+
+        if (svc->stop) svc->stop(svc->context);
+        reflex_err_t rc = svc->start(svc->context);
+        s_restart_count[i]++;
+        s_next_restart_us[i] = now + (uint64_t)s_restart_backoff_ms[i] * 1000;
+
+        if (rc != REFLEX_OK) {
+            REFLEX_LOGW("reflex.svc", "%s restart failed rc=0x%x", svc->name, rc);
+        }
+    }
+}
+
 size_t reflex_service_get_count(void)
 {
     return s_reflex_service_count;
