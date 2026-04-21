@@ -12,14 +12,16 @@ else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_kv_esp32c6.c")
 endif()
 
-# Task backend: FreeRTOS (production default).
-# Alternative: CONFIG_REFLEX_KERNEL_SCHEDULER enables the Reflex kernel
-# backend in kernel/reflex_task_kernel.c (all 13 reflex_task.h functions).
-list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
+# Task backend selection:
+# Default: FreeRTOS pass-through (reflex_task_esp32c6.c)
+# CONFIG_REFLEX_KERNEL_SCHEDULER: Reflex-owned scheduler + port assembly
 if(CONFIG_REFLEX_KERNEL_SCHEDULER)
-    # Kernel hook + port assembly replacement
-    list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_freertos_compat.c"
+    list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_task_kernel.c"
+                                     "../../kernel/reflex_sched.c"
+                                     "../../kernel/reflex_freertos_compat.c"
                                      "../../kernel/reflex_portasm.S")
+else()
+    list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
 endif()
 
 set(REFLEX_PLATFORM_REQUIRES ieee802154)
