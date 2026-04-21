@@ -14,7 +14,7 @@ typedef struct {
 } vm_program_t;
 
 extern const vm_program_t vm_programs[];
-extern const size_t vm_program_count;
+extern const size_t vm_program_registry_len;
 
 const vm_program_t *vm_program_find(const char *name);
 const vm_program_t *vm_program_get(size_t idx);

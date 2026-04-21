@@ -8,6 +8,7 @@
 
 #include "goose.h"
 #include "reflex_hal.h"
+#include "reflex_kv.h"
 #include <string.h>
 
 #define TAG "GOOSE_MMIO_SYNC"
@@ -21,9 +22,45 @@ static uint32_t fnv1a(const char *s) {
     return h;
 }
 
+static void peers_save_nvs(void) {
+    reflex_kv_handle_t h;
+    if (reflex_kv_open("goose", false, &h) != REFLEX_OK) return;
+    uint8_t count = (uint8_t)s_peer_count;
+    reflex_kv_set_blob(h, "peer_n", &count, 1);
+    if (count > 0)
+        reflex_kv_set_blob(h, "peers", s_peers, count * sizeof(reflex_peer_t));
+    reflex_kv_commit(h);
+    reflex_kv_close(h);
+}
+
+static void peers_load_nvs(void) {
+    reflex_kv_handle_t h;
+    if (reflex_kv_open("goose", true, &h) != REFLEX_OK) return;
+    uint8_t count = 0;
+    size_t len = 1;
+    if (reflex_kv_get_blob(h, "peer_n", &count, &len) != REFLEX_OK || count == 0) {
+        reflex_kv_close(h);
+        return;
+    }
+    if (count > MAX_PEERS) count = MAX_PEERS;
+    len = count * sizeof(reflex_peer_t);
+    if (reflex_kv_get_blob(h, "peers", s_peers, &len) == REFLEX_OK) {
+        s_peer_count = count;
+        for (size_t i = 0; i < s_peer_count; i++) {
+            s_peers[i].active = false;
+            s_peers[i].last_seen_us = 0;
+            extern reflex_err_t reflex_radio_add_peer(const uint8_t *mac);
+            reflex_radio_add_peer(s_peers[i].mac);
+        }
+        REFLEX_LOGI(TAG, "restored %u peers from NVS", (unsigned)s_peer_count);
+    }
+    reflex_kv_close(h);
+}
+
 reflex_err_t goose_mmio_sync_init(void) {
     memset(s_peers, 0, sizeof(s_peers));
     s_peer_count = 0;
+    peers_load_nvs();
     return REFLEX_OK;
 }
 
@@ -50,6 +87,7 @@ reflex_err_t goose_mmio_sync_add_peer(const char *name, const uint8_t mac[6]) {
 
     extern reflex_err_t reflex_radio_add_peer(const uint8_t *mac);
     reflex_radio_add_peer(mac);
+    peers_save_nvs();
 
     return REFLEX_OK;
 }

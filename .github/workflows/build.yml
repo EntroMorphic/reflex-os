@@ -9,6 +9,17 @@ jobs:
       - name: Run host tests
         run: make test
 
+  tasm-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run TASM compiler tests
+        run: python3 tests/host/test_tasm.py
+
   format-check:
     runs-on: ubuntu-latest
     steps:
@@ -17,6 +28,23 @@ jobs:
         run: sudo apt-get install -y clang-format
       - name: Check formatting
         run: make format-check
+
+  doc-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check markdown links
+        run: |
+          # Verify all doc links in README resolve to real files
+          grep -oP '\[.*?\]\((.*?)\)' README.md | grep -oP '\((.*?)\)' | tr -d '()' | while read link; do
+            # Skip URLs and anchors
+            case "$link" in http*|#*) continue ;; esac
+            if [ ! -e "$link" ]; then
+              echo "BROKEN LINK: $link"
+              exit 1
+            fi
+          done
+          echo "All README links valid."
 
   build-esp32c6:
     runs-on: ubuntu-latest
@@ -64,3 +92,21 @@ jobs:
           . $IDF_PATH/export.sh
           SDKCONFIG_DEFAULTS="sdkconfig.defaults.esp32" idf.py -B build_esp32 set-target esp32
           idf.py -B build_esp32 build
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [host-tests, tasm-tests, format-check, build-esp32c6]
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py set-target esp32c6
+          make release
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reflex-os-release
+          path: release/*.zip

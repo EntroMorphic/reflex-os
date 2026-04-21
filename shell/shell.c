@@ -890,9 +890,9 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
             reflex_shell_vm.status = REFLEX_VM_STATUS_HALTED;
             printf("vm stopped\n");
         } else if (argc >= 2 && strcmp(argv[1], "list") == 0) {
-            extern const size_t vm_program_count;
-            if (vm_program_count == 0) { printf("no embedded programs\n"); return; }
-            for (size_t i = 0; i < vm_program_count; i++) {
+            extern const size_t vm_program_registry_len;
+            if (vm_program_registry_len == 0) { printf("no embedded programs\n"); return; }
+            for (size_t i = 0; i < vm_program_registry_len; i++) {
                 const vm_program_t *p = vm_program_get(i);
                 if (p) printf("  %s (%u bytes)\n", p->name, (unsigned)p->len);
             }

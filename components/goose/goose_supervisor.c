@@ -544,5 +544,11 @@ reflex_err_t goose_supervisor_pulse(void) {
         goose_mmio_sync_staleness_check();
         stale_div = 0;
     }
+
+    static int snap_div = 0;
+    if (snap_div++ >= 300) {
+        goose_snapshot_save();
+        snap_div = 0;
+    }
     return REFLEX_OK;
 }

@@ -5,7 +5,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 RELEASE_NAME := reflex-os-$(VERSION)-esp32c6
 RELEASE_DIR := release/$(RELEASE_NAME)
 
-.PHONY: build flash release clean test format format-check config-reset docs
+.PHONY: build flash release clean test tasm-test format format-check config-reset docs atlas
 
 build:
 	idf.py build
@@ -36,6 +36,13 @@ release: build
 
 test:
 	$(MAKE) -C tests/host test
+
+tasm-test:
+	python3 tests/host/test_tasm.py
+
+atlas:
+	python3 tools/goose_scraper.py tools/esp32c6.svd tools/goose_zones.json components/goose/goose_shadow_atlas.c
+	@echo "Shadow atlas regenerated. Run 'idf.py build' to verify."
 
 format:
 	find . -name '*.c' -o -name '*.h' | grep -v build | grep -v esp-idf | xargs clang-format -i
