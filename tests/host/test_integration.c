@@ -16,7 +16,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Reproduce the core logic from goose_supervisor.c */
+/* Intentional test fixtures — duplicated from reflex_tuning.h values
+ * so this file compiles standalone without the full include chain.
+ * If tuning defaults change, update these to match. */
 #define HEBBIAN_COMMIT_THRESHOLD 8
 #define HEBBIAN_COUNTER_MAX      (HEBBIAN_COMMIT_THRESHOLD * 2)
 #define PULSE_BASE_PRIORITY   10
