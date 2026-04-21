@@ -88,7 +88,7 @@ static void goose_kernel_policy_tick(uint32_t tick) {
     for (size_t h = 0; h < s_holon_count; h++) {
         reflex_holon_t *holon = &s_holons[h];
         bool should_be_active = !holon->domain[0] ||
-            (purpose_active && strstr(purpose, holon->domain));
+            (purpose_active && reflex_domain_match(purpose, holon->domain));
         if (holon->active != should_be_active) {
             holon->active = should_be_active;
             if (purpose_changed) {
@@ -594,13 +594,13 @@ reflex_err_t goose_supervisor_pulse(void) {
     }
 
     static int watchdog_div = 0;
-    if (watchdog_div++ >= REFLEX_SUPERVISOR_WEAVE_DIV) {
+    if (watchdog_div++ >= REFLEX_SUPERVISOR_WATCHDOG_DIV) {
         reflex_service_watchdog_tick();
         watchdog_div = 0;
     }
 
     static int discover_div = 0;
-    if (discover_div++ >= 100) {
+    if (discover_div++ >= REFLEX_SUPERVISOR_DISCOVER_DIV) {
         goose_atmosphere_emit_discover();
         discover_div = 0;
     }

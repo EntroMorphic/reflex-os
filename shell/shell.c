@@ -38,7 +38,7 @@
 #include "goose.h"
 #include "programs.h"
 
-#define REFLEX_SHELL_LINE_MAX 256
+#define REFLEX_SHELL_LINE_MAX 1024
 #define REFLEX_SHELL_ARGV_MAX 8
 
 // --- Types ---

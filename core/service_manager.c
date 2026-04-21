@@ -16,10 +16,16 @@
 static const reflex_service_desc_t *s_reflex_services[REFLEX_SERVICE_MAX];
 static size_t s_reflex_service_count = 0;
 static bool s_reflex_service_manager_ready = false;
+static uint32_t s_restart_backoff_ms[REFLEX_SERVICE_MAX];
+static uint32_t s_restart_count[REFLEX_SERVICE_MAX];
+static uint64_t s_next_restart_us[REFLEX_SERVICE_MAX];
 
 reflex_err_t reflex_service_manager_init(void)
 {
     memset(s_reflex_services, 0, sizeof(s_reflex_services));
+    memset(s_restart_backoff_ms, 0, sizeof(s_restart_backoff_ms));
+    memset(s_restart_count, 0, sizeof(s_restart_count));
+    memset(s_next_restart_us, 0, sizeof(s_next_restart_us));
     s_reflex_service_count = 0;
     s_reflex_service_manager_ready = true;
     REFLEX_LOGI(REFLEX_BOOT_TAG, "service_manager=ready");
@@ -70,10 +76,6 @@ reflex_err_t reflex_service_stop_all(void)
 
     return REFLEX_OK;
 }
-
-static uint32_t s_restart_backoff_ms[REFLEX_SERVICE_MAX];
-static uint32_t s_restart_count[REFLEX_SERVICE_MAX];
-static uint64_t s_next_restart_us[REFLEX_SERVICE_MAX];
 
 #define WATCHDOG_BACKOFF_INIT_MS  1000
 #define WATCHDOG_BACKOFF_MAX_MS  30000

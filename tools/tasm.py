@@ -253,6 +253,9 @@ def upload(filename, port, baud=115200):
         data = f.read()
     os.unlink(tmp)
     hex_str = data.hex()
+    if len(hex_str) + len("vm loadhex \n") > 1024:
+        print(f"Error: program too large for shell upload ({len(data)} bytes, max ~500)")
+        sys.exit(1)
 
     try:
         import serial

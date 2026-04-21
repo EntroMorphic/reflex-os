@@ -7,6 +7,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include "esp_sleep.h"
 /* SYSTIMER direct read (Gap C — replaces esp_timer_get_time) */
 #define SYSTIMER_BASE_ADDR      0x60004000
 #define SYSTIMER_UNIT0_OP       (SYSTIMER_BASE_ADDR + 0x04)
@@ -146,8 +147,6 @@ int reflex_hal_sleep_wakeup_cause(void) {
 
 void reflex_hal_sleep_enter(uint64_t duration_us) {
 #if CONFIG_IDF_TARGET_ESP32C6
-    extern int esp_sleep_enable_timer_wakeup(uint64_t time_in_us);
-    extern void esp_deep_sleep_start(void) __attribute__((noreturn));
     esp_sleep_enable_timer_wakeup(duration_us);
     esp_deep_sleep_start();
 #else

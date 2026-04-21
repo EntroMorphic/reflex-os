@@ -307,7 +307,7 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
         char name[9] = {0};
         memcpy(name, arc->coord.trits, 8);
         name[8] = '\0';
-        if (name[0]) {
+        if (name[0] && goose_mmio_sync_find_peer_by_mac(recv_info->src_addr) == 0) {
             reflex_radio_add_peer(recv_info->src_addr);
             goose_mmio_sync_add_peer(name, recv_info->src_addr);
         }

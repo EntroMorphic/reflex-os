@@ -83,6 +83,16 @@
 #define REFLEX_MAX_REBALANCE_ITERATIONS 10
 #endif
 
+/* Mesh discovery heartbeat */
+#ifndef REFLEX_SUPERVISOR_DISCOVER_DIV
+#define REFLEX_SUPERVISOR_DISCOVER_DIV  100  /* 10s at 10Hz supervisor */
+#endif
+
+/* Service watchdog */
+#ifndef REFLEX_SUPERVISOR_WATCHDOG_DIV
+#define REFLEX_SUPERVISOR_WATCHDOG_DIV  10   /* 1Hz at 10Hz supervisor */
+#endif
+
 /* Autonomous reward/pain evaluation */
 #ifndef REFLEX_SUPERVISOR_EVAL_DIV
 #define REFLEX_SUPERVISOR_EVAL_DIV      10   /* 1Hz at 10Hz supervisor */
