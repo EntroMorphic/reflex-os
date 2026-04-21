@@ -146,7 +146,7 @@ Before diving into commands, five terms you'll encounter everywhere:
 |---------|-------------|---------|
 | `help` | List all commands | `help` |
 | `reboot` | Software reset (preserves NVS) | `reboot` |
-| `sleep <seconds>` | Enter timed sleep, wake after duration | `sleep 60` |
+| `sleep <seconds>` | Enter deep sleep with LP timer wakeup after duration | `sleep 60` |
 | `status` | System status summary | `status` |
 | `services` | List registered services and count | `services` |
 
@@ -250,6 +250,7 @@ reflex> reboot
 | `vm stop` | Halt the running VM |
 | `vm list` | List all embedded programs |
 | `vm loadhex <hex>` | Load a packed binary image from hex string |
+| `tasm.py --upload <port>` | Compile and send a .tasm program without reflashing (host tool) |
 
 ### Debug
 
@@ -362,6 +363,10 @@ Every Reflex node broadcasts "arcs" — authenticated packets containing cell st
 
 All mesh packets are authenticated with HMAC-SHA256 ("Aura"). Boards with different keys ignore each other's arcs. A 64-slot replay cache prevents packet replay attacks.
 
+### Auto-Discovery
+
+Boards sharing the same Aura key discover each other automatically via `ARC_OP_DISCOVER` heartbeat broadcasts every 10 seconds. Manual `mesh peer add` is no longer required for paired boards. Discovered peers appear in `mesh peer ls` and persist to NVS across reboots.
+
 ### Monitoring
 
 ```
@@ -386,6 +391,10 @@ Routes have a `learned_orientation` field that starts at 0 (unlearned). Through 
 4. For each route where they disagree: counter -= 1 × purpose_multiplier
 5. When counter reaches ±8 (commit threshold): `learned_orientation` commits
 6. The route now permanently applies that sign to all future propagation
+
+### Autonomous Reward
+
+The supervisor automatically evaluates purpose fulfillment at 1Hz. When purpose-relevant routes converge (source and sink states match), `sys.ai.reward` is set to +1. When a hardware output is stuck at the wrong sign for 5+ seconds, `sys.ai.pain` is set to -1. No manual reward signal is needed — the OS learns from its own observations.
 
 ### Pain (Unlearning)
 
@@ -585,6 +594,10 @@ States: -1 (cold, <30C), 0 (normal, 30-55C), +1 (warm, >55C)
 ### Button
 
 GPIO9 (onboard button on XIAO ESP32-C6) is monitored by the button service. Press events propagate through the fabric.
+
+### Deep Sleep
+
+Deep sleep uses `esp_deep_sleep_start()` with LP timer wakeup. Sleep current is ~7µA (HP core fully powered down). NVS and RTC RAM survive. On wake, the full boot sequence re-runs.
 
 ---
 

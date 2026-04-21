@@ -22,7 +22,9 @@ Highest-priority task. Calls a registered policy function at 1Hz. The policy is 
 Reads purpose, resolves route endpoint names via `goonies_resolve_name_by_coord`, applies domain-specific priority boost (+3 for matching, +1 general). Hebbian maturity adds +2. Pain signal dampens. Deactivated holons force base priority.
 
 ### Standalone Backend (`kernel/reflex_task_kernel.c`)
-Complete implementation of all 13 `reflex_task.h` functions: create, delete, delay, yield, get_by_name, set/get_priority, queue create/send/recv, critical enter/exit, mutex init. Uses setjmp/longjmp cooperative scheduling with SYSTIMER tick. Selectable via `CONFIG_REFLEX_KERNEL_SCHEDULER`.
+Complete implementation of all 13 `reflex_task.h` functions: create, delete, delay, yield, get_by_name, set/get_priority, queue create/send/recv, critical enter/exit, mutex init. Uses setjmp/longjmp cooperative scheduling with SYSTIMER tick.
+
+**Production default** (`CONFIG_REFLEX_KERNEL_SCHEDULER=y` in sdkconfig.defaults): the kernel owns interrupt context switching via `reflex_portasm.S` (`--wrap rtos_int_enter/exit`), scheduling policy via the 1Hz supervisor, and task priority modulation. FreeRTOS remains as the task management backend because ESP-IDF drivers (WiFi, USB-JTAG, ESP-NOW) create internal FreeRTOS tasks that require its API. The `reflex_task.h` abstraction isolates the substrate completely — no substrate code calls FreeRTOS directly.
 
 ## The GOOSE Substrate
 

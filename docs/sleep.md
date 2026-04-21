@@ -22,15 +22,14 @@ sleep [seconds]     # default 3, minimum 1, max 65535
 
 Calls `reflex_hal_sleep_enter(seconds * 1_000_000)`.
 
-## Implementation: Timed Reboot
+## Implementation: True PMU Deep Sleep
 
-The current ESP32-C6 implementation uses a **timed reboot** approach, not true PMU deep sleep:
+The ESP32-C6 implementation uses `esp_sleep_enable_timer_wakeup()` +
+`esp_deep_sleep_start()` for true PMU deep sleep:
 
-1. Encodes duration into `LP_AON_STORE1_REG` with magic `0x534C5000` ("SLP\0").
-2. Calls `reflex_hal_reboot()` (software reset via ROM `software_reset()`).
-3. On next boot, bootloader detects the magic and resumes.
-
-True PMU deep sleep requires ~400 lines of chip-revision-specific register writes. The timed-reboot approach is functionally equivalent for state persistence but draws more power during sleep.
+1. LP timer configured for the requested duration.
+2. HP core fully powered down (~7uA sleep current).
+3. On wakeup, the full boot sequence re-runs (NVS + RTC RAM survive).
 
 ## Wakeup Cause API
 
@@ -47,6 +46,7 @@ int reflex_hal_sleep_wakeup_cause(void);
 
 Reads `PMU_WAKEUP_STATUS0_REG` (`0x600B0140`).
 
-## Known Limitation
+## Power
 
-Sleep current is higher than true deep sleep (~7 uA target vs actual reboot-idle current). Full PMU sleep is a planned optimization.
+Sleep current: ~7uA (HP core off, LP timer running). This is true PMU deep
+sleep, not a timed reboot.

@@ -29,8 +29,8 @@ idf.py build
 5. Run host tests (no hardware needed):
 
 ```bash
-make test                    # C tests (26 tests)
-python3 tests/host/test_tasm.py  # TASM compiler tests (9 tests)
+make test                    # C host tests (26 tests)
+make tasm-test               # TASM compiler tests (9 tests)
 ```
 
 ## Project Conventions

@@ -28,6 +28,11 @@ Entry point: `app_main()` in `main/main.c`.
 - `goose_atlas_manifest_weave()` -- projects 26 MMIO nodes x 4 registers = **104 pre-woven cells** into the Loom.
 - `goose_lp_heartbeat_init()` -- LP RISC-V coherent heartbeat.
 - `goose_supervisor_task` spawned at 10 Hz (`reflex_task_create`, priority 20).
+- Service watchdog: checks service health at 1Hz, restarts faulted services with exponential backoff.
+
+**Note:** With `CONFIG_REFLEX_KERNEL_SCHEDULER=y` (default), the kernel
+owns interrupt context switching and scheduling policy via
+`reflex_portasm.S` and `reflex_freertos_compat.c`.
 
 ## Stage 5 -- Services
 

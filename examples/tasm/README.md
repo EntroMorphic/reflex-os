@@ -2,6 +2,14 @@
 
 TASM (Ternary Assembly) is the assembly language for the Reflex OS ternary VM.
 
+## Quick Start: Compile and Upload
+
+Compile and send directly to a connected board (no reflash needed):
+
+```bash
+python3 tools/tasm.py examples/tasm/count.tasm --upload /dev/cu.usbmodem1101
+```
+
 ## Compiling
 
 Compile to binary image (.rfxv):

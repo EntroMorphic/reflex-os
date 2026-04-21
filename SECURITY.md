@@ -54,6 +54,7 @@ Atmospheric discovery and swarming are protected from external interference.
 - **Inertial Hysteresis:** Swarm consensus requires an accumulated weight (+/- 10) before flipping local posture.
 - **Accumulator Saturation:** To prevent consensus hijacking, the swarm accumulator is capped at +/- 100. This ensures the mesh remains responsive to the majority and prevents a single node from "locking" the system state indefinitely.
 - **Self-Arc Suppression:** Nodes ignore postural arcs originating from their own MAC address, preventing atmospheric feedback loops and radio saturation.
+- **Auto-Discovery Security:** `ARC_OP_DISCOVER` broadcasts are authenticated with the same Aura HMAC. Only boards with a matching key can register as peers. Discovery arcs carry the device name in the coord field (max 8 chars). Unknown-key discover arcs are silently dropped at the Aura validation stage.
 
 ## 7. MMIO Sync Layer Security (Distributed Surface)
 The MMIO Sync Layer extends the mesh to carry cell state across boards. Security enforcement:

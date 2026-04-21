@@ -36,6 +36,8 @@ Reflex OS reinterprets physical hardware as a coherent **Geometric Tapestry**, r
 - **Recursive Holons** — Named field groups managed as lifecycle units, activated/deactivated by purpose domain matching.
 - **The All-Seeing Atlas** — 9,527-node shadow catalog of the ESP32-C6 MMIO surface, 104 nodes pre-woven at boot.
 - **Coherent Heartbeat** — LP RISC-V coprocessor mirroring intent state at 1Hz across the RTC boundary.
+- **Autonomous Learning** — The OS generates its own reward/pain signals by evaluating purpose fulfillment. No manual input needed.
+- **Mesh Auto-Discovery** — Boards sharing an Aura key find each other automatically via `ARC_OP_DISCOVER` heartbeats.
 
 ## Hardware
 

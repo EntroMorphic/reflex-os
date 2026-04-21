@@ -52,10 +52,26 @@ name. Routes are matched by their 16-byte fixed-width name on restore.
 
 Related: `goose_snapshot_clear()` erases all saved plasticity data.
 
+## Autonomous Reward
+
+The supervisor automatically evaluates purpose fulfillment at 1Hz via
+`goose_supervisor_evaluate()`. No manual reward signal is needed.
+
+**Reward:** When purpose-relevant routes converge (source and sink states
+match), `reward_score` increments. If `reward_score >= REFLEX_AUTO_REWARD_THRESHOLD`
+(default 2), `sys.ai.reward` is set to +1.
+
+**Pain:** When a `HARDWARE_OUT` cell disagrees with its expected state for
+`REFLEX_AUTO_PAIN_STUCK_TICKS` (default 5) consecutive evaluations,
+`sys.ai.pain` is set to -1.
+
+The evaluate pass runs before the learning pass in the supervisor pulse,
+so reward written in tick N is consumed by `learn_sync` in the same tick.
+
 ## How to Observe
 
 - `snapshot save` then inspect NVS keys matching `s_*` in the `goose` namespace.
-- Set a purpose (`purpose set <name>`), trigger reward, and watch kernel log for
-  priority changes on domain-matching fields.
+- Set a purpose (`purpose set <name>`) and watch counters advance automatically
+  as routes converge — no manual reward needed.
 - Counter values are visible in snapshot blobs (offset: 16-byte name + 1-byte
   orientation, then 2-byte little-endian counter per route).
