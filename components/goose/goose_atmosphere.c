@@ -177,10 +177,19 @@ static void load_aura_key(void) {
         memcpy(goose_aura_key, fresh, sizeof(goose_aura_key));
         REFLEX_LOGI(TAG, "aura key auto-provisioned (run 'aura setkey' on peers to pair)");
     } else {
-        /* NVS write failed; fall back to compile-time default so the mesh
-         * still works at all. Logged as a warning so the operator notices. */
-        memcpy(goose_aura_key, GOOSE_AURA_KEY_DEFAULT, sizeof(goose_aura_key));
-        REFLEX_LOGW(TAG, "aura key NVS write failed (rc=0x%x); using compile-time default", rc);
+        /* NVS write failed. Derive a device-unique key from MAC + salt so
+         * two boards with NVS failures don't share the same key. Not as
+         * strong as a true random key (MAC is predictable), but strictly
+         * better than a compile-time constant shared by all builds. */
+        uint8_t mac[6];
+        reflex_hal_mac_read(mac);
+        uint8_t seed[22];
+        memcpy(seed, GOOSE_AURA_KEY_DEFAULT, 16);
+        memcpy(seed + 16, mac, 6);
+        uint8_t digest[32];
+        reflex_hmac_sha256(GOOSE_AURA_KEY_DEFAULT, 16, seed, sizeof(seed), digest);
+        memcpy(goose_aura_key, digest, 16);
+        REFLEX_LOGW(TAG, "aura key NVS write failed (rc=0x%x); using MAC-derived fallback", rc);
     }
 }
 
@@ -221,10 +230,8 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
         uint64_t now_v = reflex_hal_time_us();
         bool same = (memcmp(w->mac, recv_info->src_addr, 6) == 0 && w->version == arc->version);
         if (!same || (now_v - w->last_us > 5000000)) {
-            REFLEX_LOGW(TAG, "AURA_VERSION_MISMATCH remote=0x%02x local=0x%02x from %02x:%02x:%02x:%02x:%02x:%02x",
-                     arc->version, GOOSE_ARC_VERSION,
-                     recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
-                     recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5]);
+            REFLEX_LOGW(TAG, "AURA_VERSION_MISMATCH remote=0x%02x local=0x%02x from " REFLEX_MAC_FMT,
+                     arc->version, GOOSE_ARC_VERSION, REFLEX_MAC_ARG(recv_info->src_addr));
             memcpy(w->mac, recv_info->src_addr, 6);
             w->version = arc->version;
             w->last_us = now_v;
@@ -249,7 +256,6 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
 
     if (arc->op == ARC_OP_SYNC) {
         mesh_stats.rx_sync++;
-        extern goose_route_t* goose_fabric_find_radio_route_by_source_coord(reflex_tryte9_t coord);
         goose_route_t *route = goose_fabric_find_radio_route_by_source_coord(arc->coord);
         if (route && route->cached_sink) { route->cached_sink->state = arc->state; }
     }
@@ -257,8 +263,6 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
         mesh_stats.rx_query++;
         if (now - last_query_processed_us < 100000) return;
         last_query_processed_us = now;
-        extern uint32_t goonies_get_count(void);
-        extern const char* goonies_get_name_by_idx(uint32_t idx);
         uint32_t count = goonies_get_count();
         for (uint32_t i = 0; i < count; i++) {
             const char *name = goonies_get_name_by_idx(i);
@@ -271,10 +275,8 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
     }
     else if (arc->op == ARC_OP_ADVERTISE) {
         mesh_stats.rx_advertise++;
-        REFLEX_LOGI(TAG, "Ghost Solidified for hash [0x%08lX] at %02x:%02x:%02x:%02x:%02x:%02x",
-                     (unsigned long)arc->name_hash,
-                     recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
-                     recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5]);
+        REFLEX_LOGI(TAG, "Ghost Solidified for hash [0x%08lX] at " REFLEX_MAC_FMT,
+                     (unsigned long)arc->name_hash, REFLEX_MAC_ARG(recv_info->src_addr));
     }
     else if (arc->op == ARC_OP_POSTURE) {
         mesh_stats.rx_posture++;

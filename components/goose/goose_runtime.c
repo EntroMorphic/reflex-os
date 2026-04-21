@@ -86,7 +86,6 @@ goose_cell_t* goonies_resolve_cell(const char *name) {
     reflex_tryte9_t coord;
     if (goonies_resolve(name, &coord) == REFLEX_OK) { return goose_fabric_get_cell_by_coord(coord); }
     if (strncmp(name, GOOSE_NS_PEER, GOOSE_NS_PEER_LEN) == 0) {
-        extern reflex_err_t goose_atmosphere_query(const char *name);
         goose_atmosphere_query(name);
         static int ghost_counter = 0;
         reflex_tryte9_t g_coord = goose_make_coord(5, 0, (int8_t)ghost_counter++);
@@ -99,9 +98,6 @@ goose_cell_t* goonies_resolve_cell(const char *name) {
                 size_t plen = (size_t)(dot - after_peer);
                 if (plen >= sizeof(peer_name)) plen = sizeof(peer_name) - 1;
                 memcpy(peer_name, after_peer, plen);
-                extern uint8_t goose_mmio_sync_find_peer_by_mac(const uint8_t mac[6]);
-                extern size_t goose_mmio_sync_peer_count(void);
-                extern const reflex_peer_t *goose_mmio_sync_get_peer(size_t);
                 size_t pc = goose_mmio_sync_peer_count();
                 for (size_t pi = 0; pi < pc; pi++) {
                     const reflex_peer_t *p = goose_mmio_sync_get_peer(pi);
@@ -615,7 +611,6 @@ static reflex_err_t internal_process_transitions(goose_field_t *field, int depth
                     const char *dot = strchr(sink_name + GOOSE_NS_PEER_LEN, '.');
                     if (dot) {
                         r->cached_sink->state = new_state;
-                        extern reflex_err_t goose_mmio_sync_emit(goose_cell_t *, const char *);
                         goose_mmio_sync_emit(r->cached_sink, dot + 1);
                     }
                 }
@@ -631,7 +626,6 @@ static reflex_err_t internal_process_transitions(goose_field_t *field, int depth
                 }
             }
         } else if (r->coupling == GOOSE_COUPLING_RADIO) {
-            extern reflex_err_t goose_atmosphere_emit_arc(goose_cell_t *source);
             goose_atmosphere_emit_arc(r->cached_source);
         }
     }

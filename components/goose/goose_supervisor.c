@@ -9,6 +9,7 @@
 #include "reflex_task.h"
 #include "reflex_kernel.h"
 #include "reflex_tuning.h"
+#include <stdio.h>
 #include <string.h>
 
 #define TAG "GOOSE_SUPERVISOR"
@@ -90,7 +91,6 @@ static void goose_kernel_policy_tick(uint32_t tick) {
         if (holon->active != should_be_active) {
             holon->active = should_be_active;
             if (purpose_changed) {
-                extern int printf(const char *, ...);
                 printf("[reflex.kernel] holon %s %s (domain=%s)\n",
                     holon->name, should_be_active ? "activated" : "deactivated",
                     holon->domain[0] ? holon->domain : "*");
@@ -164,7 +164,6 @@ static void goose_kernel_policy_tick(uint32_t tick) {
     }
 
     if (purpose_changed) {
-        extern int printf(const char *, ...);
         printf("[reflex.kernel] policy: purpose=%s fields=%u\n",
                purpose_active ? s_last_purpose : "(cleared)",
                (unsigned)supervised_field_count);
@@ -258,8 +257,6 @@ reflex_err_t goose_supervisor_rebalance(goose_field_t *field) {
     }
     return goose_process_transitions(field);
 }
-
-extern int32_t swarm_accumulator;
 
 reflex_err_t goose_supervisor_swarm_sync(void) {
     if (swarm_accumulator > 0) swarm_accumulator--;
@@ -509,7 +506,6 @@ reflex_err_t goose_supervisor_pulse(void) {
     // Autonomic Fabrication pass at 1Hz (offset by 2)
     static int weave_div = 0;
     if (weave_div++ >= REFLEX_SUPERVISOR_WEAVE_DIV) {
-        extern reflex_err_t goose_supervisor_weave_sync(void);
         goose_supervisor_weave_sync();
         weave_div = 0;
     }

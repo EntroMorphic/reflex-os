@@ -33,6 +33,9 @@ typedef int reflex_err_t;
 #define REFLEX_ERR_INVALID_CRC      0x109
 #define REFLEX_ERR_INVALID_VERSION  0x10A
 
+#define REFLEX_MAC_FMT "%02x:%02x:%02x:%02x:%02x:%02x"
+#define REFLEX_MAC_ARG(m) (m)[0], (m)[1], (m)[2], (m)[3], (m)[4], (m)[5]
+
 /**
  * @brief Return early if `expr` evaluates to an error.
  * Logs the tag and message on failure via reflex_hal_log if available,

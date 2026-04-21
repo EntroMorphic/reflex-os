@@ -485,10 +485,6 @@ static void reflex_shell_loom_list(void) {
     printf("%-20s | %-12s | %-5s | %-8s\n", "Name", "Coordinate", "State", "Type");
     printf("--------------------------------------------------------------\n");
     
-    extern uint32_t goonies_get_count(void);
-    extern const char* goonies_get_name_by_idx(uint32_t idx);
-    extern reflex_tryte9_t goonies_get_coord_by_idx(uint32_t idx);
-
     uint32_t count = goonies_get_count();
     for (uint32_t i = 0; i < count; i++) {
         const char *name = goonies_get_name_by_idx(i);
@@ -917,15 +913,12 @@ static void shell_cmd_vm(int argc, char *argv[]) {
                (unsigned long)reflex_shell_vm.steps_executed,
                reflex_shell_vm_loaded ? "loaded" : "none");
     } else if (argc >= 3 && strcmp(argv[1], "run") == 0) {
-        extern const vm_program_t *vm_program_find(const char *name);
         const vm_program_t *prog = vm_program_find(argv[2]);
         if (!prog) { printf("vm run: program '%s' not found\n", argv[2]); return; }
         reflex_err_t rc = reflex_vm_load_binary(&reflex_shell_vm, prog->data, prog->len);
         if (rc != REFLEX_OK) { printf("vm run: load failed rc=0x%x\n", rc); return; }
         reflex_shell_vm_loaded = true;
-        extern void reflex_vm_use_default_syscalls(reflex_vm_state_t *vm);
         reflex_vm_use_default_syscalls(&reflex_shell_vm);
-        extern reflex_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps);
         rc = reflex_vm_run(&reflex_shell_vm, 100000);
         printf("vm run: %s status=%s steps=%lu\n", argv[2],
                reflex_shell_vm_status_name(reflex_shell_vm.status),
@@ -934,7 +927,6 @@ static void shell_cmd_vm(int argc, char *argv[]) {
         reflex_shell_vm.status = REFLEX_VM_STATUS_HALTED;
         printf("vm stopped\n");
     } else if (argc >= 2 && strcmp(argv[1], "list") == 0) {
-        extern const size_t vm_program_registry_len;
         if (vm_program_registry_len == 0) { printf("no embedded programs\n"); return; }
         for (size_t i = 0; i < vm_program_registry_len; i++) {
             const vm_program_t *p = vm_program_get(i);

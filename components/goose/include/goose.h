@@ -409,6 +409,21 @@ reflex_err_t goose_shadow_resolve(const char *name,
 // --- G.O.O.N.I.E.S. API (Geometric Object Oriented Name Identification Execution Service) ---
 
 /**
+ * @brief Return the number of registered GOONIES entries.
+ */
+uint32_t goonies_get_count(void);
+
+/**
+ * @brief Return the name of the GOONIES entry at the given index.
+ */
+const char* goonies_get_name_by_idx(uint32_t idx);
+
+/**
+ * @brief Return the coordinate of the GOONIES entry at the given index.
+ */
+reflex_tryte9_t goonies_get_coord_by_idx(uint32_t idx);
+
+/**
  * @brief Register a human-readable name for a geometric coordinate.
  */
 reflex_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving);
@@ -446,6 +461,11 @@ reflex_err_t goose_supervisor_register_field(goose_field_t *field);
  */
 reflex_err_t goose_supervisor_pulse(void);
 
+/**
+ * @brief Autonomic fabrication pass: weave NEED cells into capability routes.
+ */
+reflex_err_t goose_supervisor_weave_sync(void);
+
 // --- Atmospheric API (Distributed Mesh) ---
 
 /**
@@ -457,6 +477,11 @@ reflex_err_t goose_atmosphere_init(void);
  * @brief Emit a geometric discovery query to the mesh.
  */
 reflex_err_t goose_atmosphere_query(const char *name);
+
+/**
+ * @brief Emit a sync arc carrying a name hash and state to all peers.
+ */
+reflex_err_t goose_atmosphere_emit_sync_arc(uint32_t name_hash, int8_t state);
 
 /**
  * @brief Emit a swarm-wide postural consensus arc.
@@ -545,6 +570,9 @@ void goose_loom_unlock(void);
 reflex_err_t reflex_holon_create(const char *name, const char *domain);
 /** @brief Add a field to a holon's lifecycle group. */
 reflex_err_t reflex_holon_add_field(const char *holon_name, goose_field_t *field);
+
+/** @brief Swarm accumulator for postural consensus (goose_atmosphere.c). */
+extern int32_t swarm_accumulator;
 
 /* --- FNV-1a Hash (used by GOONIES, atmosphere, snapshots) --- */
 

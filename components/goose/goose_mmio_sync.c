@@ -9,6 +9,7 @@
 #include "goose.h"
 #include "reflex_hal.h"
 #include "reflex_kv.h"
+#include "reflex_radio.h"
 #include <string.h>
 
 #define TAG "GOOSE_MMIO_SYNC"
@@ -48,7 +49,6 @@ static void peers_load_nvs(void) {
         for (size_t i = 0; i < s_peer_count; i++) {
             s_peers[i].active = false;
             s_peers[i].last_seen_us = 0;
-            extern reflex_err_t reflex_radio_add_peer(const uint8_t *mac);
             reflex_radio_add_peer(s_peers[i].mac);
         }
         REFLEX_LOGI(TAG, "restored %u peers from NVS", (unsigned)s_peer_count);
@@ -84,7 +84,6 @@ reflex_err_t goose_mmio_sync_add_peer(const char *name, const uint8_t mac[6]) {
     p->last_seen_us = reflex_hal_time_us();
     s_peer_count++;
 
-    extern reflex_err_t reflex_radio_add_peer(const uint8_t *mac);
     reflex_radio_add_peer(mac);
     peers_save_nvs();
 
@@ -107,7 +106,6 @@ uint8_t goose_mmio_sync_find_peer_by_mac(const uint8_t mac[6]) {
 reflex_err_t goose_mmio_sync_emit(goose_cell_t *cell, const char *cell_name) {
     if (!cell || !cell_name) return REFLEX_ERR_INVALID_ARG;
 
-    extern reflex_err_t goose_atmosphere_emit_sync_arc(uint32_t name_hash, int8_t state);
     return goose_atmosphere_emit_sync_arc(fnv1a(cell_name), cell->state);
 }
 
@@ -127,10 +125,6 @@ void goose_mmio_sync_recv(const uint8_t *src_mac, uint32_t name_hash, int8_t sta
     s_peers[peer_idx - 1].last_seen_us = reflex_hal_time_us();
     s_peers[peer_idx - 1].active = true;
 
-    extern uint32_t goonies_get_count(void);
-    extern const char *goonies_get_name_by_idx(uint32_t idx);
-    extern goose_cell_t *goose_fabric_get_cell_by_coord(reflex_tryte9_t coord);
-
     uint32_t count = goonies_get_count();
     const char *peer_name = s_peers[peer_idx - 1].name;
     size_t prefix_len = GOOSE_NS_PEER_LEN + strlen(peer_name) + 1; // "peer." + name + "."
@@ -145,7 +139,6 @@ void goose_mmio_sync_recv(const uint8_t *src_mac, uint32_t name_hash, int8_t sta
         const char *remote_suffix = entry_name + prefix_len;
         if (fnv1a(remote_suffix) == name_hash) {
             reflex_tryte9_t coord;
-            extern reflex_err_t goonies_resolve(const char *name, reflex_tryte9_t *out_coord);
             if (goonies_resolve(entry_name, &coord) == REFLEX_OK) {
                 goose_cell_t *cell = goose_fabric_get_cell_by_coord(coord);
                 if (cell && cell->peer_id == peer_idx) {
@@ -167,11 +160,6 @@ void goose_mmio_sync_staleness_check(void) {
         if (now - s_peers[i].last_seen_us < MMIO_SYNC_STALENESS_US) continue;
 
         s_peers[i].active = false;
-
-        extern uint32_t goonies_get_count(void);
-        extern const char *goonies_get_name_by_idx(uint32_t idx);
-        extern goose_cell_t *goose_fabric_get_cell_by_coord(reflex_tryte9_t coord);
-        extern reflex_err_t goonies_resolve(const char *, reflex_tryte9_t *);
 
         uint8_t pid = (uint8_t)(i + 1);
         uint32_t count = goonies_get_count();

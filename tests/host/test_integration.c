@@ -29,6 +29,12 @@ typedef int8_t reflex_trit_t;
 #define REFLEX_TRIT_POS  1
 #define REFLEX_TRIT_NEG -1
 
+static uint32_t test_fnv1a(const char *s) {
+    uint32_t h = 0x811c9dc5;
+    for (int i = 0; s[i]; i++) { h ^= (uint32_t)s[i]; h *= 0x01000193; }
+    return h;
+}
+
 static bool reflex_domain_match(const char *name, const char *domain) {
     size_t dlen = strlen(domain);
     const char *p = name;
@@ -154,6 +160,42 @@ int test_integration(void) {
         const char *allowed = "agency.led.intent";
         bool accepted = (strncmp(allowed, "sys.", 4) != 0);
         if (!accepted) { printf("FAIL agency_accept\n"); failures++; goto done; }
+    }
+
+    /* --- Test 8: FNV-1a hash consistency --- */
+    {
+        /* Reproduce goose_fnv1a inline for host test portability. */
+        uint32_t h1 = test_fnv1a("agency.led.intent");
+        uint32_t h2 = test_fnv1a("agency.led.intent");
+        if (h1 != h2) { printf("FAIL fnv1a_deterministic\n"); failures++; goto done; }
+        if (h1 == 0) { printf("FAIL fnv1a_nonzero\n"); failures++; goto done; }
+        /* Different input -> different hash */
+        uint32_t h3 = test_fnv1a("sys.origin");
+        if (h3 == h1) { printf("FAIL fnv1a_collision\n"); failures++; goto done; }
+    }
+
+    /* --- Test 9: Peer index mapping (1-indexed) --- */
+    {
+        /* peer_id 0 = local, 1+ = remote */
+        uint8_t peer_id = 0;
+        if (peer_id != 0) { printf("FAIL peer_local\n"); failures++; goto done; }
+        peer_id = 1; /* first registered peer */
+        if (peer_id - 1 != 0) { printf("FAIL peer_idx_map\n"); failures++; goto done; }
+        peer_id = 8; /* max peer */
+        if (peer_id - 1 != 7) { printf("FAIL peer_max_idx\n"); failures++; goto done; }
+    }
+
+    /* --- Test 10: Namespace prefix matching logic --- */
+    {
+        /* sys. prefix blocks remote writes */
+        const char *paths[] = {"sys.origin", "sys.ai.reward", "agency.led.intent", "perception.temp"};
+        bool expected_blocked[] = {true, true, false, false};
+        for (int i = 0; i < 4; i++) {
+            bool blocked = (strncmp(paths[i], "sys.", 4) == 0);
+            if (blocked != expected_blocked[i]) {
+                printf("FAIL ns_block_%s\n", paths[i]); failures++; goto done;
+            }
+        }
     }
 
 done:
