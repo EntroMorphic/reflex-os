@@ -8,6 +8,7 @@
 #include "reflex_kv.h"
 #include "reflex_radio.h"
 #include "reflex_crypto.h"
+#include "reflex_task.h"
 #include "reflex_tuning.h"
 #include <string.h>
 
@@ -44,11 +45,7 @@ typedef struct {
 } goose_arc_packet_t;
 #pragma pack(pop)
 
-static uint32_t goose_name_hash(const char *name) {
-    uint32_t h = 0x811c9dc5;
-    for (int i = 0; name[i]; i++) { h ^= (uint32_t)name[i]; h *= 0x01000193; }
-    return h;
-}
+static uint32_t goose_name_hash(const char *name) { return goose_fnv1a(name); }
 
 /* HMAC-SHA256 over the packet's authenticated fields (including version),
  * truncated to 32 bits to fit the existing wire format. Truncation caps
@@ -90,12 +87,18 @@ static uint32_t calculate_aura(uint8_t version, uint8_t op, reflex_tryte9_t coor
 reflex_err_t goose_atmosphere_advertise(uint32_t name_hash, goose_cell_t *cell, const uint8_t *dest_mac);
 
 static uint64_t last_query_processed_us = 0;
+static reflex_mutex_t swarm_mux;
+static bool swarm_mux_init = false;
 int32_t swarm_accumulator = 0;
 
-/* Mesh trial observability counters. Type declared in goose.h. */
 static goose_mesh_stats_t mesh_stats;
 
-goose_mesh_stats_t goose_atmosphere_get_stats(void) { return mesh_stats; }
+goose_mesh_stats_t goose_atmosphere_get_stats(void) {
+    if (swarm_mux_init) reflex_critical_enter(&swarm_mux);
+    goose_mesh_stats_t copy = mesh_stats;
+    if (swarm_mux_init) reflex_critical_exit(&swarm_mux);
+    return copy;
+}
 /* Swarm constants now live in reflex_tuning.h:
  * REFLEX_SWARM_THRESHOLD, REFLEX_SWARM_ACCUM_MAX, REFLEX_SWARM_WEIGHT_MAX
  * Cap per-packet posture weight so a single rogue peer cannot cross
@@ -275,18 +278,20 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
     }
     else if (arc->op == ARC_OP_POSTURE) {
         mesh_stats.rx_posture++;
-        // Weight cap enforced on receive (sender cannot override).
         uint8_t wire_weight = (uint8_t)(arc->nonce & 0x0F);
         if (wire_weight > REFLEX_SWARM_WEIGHT_MAX) wire_weight = REFLEX_SWARM_WEIGHT_MAX;
         int32_t delta = (int32_t)arc->state * (int32_t)wire_weight;
+        if (swarm_mux_init) reflex_critical_enter(&swarm_mux);
         swarm_accumulator += delta;
         if (swarm_accumulator > REFLEX_SWARM_ACCUM_MAX) swarm_accumulator = REFLEX_SWARM_ACCUM_MAX;
         if (swarm_accumulator < -REFLEX_SWARM_ACCUM_MAX) swarm_accumulator = -REFLEX_SWARM_ACCUM_MAX;
+        int32_t accum = swarm_accumulator;
+        if (swarm_mux_init) reflex_critical_exit(&swarm_mux);
 
         goose_cell_t *posture_cell = goonies_resolve_cell("sys.swarm.posture");
         if (posture_cell) {
-            if (swarm_accumulator >= REFLEX_SWARM_THRESHOLD) posture_cell->state = 1;
-            else if (swarm_accumulator <= -REFLEX_SWARM_THRESHOLD) posture_cell->state = -1;
+            if (accum >= REFLEX_SWARM_THRESHOLD) posture_cell->state = 1;
+            else if (accum <= -REFLEX_SWARM_THRESHOLD) posture_cell->state = -1;
             else posture_cell->state = 0;
         }
     }
@@ -297,6 +302,8 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
 }
 
 reflex_err_t goose_atmosphere_init(void) {
+    swarm_mux = reflex_mutex_init();
+    swarm_mux_init = true;
     load_aura_key();
     memset(replay_cache, 0, sizeof(replay_cache));
     reflex_radio_init();

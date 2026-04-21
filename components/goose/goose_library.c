@@ -123,12 +123,13 @@ reflex_err_t goose_weave_loom(const uint8_t *buffer, size_t size) {
     // 2. Weave Routes
     loom_route_entry_t *routes = (loom_route_entry_t *)(buffer + sizeof(loom_header_t) + (head->cell_count * sizeof(loom_cell_entry_t)));
     
-    // We create a temporary field for this fragment
     goose_field_t *field = malloc(sizeof(goose_field_t));
+    if (!field) return REFLEX_ERR_NO_MEM;
     memset(field, 0, sizeof(goose_field_t));
     snprintf(field->name, 16, "ls_0x%08X", (unsigned int)head->name_hash);
-    
+
     field->routes = malloc(sizeof(goose_route_t) * head->route_count);
+    if (!field->routes) { free(field); return REFLEX_ERR_NO_MEM; }
     field->route_count = head->route_count;
 
     for (int i = 0; i < head->route_count; i++) {

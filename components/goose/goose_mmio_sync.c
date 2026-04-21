@@ -16,20 +16,19 @@
 static reflex_peer_t s_peers[MAX_PEERS];
 static size_t s_peer_count = 0;
 
-static uint32_t fnv1a(const char *s) {
-    uint32_t h = 0x811c9dc5;
-    for (int i = 0; s[i]; i++) { h ^= (uint32_t)s[i]; h *= 0x01000193; }
-    return h;
-}
+static uint32_t fnv1a(const char *s) { return goose_fnv1a(s); }
 
 static void peers_save_nvs(void) {
     reflex_kv_handle_t h;
     if (reflex_kv_open("goose", false, &h) != REFLEX_OK) return;
     uint8_t count = (uint8_t)s_peer_count;
-    reflex_kv_set_blob(h, "peer_n", &count, 1);
-    if (count > 0)
-        reflex_kv_set_blob(h, "peers", s_peers, count * sizeof(reflex_peer_t));
-    reflex_kv_commit(h);
+    reflex_err_t rc = reflex_kv_set_blob(h, "peer_n", &count, 1);
+    if (rc == REFLEX_OK && count > 0)
+        rc = reflex_kv_set_blob(h, "peers", s_peers, count * sizeof(reflex_peer_t));
+    if (rc == REFLEX_OK)
+        rc = reflex_kv_commit(h);
+    if (rc != REFLEX_OK)
+        REFLEX_LOGW(TAG, "peer NVS save failed rc=0x%x", rc);
     reflex_kv_close(h);
 }
 

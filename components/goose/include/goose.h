@@ -546,6 +546,14 @@ reflex_err_t reflex_holon_create(const char *name, const char *domain);
 /** @brief Add a field to a holon's lifecycle group. */
 reflex_err_t reflex_holon_add_field(const char *holon_name, goose_field_t *field);
 
+/* --- FNV-1a Hash (used by GOONIES, atmosphere, snapshots) --- */
+
+static inline uint32_t goose_fnv1a(const char *s) {
+    uint32_t h = 0x811c9dc5;
+    for (int i = 0; s[i]; i++) { h ^= (uint32_t)s[i]; h *= 0x01000193; }
+    return h;
+}
+
 /* --- Namespace Constants --- */
 #define GOOSE_NS_SYS       "sys."
 #define GOOSE_NS_SYS_LEN   4

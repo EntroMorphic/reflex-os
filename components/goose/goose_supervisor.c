@@ -386,13 +386,8 @@ reflex_err_t goose_snapshot_save(void) {
             memcpy(&buf[pos], &hc, 2); pos += 2;
         }
 
-        /* Key: "s_" + 8-hex-char FNV hash of the full field name.
-         * snprintf(key, 16, "snap_%.10s", ...) would truncate names >10
-         * chars, causing silent collisions on similar-prefix fields. */
-        uint32_t kh = 0x811c9dc5;
-        for (int ki = 0; field->name[ki]; ki++) { kh ^= (uint32_t)field->name[ki]; kh *= 0x01000193; }
         char key[16];
-        snprintf(key, sizeof(key), "s_%08lx", (unsigned long)kh);
+        snprintf(key, sizeof(key), "s_%08lx", (unsigned long)goose_fnv1a(field->name));
         rc = reflex_kv_set_blob(h, key, buf, pos);
         if (rc == REFLEX_OK) {
             saved_fields++;
@@ -421,13 +416,8 @@ reflex_err_t goose_snapshot_load(void) {
         goose_field_t *field = supervised_fields[f];
         if (field->route_count == 0) continue;
 
-        /* Key: "s_" + 8-hex-char FNV hash of the full field name.
-         * snprintf(key, 16, "snap_%.10s", ...) would truncate names >10
-         * chars, causing silent collisions on similar-prefix fields. */
-        uint32_t kh = 0x811c9dc5;
-        for (int ki = 0; field->name[ki]; ki++) { kh ^= (uint32_t)field->name[ki]; kh *= 0x01000193; }
         char key[16];
-        snprintf(key, sizeof(key), "s_%08lx", (unsigned long)kh);
+        snprintf(key, sizeof(key), "s_%08lx", (unsigned long)goose_fnv1a(field->name));
 
         uint8_t buf[2 + 16 * SNAP_ROUTE_ENTRY_SIZE];
         size_t len = sizeof(buf);
@@ -470,10 +460,8 @@ reflex_err_t goose_snapshot_clear(void) {
     reflex_err_t rc = reflex_kv_open("goose", false, &h);
     if (rc != REFLEX_OK) return rc;
     for (size_t f = 0; f < supervised_field_count; f++) {
-        uint32_t kh = 0x811c9dc5;
-        for (int ki = 0; supervised_fields[f]->name[ki]; ki++) { kh ^= (uint32_t)supervised_fields[f]->name[ki]; kh *= 0x01000193; }
         char key[16];
-        snprintf(key, sizeof(key), "s_%08lx", (unsigned long)kh);
+        snprintf(key, sizeof(key), "s_%08lx", (unsigned long)goose_fnv1a(supervised_fields[f]->name));
         reflex_kv_erase(h, key);
     }
     reflex_kv_commit(h);

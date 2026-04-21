@@ -635,276 +635,359 @@ static void reflex_shell_loom_bloat_test(void) {
     printf("Bloat Test: Paged in [%d] unique shadow nodes. Loom slots remaining: ?\n", success_count);
 }
 
+// --- Command Handlers ---
+
+typedef void (*shell_handler_t)(int argc, char *argv[]);
+
+typedef struct {
+    const char *name;
+    shell_handler_t handler;
+} shell_cmd_t;
+
+static void shell_cmd_help(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    printf("system:  help, reboot, sleep <s>, status, services, config <get|set>\n");
+    printf("led:     led <on|off|status>\n");
+    printf("fabric:  goonies <ls|find name>, atlas verify, temp, heartbeat\n");
+    printf("purpose: purpose <set name|get|clear>\n");
+    printf("learn:   snapshot <save|load|clear>\n");
+    printf("mesh:    mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n");
+    printf("vm:      vm <info|run name|stop|list|loadhex hex>\n");
+    printf("aura:    aura setkey <32 hex chars>\n");
+    printf("bonsai:  bonsai <exp1|exp2|exp3a|exp4|exp5|runtime> <start|status|...>\n");
+}
+
+static void shell_cmd_status(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    const char *purpose = goose_purpose_get_name();
+    uint8_t mac[6]; reflex_hal_mac_read(mac);
+    uint64_t up = reflex_hal_time_us();
+    printf("reflex-os uptime=%lu.%lus purpose=%s led=%s mac=%02x:%02x:%02x:%02x:%02x:%02x peers=%u\n",
+           (unsigned long)(up / 1000000), (unsigned long)((up / 100000) % 10),
+           (purpose && purpose[0]) ? purpose : "(none)",
+           reflex_led_get() ? "on" : "off",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+           (unsigned)goose_mmio_sync_peer_count());
+}
+
+static void shell_cmd_reboot(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    reflex_hal_reboot();
+}
+
+static void shell_cmd_sleep(int argc, char *argv[]) {
+    int secs = (argc >= 2) ? atoi(argv[1]) : 3;
+    if (secs < 1) secs = 1;
+    printf("entering deep sleep for %d seconds\n", secs);
+    fflush(stdout);
+    reflex_hal_sleep_enter((uint64_t)secs * 1000000ULL);
+}
+
+static void shell_cmd_goonies(int argc, char *argv[]) {
+    if (argc >= 2 && strcmp(argv[1], "ls") == 0) reflex_shell_loom_list();
+    else if (argc >= 3 && strcmp(argv[1], "find") == 0) reflex_shell_goonies_find(argv[2]);
+}
+
+static void shell_cmd_atlas(int argc, char *argv[]) {
+    if (argc >= 2 && strcmp(argv[1], "verify") == 0) reflex_shell_atlas_verify();
+    else printf("atlas <verify>\n");
+}
+
+static void shell_cmd_led(int argc, char *argv[]) {
+    if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off");
+    else if (argc >= 2 && strcmp(argv[1], "on") == 0) { reflex_led_set(true); printf("led=on\n"); }
+    else if (argc >= 2 && strcmp(argv[1], "off") == 0) { reflex_led_set(false); printf("led=off\n"); }
+    else printf("led <on|off|status>\n");
+}
+
+static void shell_cmd_bonsai(int argc, char *argv[]) {
+    if (argc < 3) return;
+    if (strcmp(argv[1], "exp1") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp1_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp1_status(); }
+    else if (strcmp(argv[1], "exp2") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp2_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp2_status(); }
+    else if (strcmp(argv[1], "exp3a") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp3a_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp3a_status(); }
+    else if (strcmp(argv[1], "exp4") == 0) { if (argc >= 3 && strcmp(argv[2], "connect") == 0) reflex_shell_bonsai_exp4_route(1); else if (argc >= 3 && strcmp(argv[2], "invert") == 0) reflex_shell_bonsai_exp4_route(-1); else if (argc >= 3 && strcmp(argv[2], "detach") == 0) reflex_shell_bonsai_exp4_route(0); }
+    else if (strcmp(argv[1], "exp5") == 0) { if (argc >= 3 && strcmp(argv[2], "run") == 0) reflex_shell_bonsai_exp5_run(); }
+    else if (strcmp(argv[1], "runtime") == 0) { reflex_shell_bonsai_runtime_test(); }
+    else if (strcmp(argv[1], "heal") == 0) { reflex_shell_bonsai_heal_test(); }
+    else if (strcmp(argv[1], "gvm") == 0) { reflex_shell_bonsai_gvm_test(); }
+    else if (strcmp(argv[1], "sleep") == 0) { reflex_shell_bonsai_deep_sleep(); }
+    else if (strcmp(argv[1], "weave") == 0) { reflex_shell_bonsai_weave_test(); }
+    else if (strcmp(argv[1], "bloat") == 0) { reflex_shell_loom_bloat_test(); }
+}
+
+static void shell_cmd_loom(int argc, char *argv[]) {
+    if (argc >= 2 && strcmp(argv[1], "list") == 0) {
+        reflex_shell_loom_list();
+    }
+}
+
+static void shell_cmd_tapestry(int argc, char *argv[]) {
+    if (argc >= 4 && strcmp(argv[1], "signal") == 0) {
+        reflex_shell_tapestry_signal(argv[2], atoi(argv[3]));
+    }
+}
+
+static void shell_cmd_services(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    size_t c = reflex_service_get_count(); printf("services=%zu\n", c);
+    for(size_t i=0; i<c; i++) { const reflex_service_desc_t *s = reflex_service_get_by_index(i); printf("%zu: %s\n", i, s->name); }
+}
+
+static void shell_cmd_config(int argc, char *argv[]) {
+    if (argc >= 3 && strcmp(argv[1], "get") == 0) reflex_shell_config_get(argv[2]);
+    else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
+}
+
+static void shell_cmd_temp(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    float c = reflex_temp_get_celsius();
+    goose_cell_t *cell = goonies_resolve_cell("perception.temp.reading");
+    printf("temp=%.1fC state=%d\n", c, cell ? cell->state : 0);
+}
+
+static void shell_cmd_snapshot(int argc, char *argv[]) {
+    if (argc >= 2 && strcmp(argv[1], "save") == 0) {
+        reflex_err_t rc = goose_snapshot_save();
+        printf("snapshot save: rc=0x%x\n", rc);
+    } else if (argc >= 2 && strcmp(argv[1], "load") == 0) {
+        reflex_err_t rc = goose_snapshot_load();
+        printf("snapshot load: rc=0x%x\n", rc);
+    } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
+        reflex_err_t rc = goose_snapshot_clear();
+        printf("snapshot clear: rc=0x%x\n", rc);
+    } else {
+        printf("snapshot <save|load|clear>\n");
+    }
+}
+
+static void shell_cmd_purpose(int argc, char *argv[]) {
+    if (argc >= 3 && strcmp(argv[1], "set") == 0) {
+        goose_cell_t *p = goonies_resolve_cell("sys.purpose");
+        if (!p) {
+            reflex_tryte9_t coord = goose_make_coord(0, 0, 2);
+            p = goose_fabric_alloc_cell("sys.purpose", coord, true);
+        }
+        if (p) {
+            p->type = GOOSE_CELL_PURPOSE;
+            p->state = 1;
+            goose_purpose_set_name(argv[2]);
+            printf("purpose: active, name=\"%s\" (persisted to NVS)\n", goose_purpose_get_name());
+        } else {
+            printf("purpose set: failed to allocate cell\n");
+        }
+    } else if (argc >= 2 && strcmp(argv[1], "get") == 0) {
+        goose_cell_t *p = goonies_resolve_cell("sys.purpose");
+        const char *name = goose_purpose_get_name();
+        if (p && p->state != 0) {
+            printf("purpose: active, name=\"%s\"\n", name[0] ? name : "(unnamed)");
+        } else {
+            printf("purpose: inactive\n");
+        }
+    } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
+        goose_cell_t *p = goonies_resolve_cell("sys.purpose");
+        if (p) p->state = 0;
+        goose_purpose_clear();
+        printf("purpose: cleared\n");
+    } else {
+        printf("purpose <set name|get|clear>\n");
+    }
+}
+
+static void shell_cmd_heartbeat(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    printf("lp_pulse_count=%lu\n", (unsigned long)goose_lp_heartbeat_count());
+}
+
+static void shell_cmd_mesh(int argc, char *argv[]) {
+    if (argc >= 2 && strcmp(argv[1], "mac") == 0) {
+        uint8_t mac[6];
+        reflex_hal_mac_read(mac);
+        printf("mac=%02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    } else if (argc >= 3 && strcmp(argv[1], "emit") == 0) {
+        goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
+        if (!c) { printf("mesh emit: agency.led.intent not resolved\n"); return; }
+        int req = atoi(argv[2]);
+        if (req < -1 || req > 1) {
+            printf("mesh emit: state must be -1, 0, or 1\n");
+            return;
+        }
+        /* Broadcast from a stack-local copy so we don't mutate the
+         * real cell as a side effect (that would toggle the physical
+         * LED whenever someone ran `mesh emit` for a transmission
+         * test). The copy carries the requested state and the
+         * original coord, which is all goose_atmosphere_emit_arc
+         * reads from it. */
+        goose_cell_t tx = *c;
+        tx.state = (int8_t)req;
+        reflex_err_t rc = goose_atmosphere_emit_arc(&tx);
+        printf("mesh emit: state=%d rc=0x%x\n", (int)tx.state, rc);
+    } else if (argc >= 3 && strcmp(argv[1], "query") == 0) {
+        reflex_err_t rc = goose_atmosphere_query(argv[2]);
+        printf("mesh query: name=%s rc=0x%x\n", argv[2], rc);
+    } else if (argc >= 4 && strcmp(argv[1], "posture") == 0) {
+        int8_t state = (int8_t)atoi(argv[2]);
+        uint8_t weight = (uint8_t)atoi(argv[3]);
+        reflex_err_t rc = goose_atmosphere_emit_posture(state, weight);
+        printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc);
+    } else if (argc >= 2 && strcmp(argv[1], "stat") == 0) {
+        goose_mesh_stats_t s = goose_atmosphere_get_stats();
+        printf("rx_sync=%lu rx_query=%lu rx_advertise=%lu rx_posture=%lu\n",
+               (unsigned long)s.rx_sync, (unsigned long)s.rx_query,
+               (unsigned long)s.rx_advertise, (unsigned long)s.rx_posture);
+        printf("version_mismatch=%lu aura_fail=%lu replay_drop=%lu self_drop=%lu\n",
+               (unsigned long)s.rx_version_mismatch, (unsigned long)s.rx_aura_fail,
+               (unsigned long)s.rx_replay_drop, (unsigned long)s.rx_self_drop);
+    } else if (argc >= 4 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "add") == 0) {
+        if (argc < 5) { printf("mesh peer add <name> <mac_hex>\n"); return; }
+        const char *pname = argv[3];
+        const char *hex = argv[4];
+        uint8_t mac[6];
+        if (strlen(hex) != 17) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return; }
+        bool mac_ok = true;
+        for (int i = 0; i < 5; i++) { if (hex[i*3+2] != ':') mac_ok = false; }
+        if (!mac_ok) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return; }
+        for (int i = 0; i < 6; i++) {
+            char p[3] = {hex[i*3], hex[i*3+1], 0};
+            mac[i] = (uint8_t)strtoul(p, NULL, 16);
+        }
+        reflex_err_t rc = goose_mmio_sync_add_peer(pname, mac);
+        printf("mesh peer add: %s %02x:%02x:%02x:%02x:%02x:%02x rc=0x%x\n",
+               pname, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], rc);
+    } else if (argc >= 3 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "ls") == 0) {
+        size_t count = goose_mmio_sync_peer_count();
+        if (count == 0) { printf("no peers\n"); return; }
+        for (size_t i = 0; i < count; i++) {
+            const reflex_peer_t *p = goose_mmio_sync_get_peer(i);
+            if (!p) continue;
+            uint64_t age_us = reflex_hal_time_us() - p->last_seen_us;
+            printf("  %u: %-11s %02x:%02x:%02x:%02x:%02x:%02x  %s (last: %lu.%lus ago)\n",
+                   (unsigned)(i+1), p->name,
+                   p->mac[0], p->mac[1], p->mac[2], p->mac[3], p->mac[4], p->mac[5],
+                   p->active ? "active" : "stale",
+                   (unsigned long)(age_us / 1000000), (unsigned long)((age_us / 100000) % 10));
+        }
+    } else if (argc >= 2 && strcmp(argv[1], "status") == 0) {
+        goose_mesh_stats_t s = goose_atmosphere_get_stats();
+        size_t peers = goose_mmio_sync_peer_count();
+        uint32_t rx_total = s.rx_sync + s.rx_query + s.rx_advertise + s.rx_posture + s.rx_mmio_sync;
+        uint32_t tx_total = s.tx_mmio_sync;
+        printf("mesh: peers=%u rx=%lu tx=%lu sync=%lu mmio_sync_rx=%lu mmio_sync_tx=%lu\n",
+               (unsigned)peers, (unsigned long)rx_total, (unsigned long)tx_total,
+               (unsigned long)s.rx_sync, (unsigned long)s.rx_mmio_sync, (unsigned long)s.tx_mmio_sync);
+        for (size_t i = 0; i < peers; i++) {
+            const reflex_peer_t *p = goose_mmio_sync_get_peer(i);
+            if (!p) continue;
+            uint64_t age_us = reflex_hal_time_us() - p->last_seen_us;
+            printf("  %s %s (last: %lu.%lus)\n", p->name, p->active ? "active" : "stale",
+                   (unsigned long)(age_us / 1000000), (unsigned long)((age_us / 100000) % 10));
+        }
+    } else if (argc >= 2 && strcmp(argv[1], "ping") == 0) {
+        goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
+        if (!c) { printf("mesh ping: no agency cell\n"); return; }
+        goose_cell_t tx = *c;
+        tx.state = 1;
+        reflex_err_t rc = goose_atmosphere_emit_arc(&tx);
+        printf("mesh ping: broadcast rc=0x%x\n", rc);
+    } else {
+        printf("mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n");
+    }
+}
+
+static void shell_cmd_aura(int argc, char *argv[]) {
+    if (argc >= 3 && strcmp(argv[1], "setkey") == 0) {
+        const char *hex = argv[2];
+        if (strlen(hex) != 32) { printf("aura: expect 32 hex chars (16 bytes)\n"); return; }
+        uint8_t key[16];
+        for (int i = 0; i < 16; i++) {
+            char p[3] = {hex[i*2], hex[i*2+1], 0};
+            key[i] = (uint8_t)strtoul(p, NULL, 16);
+        }
+        if (goose_atmosphere_set_key(key) == REFLEX_OK) printf("aura: key provisioned\n");
+        else printf("aura: provisioning failed\n");
+    } else {
+        printf("aura setkey <32 hex chars>\n");
+    }
+}
+
+static void shell_cmd_vm(int argc, char *argv[]) {
+    if (argc >= 2 && strcmp(argv[1], "info") == 0) {
+        printf("vm status=%s ip=%lu steps=%lu program=%s\n",
+               reflex_shell_vm_status_name(reflex_shell_vm.status),
+               (unsigned long)reflex_shell_vm.ip,
+               (unsigned long)reflex_shell_vm.steps_executed,
+               reflex_shell_vm_loaded ? "loaded" : "none");
+    } else if (argc >= 3 && strcmp(argv[1], "run") == 0) {
+        extern const vm_program_t *vm_program_find(const char *name);
+        const vm_program_t *prog = vm_program_find(argv[2]);
+        if (!prog) { printf("vm run: program '%s' not found\n", argv[2]); return; }
+        reflex_err_t rc = reflex_vm_load_binary(&reflex_shell_vm, prog->data, prog->len);
+        if (rc != REFLEX_OK) { printf("vm run: load failed rc=0x%x\n", rc); return; }
+        reflex_shell_vm_loaded = true;
+        extern void reflex_vm_use_default_syscalls(reflex_vm_state_t *vm);
+        reflex_vm_use_default_syscalls(&reflex_shell_vm);
+        extern reflex_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps);
+        rc = reflex_vm_run(&reflex_shell_vm, 100000);
+        printf("vm run: %s status=%s steps=%lu\n", argv[2],
+               reflex_shell_vm_status_name(reflex_shell_vm.status),
+               (unsigned long)reflex_shell_vm.steps_executed);
+    } else if (argc >= 2 && strcmp(argv[1], "stop") == 0) {
+        reflex_shell_vm.status = REFLEX_VM_STATUS_HALTED;
+        printf("vm stopped\n");
+    } else if (argc >= 2 && strcmp(argv[1], "list") == 0) {
+        extern const size_t vm_program_registry_len;
+        if (vm_program_registry_len == 0) { printf("no embedded programs\n"); return; }
+        for (size_t i = 0; i < vm_program_registry_len; i++) {
+            const vm_program_t *p = vm_program_get(i);
+            if (p) printf("  %s (%u bytes)\n", p->name, (unsigned)p->len);
+        }
+    } else if (argc >= 3 && strcmp(argv[1], "loadhex") == 0) {
+        size_t hlen = strlen(argv[2]);
+        if (hlen < 2 || (hlen & 1)) { printf("vm loadhex: even hex string required\n"); return; }
+        size_t blen = hlen / 2;
+        uint8_t *b = malloc(blen);
+        if (!b) { printf("vm loadhex: alloc failed\n"); return; }
+        for(size_t i=0; i<blen; i++) { char p[3]={argv[2][i*2], argv[2][i*2+1], 0}; b[i]=(uint8_t)strtoul(p,NULL,16); }
+        if(reflex_vm_load_binary(&reflex_shell_vm, b, blen)==REFLEX_OK) { reflex_shell_vm_loaded=true; printf("vm loaded\n"); } else printf("vm load failed\n");
+        free(b);
+    } else {
+        printf("vm <info|run name|stop|list|loadhex hex>\n");
+    }
+}
+
+// --- Dispatch Table ---
+
+static const shell_cmd_t s_commands[] = {
+    {"help",      shell_cmd_help},
+    {"status",    shell_cmd_status},
+    {"reboot",    shell_cmd_reboot},
+    {"sleep",     shell_cmd_sleep},
+    {"goonies",   shell_cmd_goonies},
+    {"atlas",     shell_cmd_atlas},
+    {"led",       shell_cmd_led},
+    {"bonsai",    shell_cmd_bonsai},
+    {"loom",      shell_cmd_loom},
+    {"tapestry",  shell_cmd_tapestry},
+    {"services",  shell_cmd_services},
+    {"config",    shell_cmd_config},
+    {"temp",      shell_cmd_temp},
+    {"snapshot",  shell_cmd_snapshot},
+    {"purpose",   shell_cmd_purpose},
+    {"heartbeat", shell_cmd_heartbeat},
+    {"mesh",      shell_cmd_mesh},
+    {"aura",      shell_cmd_aura},
+    {"vm",        shell_cmd_vm},
+    {NULL, NULL}
+};
+
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
-    if (strcmp(argv[0], "help") == 0) {
-        printf("system:  help, reboot, sleep <s>, status, services, config <get|set>\n");
-        printf("led:     led <on|off|status>\n");
-        printf("fabric:  goonies <ls|find name>, atlas verify, temp, heartbeat\n");
-        printf("purpose: purpose <set name|get|clear>\n");
-        printf("learn:   snapshot <save|load|clear>\n");
-        printf("mesh:    mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n");
-        printf("vm:      vm <info|run name|stop|list|loadhex hex>\n");
-        printf("aura:    aura setkey <32 hex chars>\n");
-        printf("bonsai:  bonsai <exp1|exp2|exp3a|exp4|exp5|runtime> <start|status|...>\n");
-    }
-    else if (strcmp(argv[0], "status") == 0) {
-        const char *purpose = goose_purpose_get_name();
-        uint8_t mac[6]; reflex_hal_mac_read(mac);
-        uint64_t up = reflex_hal_time_us();
-        printf("reflex-os uptime=%lu.%lus purpose=%s led=%s mac=%02x:%02x:%02x:%02x:%02x:%02x peers=%u\n",
-               (unsigned long)(up / 1000000), (unsigned long)((up / 100000) % 10),
-               (purpose && purpose[0]) ? purpose : "(none)",
-               reflex_led_get() ? "on" : "off",
-               mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
-               (unsigned)goose_mmio_sync_peer_count());
-    }
-    else if (strcmp(argv[0], "reboot") == 0) reflex_hal_reboot();
-    else if (strcmp(argv[0], "sleep") == 0) {
-        int secs = (argc >= 2) ? atoi(argv[1]) : 3;
-        if (secs < 1) secs = 1;
-        printf("entering deep sleep for %d seconds\n", secs);
-        fflush(stdout);
-        reflex_hal_sleep_enter((uint64_t)secs * 1000000ULL);
-    }
-    else if (strcmp(argv[0], "goonies") == 0) {
-        if (argc >= 2 && strcmp(argv[1], "ls") == 0) reflex_shell_loom_list();
-        else if (argc >= 3 && strcmp(argv[1], "find") == 0) reflex_shell_goonies_find(argv[2]);
-    }
-    else if (strcmp(argv[0], "atlas") == 0) {
-        if (argc >= 2 && strcmp(argv[1], "verify") == 0) reflex_shell_atlas_verify();
-        else printf("atlas <verify>\n");
-    }
-    else if (strcmp(argv[0], "led") == 0) {
-        if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off");
-        else if (argc >= 2 && strcmp(argv[1], "on") == 0) { reflex_led_set(true); printf("led=on\n"); }
-        else if (argc >= 2 && strcmp(argv[1], "off") == 0) { reflex_led_set(false); printf("led=off\n"); }
-        else printf("led <on|off|status>\n");
-    }
-    else if (strcmp(argv[0], "bonsai") == 0) {
-        if (argc < 3) return;
-        if (strcmp(argv[1], "exp1") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp1_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp1_status(); }
-        else if (strcmp(argv[1], "exp2") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp2_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp2_status(); }
-        else if (strcmp(argv[1], "exp3a") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp3a_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp3a_status(); }
-        else if (strcmp(argv[1], "exp4") == 0) { if (argc >= 3 && strcmp(argv[2], "connect") == 0) reflex_shell_bonsai_exp4_route(1); else if (argc >= 3 && strcmp(argv[2], "invert") == 0) reflex_shell_bonsai_exp4_route(-1); else if (argc >= 3 && strcmp(argv[2], "detach") == 0) reflex_shell_bonsai_exp4_route(0); }
-        else if (strcmp(argv[1], "exp5") == 0) { if (argc >= 3 && strcmp(argv[2], "run") == 0) reflex_shell_bonsai_exp5_run(); }
-        else if (strcmp(argv[1], "runtime") == 0) { reflex_shell_bonsai_runtime_test(); }
-        else if (strcmp(argv[1], "heal") == 0) { reflex_shell_bonsai_heal_test(); }
-        else if (strcmp(argv[1], "gvm") == 0) { reflex_shell_bonsai_gvm_test(); }
-        else if (strcmp(argv[1], "sleep") == 0) { reflex_shell_bonsai_deep_sleep(); }
-        else if (strcmp(argv[1], "weave") == 0) { reflex_shell_bonsai_weave_test(); }
-        else if (strcmp(argv[1], "bloat") == 0) { reflex_shell_loom_bloat_test(); }
-    } else if (strcmp(argv[0], "loom") == 0) {
-        if (argc >= 2 && strcmp(argv[1], "list") == 0) {
-            reflex_shell_loom_list();
-        }
-    } else if (strcmp(argv[0], "tapestry") == 0) {
-        if (argc >= 4 && strcmp(argv[1], "signal") == 0) {
-            reflex_shell_tapestry_signal(argv[2], atoi(argv[3]));
-        }
-    } else if (strcmp(argv[0], "services") == 0) {
-        size_t c = reflex_service_get_count(); printf("services=%zu\n", c);
-        for(size_t i=0; i<c; i++) { const reflex_service_desc_t *s = reflex_service_get_by_index(i); printf("%zu: %s\n", i, s->name); }
-    } else if (strcmp(argv[0], "config") == 0) {
-        if (argc >= 3 && strcmp(argv[1], "get") == 0) reflex_shell_config_get(argv[2]);
-        else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
-    } else if (strcmp(argv[0], "temp") == 0) {
-        float c = reflex_temp_get_celsius();
-        goose_cell_t *cell = goonies_resolve_cell("perception.temp.reading");
-        printf("temp=%.1fC state=%d\n", c, cell ? cell->state : 0);
-    } else if (strcmp(argv[0], "snapshot") == 0) {
-        if (argc >= 2 && strcmp(argv[1], "save") == 0) {
-            reflex_err_t rc = goose_snapshot_save();
-            printf("snapshot save: rc=0x%x\n", rc);
-        } else if (argc >= 2 && strcmp(argv[1], "load") == 0) {
-            reflex_err_t rc = goose_snapshot_load();
-            printf("snapshot load: rc=0x%x\n", rc);
-        } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
-            reflex_err_t rc = goose_snapshot_clear();
-            printf("snapshot clear: rc=0x%x\n", rc);
-        } else {
-            printf("snapshot <save|load|clear>\n");
-        }
-    } else if (strcmp(argv[0], "purpose") == 0) {
-        if (argc >= 3 && strcmp(argv[1], "set") == 0) {
-            goose_cell_t *p = goonies_resolve_cell("sys.purpose");
-            if (!p) {
-                reflex_tryte9_t coord = goose_make_coord(0, 0, 2);
-                p = goose_fabric_alloc_cell("sys.purpose", coord, true);
-            }
-            if (p) {
-                p->type = GOOSE_CELL_PURPOSE;
-                p->state = 1;
-                goose_purpose_set_name(argv[2]);
-                printf("purpose: active, name=\"%s\" (persisted to NVS)\n", goose_purpose_get_name());
-            } else {
-                printf("purpose set: failed to allocate cell\n");
-            }
-        } else if (argc >= 2 && strcmp(argv[1], "get") == 0) {
-            goose_cell_t *p = goonies_resolve_cell("sys.purpose");
-            const char *name = goose_purpose_get_name();
-            if (p && p->state != 0) {
-                printf("purpose: active, name=\"%s\"\n", name[0] ? name : "(unnamed)");
-            } else {
-                printf("purpose: inactive\n");
-            }
-        } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
-            goose_cell_t *p = goonies_resolve_cell("sys.purpose");
-            if (p) p->state = 0;
-            goose_purpose_clear();
-            printf("purpose: cleared\n");
-        } else {
-            printf("purpose <set name|get|clear>\n");
-        }
-    } else if (strcmp(argv[0], "heartbeat") == 0) {
-        printf("lp_pulse_count=%lu\n", (unsigned long)goose_lp_heartbeat_count());
-    } else if (strcmp(argv[0], "mesh") == 0) {
-        if (argc >= 2 && strcmp(argv[1], "mac") == 0) {
-            uint8_t mac[6];
-            reflex_hal_mac_read(mac);
-            printf("mac=%02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-        } else if (argc >= 3 && strcmp(argv[1], "emit") == 0) {
-            goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
-            if (!c) { printf("mesh emit: agency.led.intent not resolved\n"); return; }
-            int req = atoi(argv[2]);
-            if (req < -1 || req > 1) {
-                printf("mesh emit: state must be -1, 0, or 1\n");
-                return;
-            }
-            /* Broadcast from a stack-local copy so we don't mutate the
-             * real cell as a side effect (that would toggle the physical
-             * LED whenever someone ran `mesh emit` for a transmission
-             * test). The copy carries the requested state and the
-             * original coord, which is all goose_atmosphere_emit_arc
-             * reads from it. */
-            goose_cell_t tx = *c;
-            tx.state = (int8_t)req;
-            reflex_err_t rc = goose_atmosphere_emit_arc(&tx);
-            printf("mesh emit: state=%d rc=0x%x\n", (int)tx.state, rc);
-        } else if (argc >= 3 && strcmp(argv[1], "query") == 0) {
-            reflex_err_t rc = goose_atmosphere_query(argv[2]);
-            printf("mesh query: name=%s rc=0x%x\n", argv[2], rc);
-        } else if (argc >= 4 && strcmp(argv[1], "posture") == 0) {
-            int8_t state = (int8_t)atoi(argv[2]);
-            uint8_t weight = (uint8_t)atoi(argv[3]);
-            reflex_err_t rc = goose_atmosphere_emit_posture(state, weight);
-            printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc);
-        } else if (argc >= 2 && strcmp(argv[1], "stat") == 0) {
-            goose_mesh_stats_t s = goose_atmosphere_get_stats();
-            printf("rx_sync=%lu rx_query=%lu rx_advertise=%lu rx_posture=%lu\n",
-                   (unsigned long)s.rx_sync, (unsigned long)s.rx_query,
-                   (unsigned long)s.rx_advertise, (unsigned long)s.rx_posture);
-            printf("version_mismatch=%lu aura_fail=%lu replay_drop=%lu self_drop=%lu\n",
-                   (unsigned long)s.rx_version_mismatch, (unsigned long)s.rx_aura_fail,
-                   (unsigned long)s.rx_replay_drop, (unsigned long)s.rx_self_drop);
-        } else if (argc >= 4 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "add") == 0) {
-            if (argc < 5) { printf("mesh peer add <name> <mac_hex>\n"); return; }
-            const char *pname = argv[3];
-            const char *hex = argv[4];
-            uint8_t mac[6];
-            if (strlen(hex) != 17) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return; }
-            bool mac_ok = true;
-            for (int i = 0; i < 5; i++) { if (hex[i*3+2] != ':') mac_ok = false; }
-            if (!mac_ok) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return; }
-            for (int i = 0; i < 6; i++) {
-                char p[3] = {hex[i*3], hex[i*3+1], 0};
-                mac[i] = (uint8_t)strtoul(p, NULL, 16);
-            }
-            reflex_err_t rc = goose_mmio_sync_add_peer(pname, mac);
-            printf("mesh peer add: %s %02x:%02x:%02x:%02x:%02x:%02x rc=0x%x\n",
-                   pname, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], rc);
-        } else if (argc >= 3 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "ls") == 0) {
-            size_t count = goose_mmio_sync_peer_count();
-            if (count == 0) { printf("no peers\n"); return; }
-            for (size_t i = 0; i < count; i++) {
-                const reflex_peer_t *p = goose_mmio_sync_get_peer(i);
-                if (!p) continue;
-                uint64_t age_us = reflex_hal_time_us() - p->last_seen_us;
-                printf("  %u: %-11s %02x:%02x:%02x:%02x:%02x:%02x  %s (last: %lu.%lus ago)\n",
-                       (unsigned)(i+1), p->name,
-                       p->mac[0], p->mac[1], p->mac[2], p->mac[3], p->mac[4], p->mac[5],
-                       p->active ? "active" : "stale",
-                       (unsigned long)(age_us / 1000000), (unsigned long)((age_us / 100000) % 10));
-            }
-        } else if (argc >= 2 && strcmp(argv[1], "status") == 0) {
-            goose_mesh_stats_t s = goose_atmosphere_get_stats();
-            size_t peers = goose_mmio_sync_peer_count();
-            uint32_t rx_total = s.rx_sync + s.rx_query + s.rx_advertise + s.rx_posture + s.rx_mmio_sync;
-            uint32_t tx_total = s.tx_mmio_sync;
-            printf("mesh: peers=%u rx=%lu tx=%lu sync=%lu mmio_sync_rx=%lu mmio_sync_tx=%lu\n",
-                   (unsigned)peers, (unsigned long)rx_total, (unsigned long)tx_total,
-                   (unsigned long)s.rx_sync, (unsigned long)s.rx_mmio_sync, (unsigned long)s.tx_mmio_sync);
-            for (size_t i = 0; i < peers; i++) {
-                const reflex_peer_t *p = goose_mmio_sync_get_peer(i);
-                if (!p) continue;
-                uint64_t age_us = reflex_hal_time_us() - p->last_seen_us;
-                printf("  %s %s (last: %lu.%lus)\n", p->name, p->active ? "active" : "stale",
-                       (unsigned long)(age_us / 1000000), (unsigned long)((age_us / 100000) % 10));
-            }
-        } else if (argc >= 2 && strcmp(argv[1], "ping") == 0) {
-            goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
-            if (!c) { printf("mesh ping: no agency cell\n"); return; }
-            goose_cell_t tx = *c;
-            tx.state = 1;
-            reflex_err_t rc = goose_atmosphere_emit_arc(&tx);
-            printf("mesh ping: broadcast rc=0x%x\n", rc);
-        } else {
-            printf("mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n");
-        }
-    } else if (strcmp(argv[0], "aura") == 0) {
-        if (argc >= 3 && strcmp(argv[1], "setkey") == 0) {
-            const char *hex = argv[2];
-            if (strlen(hex) != 32) { printf("aura: expect 32 hex chars (16 bytes)\n"); return; }
-            uint8_t key[16];
-            for (int i = 0; i < 16; i++) {
-                char p[3] = {hex[i*2], hex[i*2+1], 0};
-                key[i] = (uint8_t)strtoul(p, NULL, 16);
-            }
-            if (goose_atmosphere_set_key(key) == REFLEX_OK) printf("aura: key provisioned\n");
-            else printf("aura: provisioning failed\n");
-        } else {
-            printf("aura setkey <32 hex chars>\n");
-        }
-    } else if (strcmp(argv[0], "vm") == 0) {
-        if (argc >= 2 && strcmp(argv[1], "info") == 0) {
-            printf("vm status=%s ip=%lu steps=%lu program=%s\n",
-                   reflex_shell_vm_status_name(reflex_shell_vm.status),
-                   (unsigned long)reflex_shell_vm.ip,
-                   (unsigned long)reflex_shell_vm.steps_executed,
-                   reflex_shell_vm_loaded ? "loaded" : "none");
-        } else if (argc >= 3 && strcmp(argv[1], "run") == 0) {
-            extern const vm_program_t *vm_program_find(const char *name);
-            const vm_program_t *prog = vm_program_find(argv[2]);
-            if (!prog) { printf("vm run: program '%s' not found\n", argv[2]); return; }
-            reflex_err_t rc = reflex_vm_load_binary(&reflex_shell_vm, prog->data, prog->len);
-            if (rc != REFLEX_OK) { printf("vm run: load failed rc=0x%x\n", rc); return; }
-            reflex_shell_vm_loaded = true;
-            extern void reflex_vm_use_default_syscalls(reflex_vm_state_t *vm);
-            reflex_vm_use_default_syscalls(&reflex_shell_vm);
-            extern reflex_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps);
-            rc = reflex_vm_run(&reflex_shell_vm, 100000);
-            printf("vm run: %s status=%s steps=%lu\n", argv[2],
-                   reflex_shell_vm_status_name(reflex_shell_vm.status),
-                   (unsigned long)reflex_shell_vm.steps_executed);
-        } else if (argc >= 2 && strcmp(argv[1], "stop") == 0) {
-            reflex_shell_vm.status = REFLEX_VM_STATUS_HALTED;
-            printf("vm stopped\n");
-        } else if (argc >= 2 && strcmp(argv[1], "list") == 0) {
-            extern const size_t vm_program_registry_len;
-            if (vm_program_registry_len == 0) { printf("no embedded programs\n"); return; }
-            for (size_t i = 0; i < vm_program_registry_len; i++) {
-                const vm_program_t *p = vm_program_get(i);
-                if (p) printf("  %s (%u bytes)\n", p->name, (unsigned)p->len);
-            }
-        } else if (argc >= 3 && strcmp(argv[1], "loadhex") == 0) {
-            size_t blen = strlen(argv[2]) / 2; uint8_t *b = malloc(blen);
-            for(size_t i=0; i<blen; i++) { char p[3]={argv[2][i*2], argv[2][i*2+1], 0}; b[i]=(uint8_t)strtoul(p,NULL,16); }
-            if(reflex_vm_load_binary(&reflex_shell_vm, b, blen)==REFLEX_OK) { reflex_shell_vm_loaded=true; printf("vm loaded\n"); } else printf("vm load failed\n");
-            free(b);
-        } else {
-            printf("vm <info|run name|stop|list|loadhex hex>\n");
+    for (const shell_cmd_t *cmd = s_commands; cmd->name; cmd++) {
+        if (strcmp(argv[0], cmd->name) == 0) {
+            cmd->handler(argc, argv);
+            return;
         }
     }
+    printf("unknown command: %s\n", argv[0]);
 }
 
 void reflex_shell_run(void) {
