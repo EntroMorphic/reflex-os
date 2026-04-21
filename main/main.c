@@ -31,9 +31,10 @@
 #include "reflex_vm_task.h"
 #include "reflex_vm_loader.h"
 #include "goose.h"
+#include "reflex_tuning.h"
 
-#define REFLEX_BOOT_LOOP_THRESHOLD 10
-#define REFLEX_STABILITY_MS 10000
+/* Boot constants now live in reflex_tuning.h:
+ * REFLEX_BOOT_LOOP_THRESHOLD, REFLEX_STABILITY_MS */
 
 static void goose_supervisor_task(void *arg)
 {

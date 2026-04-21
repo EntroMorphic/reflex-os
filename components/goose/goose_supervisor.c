@@ -8,6 +8,7 @@
 #include "reflex_kv.h"
 #include "reflex_task.h"
 #include "reflex_kernel.h"
+#include "reflex_tuning.h"
 #include <string.h>
 
 #define TAG "GOOSE_SUPERVISOR"
@@ -23,11 +24,10 @@ static goose_cell_t system_balance = { .state = REFLEX_TRIT_POS };
 
 /* --- Kernel scheduling policy (Items 1-3) --- */
 
-#define PULSE_BASE_PRIORITY   10
-#define PULSE_PURPOSE_BOOST    3
-#define PULSE_HEBBIAN_BOOST    2
-#define PULSE_PAIN_PENALTY     2
-#define PULSE_MAX_PRIORITY    15
+/* Task priority constants now live in reflex_tuning.h:
+ * REFLEX_PULSE_BASE_PRIORITY, REFLEX_PULSE_PURPOSE_BOOST,
+ * REFLEX_PULSE_HEBBIAN_BOOST, REFLEX_PULSE_PAIN_PENALTY,
+ * REFLEX_PULSE_MAX_PRIORITY */
 
 /* Holon: a named group of fields managed as a lifecycle unit.
  * The supervisor activates/deactivates holons based on purpose. */
@@ -100,7 +100,7 @@ static void goose_kernel_policy_tick(uint32_t tick) {
 
     for (size_t f = 0; f < supervised_field_count; f++) {
         goose_field_t *field = supervised_fields[f];
-        int priority = PULSE_BASE_PRIORITY;
+        int priority = REFLEX_PULSE_BASE_PRIORITY;
 
         /* Item 1: Purpose boost — domain-specific. Only boost fields
          * whose routes touch cells in the active purpose domain.
@@ -117,7 +117,7 @@ static void goose_kernel_policy_tick(uint32_t tick) {
                 }
             }
             if (has_domain_route) {
-                priority += PULSE_PURPOSE_BOOST;
+                priority += REFLEX_PULSE_PURPOSE_BOOST;
             } else {
                 priority += 1;
             }
@@ -128,7 +128,7 @@ static void goose_kernel_policy_tick(uint32_t tick) {
         for (size_t r = 0; r < field->route_count; r++) {
             if (field->routes[r].learned_orientation != 0) learned_routes++;
         }
-        if (learned_routes > 0) priority += PULSE_HEBBIAN_BOOST;
+        if (learned_routes > 0) priority += REFLEX_PULSE_HEBBIAN_BOOST;
 
         /* Item 3: Holon membership — field keeps boost if ANY holon is active.
          * Only suppress to base if ALL containing holons are inactive. */
@@ -142,15 +142,15 @@ static void goose_kernel_policy_tick(uint32_t tick) {
                 }
             }
         }
-        if (in_any_holon && !in_active_holon) priority = PULSE_BASE_PRIORITY;
+        if (in_any_holon && !in_active_holon) priority = REFLEX_PULSE_BASE_PRIORITY;
 
         /* Pain dampening */
-        if (pained && priority > PULSE_BASE_PRIORITY) {
-            priority -= PULSE_PAIN_PENALTY;
-            if (priority < PULSE_BASE_PRIORITY) priority = PULSE_BASE_PRIORITY;
+        if (pained && priority > REFLEX_PULSE_BASE_PRIORITY) {
+            priority -= REFLEX_PULSE_PAIN_PENALTY;
+            if (priority < REFLEX_PULSE_BASE_PRIORITY) priority = REFLEX_PULSE_BASE_PRIORITY;
         }
 
-        if (priority > PULSE_MAX_PRIORITY) priority = PULSE_MAX_PRIORITY;
+        if (priority > REFLEX_PULSE_MAX_PRIORITY) priority = REFLEX_PULSE_MAX_PRIORITY;
 
         char task_name[16];
         snprintf(task_name, sizeof(task_name), "p_%.13s", field->name);
@@ -245,7 +245,7 @@ reflex_err_t goose_supervisor_rebalance(goose_field_t *field) {
     int field_rebalance_limit = 0;
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
-        if (field_rebalance_limit++ > 10) {
+        if (field_rebalance_limit++ > REFLEX_MAX_REBALANCE_ITERATIONS) {
             system_balance.state = REFLEX_TRIT_NEG;
             return REFLEX_ERR_INVALID_STATE;
         }
@@ -271,7 +271,7 @@ reflex_err_t goose_supervisor_swarm_sync(void) {
  *
  * When `sys.ai.reward` is positive, each supervised route's hebbian_counter
  * moves by +1 if source and sink currently fire the same sign (co-active),
- * -1 if they disagree. When the counter crosses +/-HEBBIAN_COMMIT_THRESHOLD,
+ * -1 if they disagree. When the counter crosses +/-REFLEX_HEBBIAN_COMMIT_THRESHOLD,
  * the sign is committed into learned_orientation and the counter resets.
  *
  * When `sys.ai.pain` is negative, all counters decay toward zero, which
@@ -281,8 +281,8 @@ reflex_err_t goose_supervisor_swarm_sync(void) {
  * form: accumulate co-activation under reward, decay under pain, commit at
  * a threshold. Upgradable to STDP-lite or gradient methods later without
  * changing the per-route field layout. */
-#define HEBBIAN_COMMIT_THRESHOLD 8
-#define HEBBIAN_COUNTER_MAX      (HEBBIAN_COMMIT_THRESHOLD * 2)
+/* Hebbian constants now live in reflex_tuning.h:
+ * REFLEX_HEBBIAN_COMMIT_THRESHOLD, REFLEX_HEBBIAN_COUNTER_MAX */
 
 reflex_err_t goose_supervisor_learn_sync(void) {
     goose_cell_t *pain_cell = goonies_resolve_cell("sys.ai.pain");
@@ -315,14 +315,14 @@ reflex_err_t goose_supervisor_learn_sync(void) {
                 if (s == 0 || k == 0) continue;
                 int delta = ((s == k) ? 1 : -1) * purpose_multiplier;
                 int32_t next = (int32_t)route->hebbian_counter + delta;
-                if (next >  HEBBIAN_COUNTER_MAX) next =  HEBBIAN_COUNTER_MAX;
-                if (next < -HEBBIAN_COUNTER_MAX) next = -HEBBIAN_COUNTER_MAX;
+                if (next >  REFLEX_HEBBIAN_COUNTER_MAX) next =  REFLEX_HEBBIAN_COUNTER_MAX;
+                if (next < -REFLEX_HEBBIAN_COUNTER_MAX) next = -REFLEX_HEBBIAN_COUNTER_MAX;
                 route->hebbian_counter = (int16_t)next;
 
-                if (route->hebbian_counter >= HEBBIAN_COMMIT_THRESHOLD) {
+                if (route->hebbian_counter >= REFLEX_HEBBIAN_COMMIT_THRESHOLD) {
                     route->learned_orientation = REFLEX_TRIT_POS;
                     route->hebbian_counter = 0;
-                } else if (route->hebbian_counter <= -HEBBIAN_COMMIT_THRESHOLD) {
+                } else if (route->hebbian_counter <= -REFLEX_HEBBIAN_COMMIT_THRESHOLD) {
                     route->learned_orientation = REFLEX_TRIT_NEG;
                     route->hebbian_counter = 0;
                 }
@@ -497,10 +497,9 @@ reflex_err_t goose_supervisor_pulse(void) {
     goose_lp_heartbeat_sync();
 
     /* LP core liveness monitor. If lp_pulse_count stops advancing for
-     * LP_STALL_THRESHOLD_US while HP is otherwise healthy, log once per
+     * REFLEX_REPLAY_WINDOW_US while HP is otherwise healthy, log once per
      * stall so the stall is visible in the serial log. Observation only;
      * no auto-restart. */
-    #define LP_STALL_THRESHOLD_US (5 * 1000 * 1000ULL)
     static uint32_t lp_last_count = 0;
     static uint64_t lp_last_advance_us = 0;
     static bool lp_stall_warned = false;
@@ -511,7 +510,7 @@ reflex_err_t goose_supervisor_pulse(void) {
         lp_last_advance_us = now_us;
         lp_stall_warned = false;
     } else if (cur > 0 && lp_last_advance_us > 0 &&
-               (now_us - lp_last_advance_us) > LP_STALL_THRESHOLD_US &&
+               (now_us - lp_last_advance_us) > REFLEX_REPLAY_WINDOW_US &&
                !lp_stall_warned) {
         REFLEX_LOGW(TAG, "LP_HEARTBEAT_STALLED count=%lu stalled_us=%llu",
                  (unsigned long)cur,
@@ -521,32 +520,32 @@ reflex_err_t goose_supervisor_pulse(void) {
     
     // Autonomic Fabrication pass at 1Hz (offset by 2)
     static int weave_div = 0;
-    if (weave_div++ >= 10) {
+    if (weave_div++ >= REFLEX_SUPERVISOR_WEAVE_DIV) {
         extern reflex_err_t goose_supervisor_weave_sync(void);
         goose_supervisor_weave_sync();
         weave_div = 0;
     }
 
     static int learn_div = 0;
-    if (learn_div++ >= 10) {
+    if (learn_div++ >= REFLEX_SUPERVISOR_LEARN_DIV) {
         goose_supervisor_learn_sync();
         learn_div = 0;
     }
 
     static int sync_div = 0;
-    if (sync_div++ >= 10) {
+    if (sync_div++ >= REFLEX_SUPERVISOR_SYNC_DIV) {
         goose_supervisor_swarm_sync();
         sync_div = 0;
     }
 
     static int stale_div = 0;
-    if (stale_div++ >= 50) {
+    if (stale_div++ >= REFLEX_SUPERVISOR_STALE_DIV) {
         goose_mmio_sync_staleness_check();
         stale_div = 0;
     }
 
     static int snap_div = 0;
-    if (snap_div++ >= 300) {
+    if (snap_div++ >= REFLEX_SUPERVISOR_SNAP_DIV) {
         goose_snapshot_save();
         snap_div = 0;
     }

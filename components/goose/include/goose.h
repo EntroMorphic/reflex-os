@@ -546,6 +546,14 @@ reflex_err_t reflex_holon_create(const char *name, const char *domain);
 /** @brief Add a field to a holon's lifecycle group. */
 reflex_err_t reflex_holon_add_field(const char *holon_name, goose_field_t *field);
 
+/* --- Namespace Constants --- */
+#define GOOSE_NS_SYS       "sys."
+#define GOOSE_NS_SYS_LEN   4
+#define GOOSE_NS_AGENCY    "agency."
+#define GOOSE_NS_AGENCY_LEN 7
+#define GOOSE_NS_PEER      "peer."
+#define GOOSE_NS_PEER_LEN  5
+
 /* --- MMIO Sync Layer (Distributed Hardware Surface) --- */
 
 #define MAX_PEERS 8

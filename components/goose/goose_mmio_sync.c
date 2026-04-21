@@ -134,14 +134,14 @@ void goose_mmio_sync_recv(const uint8_t *src_mac, uint32_t name_hash, int8_t sta
 
     uint32_t count = goonies_get_count();
     const char *peer_name = s_peers[peer_idx - 1].name;
-    size_t prefix_len = 5 + strlen(peer_name) + 1; // "peer." + name + "."
+    size_t prefix_len = GOOSE_NS_PEER_LEN + strlen(peer_name) + 1; // "peer." + name + "."
 
     for (uint32_t i = 0; i < count; i++) {
         const char *entry_name = goonies_get_name_by_idx(i);
         if (!entry_name) continue;
-        if (strncmp(entry_name, "peer.", 5) != 0) continue;
-        if (strncmp(entry_name + 5, peer_name, strlen(peer_name)) != 0) continue;
-        if (entry_name[5 + strlen(peer_name)] != '.') continue;
+        if (strncmp(entry_name, GOOSE_NS_PEER, GOOSE_NS_PEER_LEN) != 0) continue;
+        if (strncmp(entry_name + GOOSE_NS_PEER_LEN, peer_name, strlen(peer_name)) != 0) continue;
+        if (entry_name[GOOSE_NS_PEER_LEN + strlen(peer_name)] != '.') continue;
 
         const char *remote_suffix = entry_name + prefix_len;
         if (fnv1a(remote_suffix) == name_hash) {
@@ -151,7 +151,7 @@ void goose_mmio_sync_recv(const uint8_t *src_mac, uint32_t name_hash, int8_t sta
                 goose_cell_t *cell = goose_fabric_get_cell_by_coord(coord);
                 if (cell && cell->peer_id == peer_idx) {
                     /* Security: reject writes to sys.* namespace */
-                    if (strncmp(remote_suffix, "sys.", 4) == 0) return;
+                    if (strncmp(remote_suffix, GOOSE_NS_SYS, GOOSE_NS_SYS_LEN) == 0) return;
                     cell->state = state;
                 }
             }
@@ -178,7 +178,7 @@ void goose_mmio_sync_staleness_check(void) {
         uint32_t count = goonies_get_count();
         for (uint32_t j = 0; j < count; j++) {
             const char *name = goonies_get_name_by_idx(j);
-            if (!name || strncmp(name, "peer.", 5) != 0) continue;
+            if (!name || strncmp(name, GOOSE_NS_PEER, GOOSE_NS_PEER_LEN) != 0) continue;
 
             reflex_tryte9_t coord;
             if (goonies_resolve(name, &coord) == REFLEX_OK) {

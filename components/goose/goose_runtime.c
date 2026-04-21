@@ -7,6 +7,7 @@
 #include "reflex_hal.h"
 #include "reflex_kv.h"
 #include "reflex_task.h"
+#include "reflex_tuning.h"
 #include <string.h>
 
 #ifdef CONFIG_ULP_COPROC_ENABLED
@@ -18,12 +19,12 @@ extern const uint8_t ulp_main_bin_end[]   asm("_binary_goose_ulp_bin_end");
 
 #define TAG "GOOSE_RUNTIME"
 
-#define GOOSE_FABRIC_MAX_CELLS 256
-#define GOOSE_LATTICE_BUCKETS 503
+/* Fabric limits now live in reflex_tuning.h:
+ * REFLEX_FABRIC_MAX_CELLS, REFLEX_LATTICE_BUCKETS */
 #define GOOSE_FABRIC_MAGIC    0xF11BFABE
 
-static REFLEX_RTC_DATA_ATTR goose_cell_t fabric_cells[GOOSE_FABRIC_MAX_CELLS];
-static REFLEX_RTC_DATA_ATTR int16_t lattice_index[GOOSE_LATTICE_BUCKETS];
+static REFLEX_RTC_DATA_ATTR goose_cell_t fabric_cells[REFLEX_FABRIC_MAX_CELLS];
+static REFLEX_RTC_DATA_ATTR int16_t lattice_index[REFLEX_LATTICE_BUCKETS];
 static REFLEX_RTC_DATA_ATTR uint32_t fabric_cell_count = 0;
 static REFLEX_RTC_DATA_ATTR uint32_t fabric_version = 0;
 static REFLEX_RTC_DATA_ATTR volatile bool lattice_stable = false;
@@ -34,7 +35,7 @@ typedef struct {
     reflex_tryte9_t coord;
 } goonies_entry_t;
 
-static goonies_entry_t goonies_registry[GOOSE_FABRIC_MAX_CELLS];
+static goonies_entry_t goonies_registry[REFLEX_FABRIC_MAX_CELLS];
 static uint32_t goonies_count = 0;
 
 static REFLEX_RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
@@ -42,15 +43,15 @@ static REFLEX_RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
 static uint32_t goose_lattice_hash(reflex_tryte9_t coord) {
     uint32_t hash = 0;
     for (int i = 0; i < 9; i++) { hash = (hash * 3) + (uint32_t)(coord.trits[i] + 1); }
-    return hash % GOOSE_LATTICE_BUCKETS;
+    return hash % REFLEX_LATTICE_BUCKETS;
 }
 
 reflex_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
-    if (goonies_count >= GOOSE_FABRIC_MAX_CELLS) return REFLEX_ERR_NO_MEM;
+    if (goonies_count >= REFLEX_FABRIC_MAX_CELLS) return REFLEX_ERR_NO_MEM;
     if (!name || strlen(name) < 3) return REFLEX_ERR_INVALID_ARG;
     uint32_t s_addr, s_mask; reflex_tryte9_t s_coord; goose_cell_type_t s_type;
     bool in_shadow = (goose_shadow_resolve(name, &s_addr, &s_mask, &s_coord, &s_type) == REFLEX_OK);
-    bool is_protected = (strncmp(name, "sys.", 4) == 0 || strncmp(name, "agency.", 7) == 0 || in_shadow);
+    bool is_protected = (strncmp(name, GOOSE_NS_SYS, GOOSE_NS_SYS_LEN) == 0 || strncmp(name, GOOSE_NS_AGENCY, GOOSE_NS_AGENCY_LEN) == 0 || in_shadow);
     for (uint32_t i = 0; i < goonies_count; i++) {
         if (strcmp(goonies_registry[i].name, name) == 0) {
             if (is_protected && !is_system_weaving) { return REFLEX_ERR_INVALID_STATE; }
@@ -84,14 +85,14 @@ goose_cell_t* goonies_resolve_cell(const char *name) {
     if (!name) return NULL;
     reflex_tryte9_t coord;
     if (goonies_resolve(name, &coord) == REFLEX_OK) { return goose_fabric_get_cell_by_coord(coord); }
-    if (strncmp(name, "peer.", 5) == 0) {
+    if (strncmp(name, GOOSE_NS_PEER, GOOSE_NS_PEER_LEN) == 0) {
         extern reflex_err_t goose_atmosphere_query(const char *name);
         goose_atmosphere_query(name);
         static int ghost_counter = 0;
         reflex_tryte9_t g_coord = goose_make_coord(5, 0, (int8_t)ghost_counter++);
         goose_cell_t *phantom = goose_fabric_alloc_cell(name, g_coord, false);
         if (phantom) {
-            const char *after_peer = name + 5;
+            const char *after_peer = name + GOOSE_NS_PEER_LEN;
             const char *dot = strchr(after_peer, '.');
             if (dot) {
                 char peer_name[12] = {0};
@@ -144,7 +145,7 @@ bool goose_loom_try_lock(goose_field_t *field) {
             if (field) field->stats.lock_contention_cycles += LOOM_LOCK_TIMEOUT_CYCLES;
             s_contention_count++;
             uint64_t now = reflex_hal_time_us();
-            if (now - s_last_log_us > 5000000) {
+            if (now - s_last_log_us > REFLEX_REPLAY_WINDOW_US) {
                 REFLEX_LOGW(TAG, "LOOM_CONTENTION_FAULT site=%s deferred (%lu in last 5s)",
                          field ? field->name : "alloc",
                          (unsigned long)s_contention_count);
@@ -213,11 +214,11 @@ reflex_err_t goose_fabric_init(void) {
     if (cold_boot) {
         fabric_cell_count = 0;
         fabric_version = 0;
-        for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
+        for (int i = 0; i < REFLEX_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
         fabric_version = 1;
         fabric_magic = GOOSE_FABRIC_MAGIC;
     } else {
-        for (int i = 0; i < GOOSE_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
+        for (int i = 0; i < REFLEX_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
         for (uint32_t i = 0; i < fabric_cell_count; i++) { lattice_index[goose_lattice_hash(fabric_cells[i].coord)] = i; }
     }
     lattice_stable = true;
@@ -288,11 +289,11 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
         return NULL;
     }
     uint32_t idx = 0;
-    if (fabric_cell_count < GOOSE_FABRIC_MAX_CELLS) { idx = fabric_cell_count++; }
+    if (fabric_cell_count < REFLEX_FABRIC_MAX_CELLS) { idx = fabric_cell_count++; }
     else {
         bool found = false;
-        for (int i = 0; i < GOOSE_FABRIC_MAX_CELLS; i++) {
-            uint32_t target = (last_eviction_idx + i) % GOOSE_FABRIC_MAX_CELLS;
+        for (int i = 0; i < REFLEX_FABRIC_MAX_CELLS; i++) {
+            uint32_t target = (last_eviction_idx + i) % REFLEX_FABRIC_MAX_CELLS;
             if (fabric_cells[target].type != GOOSE_CELL_PINNED &&
                 fabric_cells[target].type != GOOSE_CELL_SYSTEM_ONLY &&
                 fabric_cells[target].type != GOOSE_CELL_PURPOSE) {
@@ -301,7 +302,7 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
                         goonies_registry[g] = goonies_registry[--goonies_count]; break;
                     }
                 }
-                idx = target; last_eviction_idx = (target + 1) % GOOSE_FABRIC_MAX_CELLS; found = true; break;
+                idx = target; last_eviction_idx = (target + 1) % REFLEX_FABRIC_MAX_CELLS; found = true; break;
             }
         }
         if (!found) { reflex_critical_exit(&fabric_mux); goose_loom_unlock(); return NULL; }
@@ -338,7 +339,7 @@ goose_field_t* goose_fabric_find_field_by_name_hash(uint32_t hash) {
 
 goose_cell_t* goonies_resolve_by_capability(const char *suffix) {
     if (!suffix) return NULL;
-    const char* trusted_zones[] = {"agency.", "perception.", "sys."};
+    const char* trusted_zones[] = {GOOSE_NS_AGENCY, "perception.", GOOSE_NS_SYS};
     for (int p = 0; p < 3; p++) {
         for (uint32_t i = 0; i < goonies_count; i++) {
             const char *name = goonies_registry[i].name;
@@ -369,7 +370,7 @@ static bool name_contains_domain(const char *name, const char *domain) {
 
 static goose_cell_t* goonies_resolve_by_capability_in_domain(const char *suffix, const char *domain) {
     if (!suffix || !domain || !domain[0]) return NULL;
-    const char* trusted_zones[] = {"agency.", "perception.", "sys."};
+    const char* trusted_zones[] = {GOOSE_NS_AGENCY, "perception.", GOOSE_NS_SYS};
     for (int p = 0; p < 3; p++) {
         for (uint32_t i = 0; i < goonies_count; i++) {
             const char *name = goonies_registry[i].name;
@@ -417,8 +418,8 @@ reflex_err_t goose_supervisor_weave_sync(void) {
             }
         }
         if (!need_name) continue;
-        bool is_trusted_need = (strncmp(need_name, "sys.", 4) == 0 ||
-                                strncmp(need_name, "agency.", 7) == 0);
+        bool is_trusted_need = (strncmp(need_name, GOOSE_NS_SYS, GOOSE_NS_SYS_LEN) == 0 ||
+                                strncmp(need_name, GOOSE_NS_AGENCY, GOOSE_NS_AGENCY_LEN) == 0);
         if (!is_trusted_need) continue;
 
         const char *suffix = strrchr(need_name, '.');
@@ -610,8 +611,8 @@ static reflex_err_t internal_process_transitions(goose_field_t *field, int depth
             int8_t new_state = (int8_t)((int)r->cached_source->state * (int)control);
             if (r->cached_sink->peer_id != 0) {
                 const char *sink_name = goonies_resolve_name_by_coord(r->sink_coord);
-                if (sink_name && strncmp(sink_name, "peer.", 5) == 0) {
-                    const char *dot = strchr(sink_name + 5, '.');
+                if (sink_name && strncmp(sink_name, GOOSE_NS_PEER, GOOSE_NS_PEER_LEN) == 0) {
+                    const char *dot = strchr(sink_name + GOOSE_NS_PEER_LEN, '.');
                     if (dot) {
                         r->cached_sink->state = new_state;
                         extern reflex_err_t goose_mmio_sync_emit(goose_cell_t *, const char *);

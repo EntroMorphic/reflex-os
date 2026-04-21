@@ -8,6 +8,7 @@
 #include "reflex_kv.h"
 #include "reflex_radio.h"
 #include "reflex_crypto.h"
+#include "reflex_tuning.h"
 #include <string.h>
 
 #define TAG "GOOSE_ATMOSPHERE"
@@ -95,40 +96,39 @@ int32_t swarm_accumulator = 0;
 static goose_mesh_stats_t mesh_stats;
 
 goose_mesh_stats_t goose_atmosphere_get_stats(void) { return mesh_stats; }
-#define SWARM_THRESHOLD 10
-#define SWARM_ACCUM_MAX 100
-#define SWARM_WEIGHT_MAX 4  /* Cap per-packet posture weight so a single rogue
-                             * peer cannot cross SWARM_THRESHOLD alone.
-                             * threshold=10, weight_max=4 → minimum 3 packets
-                             * from cooperating peers to flip posture. */
+/* Swarm constants now live in reflex_tuning.h:
+ * REFLEX_SWARM_THRESHOLD, REFLEX_SWARM_ACCUM_MAX, REFLEX_SWARM_WEIGHT_MAX
+ * Cap per-packet posture weight so a single rogue peer cannot cross
+ * REFLEX_SWARM_THRESHOLD alone. threshold=10, weight_max=4 -> minimum
+ * 3 packets from cooperating peers to flip posture. */
 
 /* Replay cache: reject packets whose (src_mac, nonce) pair has been seen
- * within REPLAY_WINDOW_US. 64-slot direct-mapped ring hashed over nonce
+ * within REFLEX_REPLAY_WINDOW_US. 64-slot direct-mapped ring hashed over nonce
  * and the trailing MAC bytes so two peers with colliding nonce low bits
  * land in different slots. Entries older than the window are treated as
  * empty and overwritten; entries within the window match only on exact
  * (mac, nonce) equality. */
-#define REPLAY_CACHE_SLOTS 64
-#define REPLAY_WINDOW_US   (5 * 1000 * 1000ULL)  /* 5 seconds */
+/* Replay constants now live in reflex_tuning.h:
+ * REFLEX_REPLAY_CACHE_SLOTS, REFLEX_REPLAY_WINDOW_US */
 
 typedef struct {
     uint8_t mac[6];
     uint32_t nonce;
     uint64_t last_us;
 } replay_entry_t;
-static replay_entry_t replay_cache[REPLAY_CACHE_SLOTS];
+static replay_entry_t replay_cache[REFLEX_REPLAY_CACHE_SLOTS];
 
 static inline uint32_t replay_slot_index(uint32_t nonce, const uint8_t *mac) {
     /* Blend nonce bits with the last two MAC bytes (least likely to be
      * shared across peers on a local mesh) so cross-peer slot collisions
      * are rare even when nonce low bits align. */
     uint32_t h = nonce ^ ((uint32_t)mac[4] << 16) ^ ((uint32_t)mac[5] << 8);
-    return h & (REPLAY_CACHE_SLOTS - 1);
+    return h & (REFLEX_REPLAY_CACHE_SLOTS - 1);
 }
 
 static bool replay_seen_or_record(const uint8_t *src_mac, uint32_t nonce, uint64_t now_us) {
     replay_entry_t *e = &replay_cache[replay_slot_index(nonce, src_mac)];
-    bool within_window = (e->last_us != 0) && (now_us - e->last_us < REPLAY_WINDOW_US);
+    bool within_window = (e->last_us != 0) && (now_us - e->last_us < REFLEX_REPLAY_WINDOW_US);
     if (within_window && e->nonce == nonce && memcmp(e->mac, src_mac, 6) == 0) {
         return true;  /* duplicate inside the guard window */
     }
@@ -277,16 +277,16 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
         mesh_stats.rx_posture++;
         // Weight cap enforced on receive (sender cannot override).
         uint8_t wire_weight = (uint8_t)(arc->nonce & 0x0F);
-        if (wire_weight > SWARM_WEIGHT_MAX) wire_weight = SWARM_WEIGHT_MAX;
+        if (wire_weight > REFLEX_SWARM_WEIGHT_MAX) wire_weight = REFLEX_SWARM_WEIGHT_MAX;
         int32_t delta = (int32_t)arc->state * (int32_t)wire_weight;
         swarm_accumulator += delta;
-        if (swarm_accumulator > SWARM_ACCUM_MAX) swarm_accumulator = SWARM_ACCUM_MAX;
-        if (swarm_accumulator < -SWARM_ACCUM_MAX) swarm_accumulator = -SWARM_ACCUM_MAX;
+        if (swarm_accumulator > REFLEX_SWARM_ACCUM_MAX) swarm_accumulator = REFLEX_SWARM_ACCUM_MAX;
+        if (swarm_accumulator < -REFLEX_SWARM_ACCUM_MAX) swarm_accumulator = -REFLEX_SWARM_ACCUM_MAX;
 
         goose_cell_t *posture_cell = goonies_resolve_cell("sys.swarm.posture");
         if (posture_cell) {
-            if (swarm_accumulator >= SWARM_THRESHOLD) posture_cell->state = 1;
-            else if (swarm_accumulator <= -SWARM_THRESHOLD) posture_cell->state = -1;
+            if (swarm_accumulator >= REFLEX_SWARM_THRESHOLD) posture_cell->state = 1;
+            else if (swarm_accumulator <= -REFLEX_SWARM_THRESHOLD) posture_cell->state = -1;
             else posture_cell->state = 0;
         }
     }
@@ -356,7 +356,7 @@ reflex_err_t goose_atmosphere_emit_sync_arc(uint32_t name_hash, int8_t state) {
 
 reflex_err_t goose_atmosphere_emit_posture(int8_t state, uint8_t weight) {
     /* Emit-side cap (defense in depth; receive-side also clamps). */
-    if (weight > SWARM_WEIGHT_MAX) weight = SWARM_WEIGHT_MAX;
+    if (weight > REFLEX_SWARM_WEIGHT_MAX) weight = REFLEX_SWARM_WEIGHT_MAX;
     uint32_t nonce = (uint32_t)reflex_hal_time_us() & 0xFFFFFFF0;
     nonce |= (weight & 0x0F);
     goose_arc_packet_t arc = {
