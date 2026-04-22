@@ -91,6 +91,10 @@ reflex_err_t goose_atlas_manifest_weave(void) {
                 else if (strcmp(node->zone, "agency") == 0) type = GOOSE_CELL_HARDWARE_OUT;
                 else if (strcmp(node->zone, "sys") == 0 || strcmp(node->zone, "logic") == 0) {
                     type = GOOSE_CELL_SYSTEM_ONLY;
+                } else if (strcmp(node->zone, "comm") == 0) {
+                    type = GOOSE_CELL_HARDWARE_OUT;  // bidirectional peripherals (UART, I2C, SPI, USB)
+                } else if (strcmp(node->zone, "radio") == 0) {
+                    type = GOOSE_CELL_SYSTEM_ONLY;   // protected radio hardware (WiFi, BLE)
                 }
 
                 // Map to physical agency (Sanctuary Guarded)

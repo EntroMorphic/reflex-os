@@ -22,7 +22,7 @@ extern const uint8_t ulp_main_bin_end[]   asm("_binary_goose_ulp_bin_end");
 
 /* Fabric limits now live in reflex_tuning.h:
  * REFLEX_FABRIC_MAX_CELLS, REFLEX_LATTICE_BUCKETS */
-#define GOOSE_FABRIC_MAGIC    0xF11BFABE
+#define GOOSE_FABRIC_MAGIC    0xF11BFABF  /* Bumped: atlas coord offset + type fixes */
 
 static REFLEX_RTC_DATA_ATTR goose_cell_t fabric_cells[REFLEX_FABRIC_MAX_CELLS];
 static REFLEX_RTC_DATA_ATTR int16_t lattice_index[REFLEX_LATTICE_BUCKETS];
@@ -289,7 +289,7 @@ uint32_t goose_fabric_get_eviction_count(void) { return s_eviction_count; }
 void goose_fabric_get_eviction_ring(char buf[][40], size_t *count) {
     *count = s_eviction_count < EVICTION_RING_SIZE ? s_eviction_count : EVICTION_RING_SIZE;
     for (size_t i = 0; i < *count; i++) {
-        size_t idx = (s_eviction_ring_idx - *count + i) % EVICTION_RING_SIZE;
+        size_t idx = (s_eviction_ring_idx + EVICTION_RING_SIZE - *count + i) % EVICTION_RING_SIZE;
         memcpy(buf[i], s_eviction_ring[idx], 40);
     }
 }

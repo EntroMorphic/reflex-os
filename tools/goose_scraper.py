@@ -53,6 +53,10 @@ def scrape_svd(svd_path, zones_path, output_path):
                 node_type = "GOOSE_CELL_HARDWARE_OUT"
             elif zone in ["sys", "logic"]:
                 node_type = "GOOSE_CELL_SYSTEM_ONLY"
+            elif zone == "comm":
+                node_type = "GOOSE_CELL_HARDWARE_OUT"
+            elif zone == "radio":
+                node_type = "GOOSE_CELL_SYSTEM_ONLY"
 
             gname = f"{zone}.{p_name.lower()}.{r_name.lower()}"
             shadow_nodes.append(
