@@ -665,6 +665,19 @@ static reflex_err_t internal_process_transitions(goose_field_t *field, int depth
             r->cached_version = fabric_version;
         }
         if (!r->cached_source || !r->cached_sink) continue;
+        /* HARDWARE_IN sampling: read live register/GPIO into the source cell
+         * before route evaluation uses it. This is the perception path —
+         * the fabric observes actual hardware state, not stale cache. */
+        if (r->cached_source->type == GOOSE_CELL_HARDWARE_IN && r->cached_source->hardware_addr) {
+            uint32_t hw = r->cached_source->hardware_addr;
+            if (hw > 0 && hw < 32) {
+                r->cached_source->state = reflex_hal_gpio_get_level(hw) ? 1 : -1;
+            } else if (hw >= 0x60000000) {
+                volatile uint32_t *reg = (volatile uint32_t *)hw;
+                uint32_t mask = r->cached_source->bit_mask ? r->cached_source->bit_mask : 0xFFFFFFFF;
+                r->cached_source->state = (*reg & mask) ? 1 : -1;
+            }
+        }
         if (r->cached_source->type == GOOSE_CELL_FIELD_PROXY) {
             /* Projection: parent samples a single "success trit" from child.
              * Uses routes[0] as the designated projection route per

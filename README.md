@@ -88,6 +88,7 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `led status` | Query the physical LED state |
 | `goonies ls` | List the hierarchical hardware DNS registry |
 | `goonies find <name>` | Resolve a name: live registry first, then fall through to the 9527-entry shadow catalog. Output is labeled `[live]` or `[shadow]`. |
+| `goonies read <name>` | Read the live MMIO register value for a named hardware cell. Shows raw hex, masked hex, and ternary state. Works on live cells, shadow entries, and GPIO pins. |
 | `atlas verify` | Walk the entire SVD-documented MMIO shadow catalog (full round-trip + duplicate sweep). Prints progress dots; reports `ok=N/N, duplicates=D, failures=F`. |
 | `temp` | Read the internal die temperature (ternary state: cold/normal/warm) |
 | `purpose set <name>` | Declare the current operating purpose; persists name to NVS. Amplifies Hebbian plasticity and biases `weave_sync` routing toward the named domain. |

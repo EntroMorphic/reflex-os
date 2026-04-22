@@ -646,7 +646,7 @@ static void shell_cmd_help(int argc, char *argv[]) {
     (void)argc; (void)argv;
     printf("system:  help, reboot, sleep <s>, status, services, config <get|set>\n");
     printf("led:     led <on|off|status>\n");
-    printf("fabric:  goonies <ls|find name>, atlas verify, temp, heartbeat\n");
+    printf("fabric:  goonies <ls|find|read name>, atlas verify, temp, heartbeat\n");
     printf("purpose: purpose <set name|get|clear>\n");
     printf("learn:   snapshot <save|load|clear>\n");
     printf("mesh:    mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n");
@@ -690,9 +690,46 @@ static void shell_cmd_sleep(int argc, char *argv[]) {
     reflex_hal_sleep_enter((uint64_t)secs * 1000000ULL);
 }
 
+static void shell_cmd_goonies_read(const char *name) {
+    /* Try live cell first (may page in from shadow). */
+    goose_cell_t *cell = goonies_resolve_cell(name);
+    if (cell && cell->hardware_addr >= 0x60000000) {
+        volatile uint32_t *reg = (volatile uint32_t *)cell->hardware_addr;
+        uint32_t mask = cell->bit_mask ? cell->bit_mask : 0xFFFFFFFF;
+        uint32_t raw = *reg;
+        uint32_t masked = raw & mask;
+        printf("%s addr=0x%08lx raw=0x%08lx masked=0x%08lx ternary=%d\n",
+               name, (unsigned long)cell->hardware_addr,
+               (unsigned long)raw, (unsigned long)masked,
+               masked ? 1 : -1);
+        return;
+    }
+    if (cell && cell->hardware_addr > 0 && cell->hardware_addr < 32) {
+        int level = reflex_hal_gpio_get_level(cell->hardware_addr);
+        printf("%s gpio=%lu level=%d ternary=%d\n",
+               name, (unsigned long)cell->hardware_addr, level, level ? 1 : -1);
+        return;
+    }
+    /* Try shadow-only (no cell allocation). */
+    uint32_t addr, mask;
+    reflex_tryte9_t coord;
+    goose_cell_type_t type;
+    if (goose_shadow_resolve(name, &addr, &mask, &coord, &type) == REFLEX_OK && addr >= 0x60000000) {
+        volatile uint32_t *reg = (volatile uint32_t *)addr;
+        uint32_t raw = *reg;
+        uint32_t masked = raw & mask;
+        printf("%s addr=0x%08lx raw=0x%08lx masked=0x%08lx ternary=%d [shadow]\n",
+               name, (unsigned long)addr, (unsigned long)raw, (unsigned long)masked,
+               masked ? 1 : -1);
+        return;
+    }
+    printf("cannot read: %s (not a hardware register)\n", name);
+}
+
 static void shell_cmd_goonies(int argc, char *argv[]) {
     if (argc >= 2 && strcmp(argv[1], "ls") == 0) reflex_shell_loom_list();
     else if (argc >= 3 && strcmp(argv[1], "find") == 0) reflex_shell_goonies_find(argv[2]);
+    else if (argc >= 3 && strcmp(argv[1], "read") == 0) shell_cmd_goonies_read(argv[2]);
 }
 
 static void shell_cmd_atlas(int argc, char *argv[]) {
