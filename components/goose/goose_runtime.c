@@ -332,7 +332,9 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
             uint32_t target = (last_eviction_idx + i) % REFLEX_FABRIC_MAX_CELLS;
             if (fabric_cells[target].type != GOOSE_CELL_PINNED &&
                 fabric_cells[target].type != GOOSE_CELL_SYSTEM_ONLY &&
-                fabric_cells[target].type != GOOSE_CELL_PURPOSE) {
+                fabric_cells[target].type != GOOSE_CELL_PURPOSE &&
+                fabric_cells[target].type != GOOSE_CELL_HARDWARE_IN &&
+                fabric_cells[target].type != GOOSE_CELL_HARDWARE_OUT) {
                 for (uint32_t g = 0; g < goonies_count; g++) {
                     if (goose_coord_equal(goonies_registry[g].coord, fabric_cells[target].coord)) {
                         TELEM_IF(goose_telem_evict(goonies_registry[g].name));

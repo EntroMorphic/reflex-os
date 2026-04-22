@@ -77,9 +77,10 @@ reflex_err_t goose_atlas_manifest_weave(void) {
             // Format: zone.peripheral.register (e.g. agency.rmt.conf)
             snprintf(gname, sizeof(gname), "%s.%s.%s", node->zone, node->subzone, reg_names[r]);
             
-            // Generate a deterministic coordinate based on index to ensure stability
-            // field = i (mapped to -2..5 range eventually), region = r
-            reflex_tryte9_t coord = goose_make_coord((int8_t)i, (int8_t)r, 0);
+            // Generate a deterministic coordinate based on index.
+            // Offset field by +5 to avoid collision with seed cells at
+            // (0,0,0) sys.origin, (0,0,1) agency.led.intent, (0,0,2) sys.purpose.
+            reflex_tryte9_t coord = goose_make_coord((int8_t)(i + 5), (int8_t)r, 0);
             
             goose_cell_t *c = goose_fabric_alloc_cell(gname, coord, true);
             if (c) {
