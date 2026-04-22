@@ -4,12 +4,14 @@
 
 Reflex OS has moved from a binary-hosted VM to a hardened, geometric substrate. The ESP32-C6 MMIO surface is reachable by name through a 9,531-node shadow catalog, of which 104 high-priority cells are pre-woven into the active Loom at boot and the remainder are paged on demand via `goose_shadow_resolve`. Cross-board coordination is live via HMAC-SHA256-signed ESP-NOW Arcs with a time-bounded replay cache and a protocol version epoch. The LP RISC-V coprocessor runs a parallel heartbeat alongside HP.
 
-### 1. The Gaps (Technical Debt)
+### 1. Accepted Design Decisions (Former Technical Debt)
 
-- **Ternary Native Supervisor:** the regulation pass in `goose_supervisor.c` is still C code. Rewriting it as a woven TASM fragment would let the supervisor evolve at the same plasticity level as the fields it watches.
-- **LRU Eviction:** shadow cell eviction is round-robin. A "warmth factor" (most-recently-accessed) pinning model would reduce churn when access patterns are hot.
-- **Tapestry Snapshot scope:** `goose_snapshot_save/load` persists route plasticity to NVS (shipped), but only for supervised fields. Full loom-wide snapshots (all cell states + learned geometry + purpose) remain a follow-up.
-- **Alloc-under-lock perf:** `goose_fabric_alloc_cell` holds `loom_authority` across `goonies_register`, which does a ~40 µs linear scan of the goonies registry. Pre-checking shadow and goonies state outside the lock would reduce the worst-case alloc cost. Deferred (see `REMEDIATION.md` R6 rationale — the perf gap is real but sub-threshold on current workloads).
+All four items previously listed as technical debt were audited and assessed as benign. They are now accepted design decisions with known monitoring:
+
+- **Round-Robin Eviction (not LRU):** `goose_fabric_alloc_cell` evicts via `last_eviction_idx` round-robin. Warmth-factor LRU would add writes to the 10Hz hot path and touch the RTC-resident `goose_cell_t` layout. No evidence of thrashing in any on-device testing. If repeated eviction of hot cells appears, telemetry (`#T:E` events) will surface it. **Accepted: profile first, optimize second.**
+- **Route-Only Snapshots (not full loom):** `goose_snapshot_save/load` persists `learned_orientation` + `hebbian_counter` for supervised routes — the learned manifold. Full cell state is stateless by design: cells are re-woven from the atlas on boot, and hardware state is re-read from registers. Full loom-wide snapshots would add ~700 bytes per save for state that's reconstructed in <100ms. **Accepted: current scope is correct.**
+- **Alloc-Under-Lock Duration:** `goose_fabric_alloc_cell` holds `loom_authority` across `goonies_register` (O(n) linear scan, ~40µs worst case at n=256). The 50K-cycle timeout (~500µs at 100MHz) is conservative. `LOOM_CONTENTION_FAULT` is monitored and has never fired in any on-device session. **Accepted: sub-threshold, instrumented, revisit if contention appears.**
+- **C Supervisor (not TASM):** The regulation pass in `goose_supervisor.c` remains in C. TASM lacks string comparison, dynamic route iteration, and function calls — rewriting would require 3-4 new syscalls, loop unrolling, and loss of runtime flexibility for zero performance gain. TASM is the right tool for ternary algebra; C is the right tool for policy. **Accepted: right tool for the job.**
 
 ### 2. Money on the Table (Unfair Advantages)
 

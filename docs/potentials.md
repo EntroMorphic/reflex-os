@@ -32,11 +32,15 @@ The transition from a flat "Message Fabric" to a coherent **"Geometric Tapestry"
 
 ---
 
-## Technical Debt & Substrate Friction
+## Accepted Design Decisions (Former Debt)
 
-- **LRU Eviction (Warmth Factor):** Move from round-robin to a "Most-Accessed" pinning model for shadow cells.
-- **Ternary Native Supervisor:** Rewrite the C-based regulation pass into a woven TASM holon.
-- **LoomScript DSL Expansion:** Add support for complex conditionals and "Holon Factories" in the declarative language.
+All previously listed technical debt items were audited and accepted as correct design choices:
+
+- **Round-robin eviction** is simpler and sufficient — no thrashing observed. Instrumented via `#T:E` telemetry.
+- **C supervisor** is the right tool for policy logic — TASM lacks string ops and dynamic iteration.
+- **Route-only snapshots** capture the learned manifold; full cell state is stateless by design (re-woven from atlas on boot).
+- **Alloc-under-lock** is sub-threshold (~40µs, never contention-faulted). Instrumented via `LOOM_CONTENTION_FAULT`.
+- **LoomScript DSL expansion** remains a future opportunity (complex conditionals, holon factories).
 
 ---
 

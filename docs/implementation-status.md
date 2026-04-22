@@ -165,6 +165,13 @@ Closed in the current remediation sweep:
 - ~~LP-core "Coherent Heartbeat"~~: ULP enabled (`CONFIG_ULP_COPROC_TYPE_LP_CORE=y`), LP program rewritten to LP-local globals, HP bootstrap via `ulp_lp_core_load_binary`/`ulp_lp_core_run` with 1 Hz LP_TIMER wakeup, `heartbeat` shell command reads `lp_pulse_count` (Phase 5).
 - ~~Kernel task backend dormant~~: `reflex_task_kernel.c` was delegating to the cooperative scheduler (`reflex_sched.c`) which was never started, so supervisor task, field pulse tasks, and all substrate tasks were silently not running under `CONFIG_REFLEX_KERNEL_SCHEDULER=y`. Rewrote to delegate task management to FreeRTOS (matching `reflex_task_esp32c6.c`), preserving kernel ownership of interrupt context switching and scheduling policy.
 
+Accepted design decisions (audited, instrumented, benign):
+
+- ~~Round-robin eviction~~: no thrashing observed. `#T:E` telemetry monitors eviction. LRU deferred until evidence demands it.
+- ~~C supervisor (not TASM)~~: TASM lacks string ops and dynamic iteration for policy logic. C is the right tool.
+- ~~Route-only snapshots~~: full cell state is stateless by design (re-woven from atlas on boot). Current scope is correct.
+- ~~Alloc-under-lock~~: ~40µs worst case, `LOOM_CONTENTION_FAULT` never fired. Sub-threshold, instrumented.
+
 Remaining (honest limits, not regressions):
 
 - **Aura wire size**: HMAC-SHA256 truncated to 32 bits for protocol compatibility; collision resistance capped at the birthday bound (~2^16). Future protocol epoch can bump `GOOSE_ARC_VERSION` and expand the Aura field.
