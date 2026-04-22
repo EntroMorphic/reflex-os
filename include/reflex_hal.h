@@ -83,6 +83,9 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle);
 void reflex_hal_log(int level, const char *tag, const char *fmt, ...)
     __attribute__((format(printf, 3, 4)));
 
+/** Direct serial write bypassing stdio buffering. Used by telemetry. */
+void reflex_hal_write_raw(const char *data, int len);
+
 #define REFLEX_LOGE(tag, fmt, ...) reflex_hal_log(REFLEX_LOG_LEVEL_ERROR, tag, fmt, ##__VA_ARGS__)
 #define REFLEX_LOGW(tag, fmt, ...) reflex_hal_log(REFLEX_LOG_LEVEL_WARN,  tag, fmt, ##__VA_ARGS__)
 #define REFLEX_LOGI(tag, fmt, ...) reflex_hal_log(REFLEX_LOG_LEVEL_INFO,  tag, fmt, ##__VA_ARGS__)

@@ -38,6 +38,7 @@ Reflex OS reinterprets physical hardware as a coherent **Geometric Tapestry**, r
 - **Coherent Heartbeat** — LP RISC-V coprocessor mirroring intent state at 1Hz across the RTC boundary.
 - **Autonomous Learning** — The OS generates its own reward/pain signals by evaluating purpose fulfillment. No manual input needed.
 - **Mesh Auto-Discovery** — Boards sharing an Aura key find each other automatically via `ARC_OP_DISCOVER` heartbeats.
+- **Loom Viewer** — Real-time substrate visualization via Rerun.io. Push-based telemetry streams topology, plasticity, and mesh events to a graphical viewer with zero polling overhead.
 
 ## Hardware
 
@@ -113,6 +114,18 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `services` | List registered services |
 | `config <get\|set>` | Persistence management |
 | `bonsai <experiment>` | Run one of the in-tree bonsai experiments — see `bonsai/EXPERIMENT-*.md` |
+| `telemetry <on\|off>` | Enable/disable real-time substrate telemetry streaming to the host |
+
+## Loom Viewer (Substrate Visualization)
+
+Real-time visualization of the GOOSE substrate via [Rerun.io](https://rerun.io):
+
+```bash
+pip install rerun-sdk pyserial
+python tools/loom_viewer.py /dev/cu.usbmodem1101
+```
+
+The viewer connects to the board, enables telemetry, and renders the live substrate topology (cells as nodes, routes as edges), Hebbian plasticity time series, mesh arc events, and supervisor equilibrium — all push-based with no polling.
 
 ## Documentation
 

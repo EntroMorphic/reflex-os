@@ -70,6 +70,16 @@ An autonomic regulation pass in `goose_supervisor.c`. The supervisor runs on a 1
 ### 7. Coherent Heartbeat (LP RISC-V)
 A parallel heartbeat program running on the ESP32-C6 LP coprocessor (`components/goose/ulp/lp_pulse.c`). Loaded and started from `goose_lp_heartbeat_init` at boot; HP mirrors `agency.led.intent` state into `ulp_lp_led_intent` each supervisor pulse via `goose_lp_heartbeat_sync`. LP ticks at ~1 Hz via `ULP_LP_CORE_WAKEUP_SOURCE_LP_TIMER` and increments `ulp_lp_pulse_count`, which HP reads via the `heartbeat` shell command as a liveness indicator.
 
+### 8. Loom Viewer (Substrate Visualization — Phase 30)
+Real-time visualization of the GOOSE substrate via [Rerun.io](https://rerun.io). The architecture is push-based: the firmware emits structured telemetry lines (`#T:`-prefixed) on serial as state mutations occur. The host bridge (`tools/loom_viewer.py`) reads the serial stream, parses events, and logs them to Rerun for rendering.
+
+- **Telemetry gate:** `goose_telemetry_enabled` (volatile bool, default false). The `TELEM_IF()` macro wraps every hook — cost when disabled is a single branch-not-taken (~2 cycles on RISC-V).
+- **Delta compression:** hot-path hooks (10Hz route evaluation) only emit when state actually changes.
+- **Event types:** cell state change (`C`), route sink write (`R`), Hebbian update (`H`), weave (`W`), alloc/evict (`A`/`E`), supervisor equilibrium (`B`), mesh arc (`M`), purpose (`P`), autonomous evaluation (`V`).
+- **Rerun mapping:** cells as `GraphNodes` (color by type), routes as `GraphEdges` (color by coupling), Hebbian counters and system balance as `Scalars`, mesh events and lifecycle as `TextLog`.
+- **Shell command:** `telemetry on/off` toggles emission. The Loom Viewer sends this automatically on connect.
+- **Source:** `goose_telemetry.h` (gate macro + declarations), `goose_telemetry.c` (emitters), `tools/loom_viewer.py` (host bridge).
+
 ## Module Layout
 
 ## `components/goose/`
@@ -79,6 +89,7 @@ The core GOOSE implementation.
 - `goose_atmosphere.c`: ESP-NOW atmospheric mesh — HMAC-SHA256 Aura, replay cache, protocol epoch, self-arc suppression, posture weight cap, mesh RX stats.
 - `goose_atlas.c`: the Root Zone — 26 peripheral categories × 4 register channels = 104 pre-woven atlas cells.
 - `goose_shadow_atlas.c`: SVD-generated shadow catalog of 9,527 additional MMIO nodes, paged in on demand via `goose_shadow_resolve`.
+- `goose_telemetry.c`: push-based telemetry emitters for the Loom Viewer; `#T:`-prefixed serial lines gated by `goose_telemetry_enabled`.
 - `goose_gateway.c`: legacy message bridge between the fabric and GOOSE cell state.
 - `goose_library.c`: LoomScript binary loader (`.loom` format, magic `LOOM`).
 - `goose_dma.c`, `goose_etm.c`: scaffold bridges for Geometric Flow (GDMA) and Silicon Agency (ETM).

@@ -36,6 +36,7 @@
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
 #include "goose.h"
+#include "goose_telemetry.h"
 #include "programs.h"
 
 #define REFLEX_SHELL_LINE_MAX 1024
@@ -651,6 +652,7 @@ static void shell_cmd_help(int argc, char *argv[]) {
     printf("vm:      vm <info|run name|stop|list|loadhex hex>\n");
     printf("aura:    aura setkey <32 hex chars>\n");
     printf("bonsai:  bonsai <exp1|exp2|exp3a|exp4|exp5|runtime> <start|status|...>\n");
+    printf("telem:   telemetry <on|off>  (stream substrate state to host)\n");
 }
 
 static void shell_cmd_status(int argc, char *argv[]) {
@@ -767,6 +769,7 @@ static void shell_cmd_purpose(int argc, char *argv[]) {
             p->type = GOOSE_CELL_PURPOSE;
             p->state = 1;
             goose_purpose_set_name(argv[2]);
+            TELEM_IF(goose_telem_purpose(argv[2]));
             printf("purpose: active, name=\"%s\" (persisted to NVS)\n", goose_purpose_get_name());
         } else {
             printf("purpose set: failed to allocate cell\n");
@@ -783,6 +786,7 @@ static void shell_cmd_purpose(int argc, char *argv[]) {
         goose_cell_t *p = goonies_resolve_cell("sys.purpose");
         if (p) p->state = 0;
         goose_purpose_clear();
+        TELEM_IF(goose_telem_purpose(NULL));
         printf("purpose: cleared\n");
     } else {
         printf("purpose <set name|get|clear>\n");
@@ -946,6 +950,18 @@ static void shell_cmd_vm(int argc, char *argv[]) {
     }
 }
 
+static void shell_cmd_telemetry(int argc, char *argv[]) {
+    if (argc >= 2 && strcmp(argv[1], "on") == 0) {
+        goose_telemetry_enabled = true;
+        printf("telemetry: enabled\n");
+    } else if (argc >= 2 && strcmp(argv[1], "off") == 0) {
+        goose_telemetry_enabled = false;
+        printf("telemetry: disabled\n");
+    } else {
+        printf("telemetry: %s\n", goose_telemetry_enabled ? "on" : "off");
+    }
+}
+
 // --- Dispatch Table ---
 
 static const shell_cmd_t s_commands[] = {
@@ -968,6 +984,7 @@ static const shell_cmd_t s_commands[] = {
     {"mesh",      shell_cmd_mesh},
     {"aura",      shell_cmd_aura},
     {"vm",        shell_cmd_vm},
+    {"telemetry", shell_cmd_telemetry},
     {NULL, NULL}
 };
 

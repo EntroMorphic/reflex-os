@@ -7,6 +7,7 @@
  */
 
 #include "reflex_hal.h"
+#include <stdio.h>
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -126,4 +127,10 @@ void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
     va_start(args, fmt);
     esp_log_writev(esp_level, tag, fmt, args);
     va_end(args);
+}
+
+void reflex_hal_write_raw(const char *data, int len) {
+    /* ESP32 uses standard UART — printf/fwrite goes through. */
+    fwrite(data, 1, (size_t)len, stdout);
+    fflush(stdout);
 }

@@ -8,6 +8,7 @@
 #include "reflex_kv.h"
 #include "reflex_task.h"
 #include "reflex_tuning.h"
+#include "goose_telemetry.h"
 #include <string.h>
 
 #ifdef CONFIG_ULP_COPROC_ENABLED
@@ -295,6 +296,7 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
                 fabric_cells[target].type != GOOSE_CELL_PURPOSE) {
                 for (uint32_t g = 0; g < goonies_count; g++) {
                     if (goose_coord_equal(goonies_registry[g].coord, fabric_cells[target].coord)) {
+                        TELEM_IF(goose_telem_evict(goonies_registry[g].name));
                         goonies_registry[g] = goonies_registry[--goonies_count]; break;
                     }
                 }
@@ -309,6 +311,7 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
     lattice_index[goose_lattice_hash(coord)] = (int16_t)idx;
     if (name) { goonies_register(name, coord, is_system_weaving); }
     fabric_version++;
+    TELEM_IF(goose_telem_alloc(name, c->type));
     reflex_critical_exit(&fabric_mux);
     goose_loom_unlock();
     return c;
@@ -466,7 +469,12 @@ reflex_err_t goose_supervisor_weave_sync(void) {
         r->coupling = GOOSE_COUPLING_SOFTWARE;
         __atomic_store_n(&autonomy_field->route_count, new_idx + 1, __ATOMIC_RELEASE);
         goose_apply_route(r);
+        /* Snapshot names inside lock for deferred telemetry. */
+        const char *t_src = goonies_resolve_name_by_coord(r->source_coord);
+        const char *t_snk = goonies_resolve_name_by_coord(r->sink_coord);
+        char t_rname[16]; memcpy(t_rname, r->name, 16);
         goose_loom_unlock();
+        TELEM_IF(goose_telem_weave(t_rname, t_src, t_snk));
     }
     return REFLEX_OK;
 }
@@ -570,14 +578,40 @@ static int8_t neuron_quorum(const goose_field_t *sub_field) {
     return 0;
 }
 
+/* Deferred telemetry event for emission outside loom_authority. */
+typedef struct {
+    char tag;      /* 'C' = cell, 'R' = route */
+    char name[40];
+    char name2[40]; /* route sink name (tag=='R' only) */
+    int8_t state;
+    int8_t type;   /* cell type or coupling */
+} telem_defer_t;
+#define TELEM_DEFER_MAX 8
+
 static reflex_err_t internal_process_transitions(goose_field_t *field, int depth) {
     if (!field || depth > 3) return REFLEX_ERR_INVALID_STATE;
     uint64_t now = reflex_hal_time_us();
     if (depth == 0 && !goose_loom_try_lock(field)) return REFLEX_ERR_TIMEOUT;
+
+    /* Collect telemetry snapshots inside the lock; emit after unlock. */
+    telem_defer_t tdefer[TELEM_DEFER_MAX];
+    size_t tdefer_n = 0;
+
     for (size_t i = 0; i < field->transition_count; i++) {
         goose_transition_t *t = &field->transitions[i];
         if (!t->cached_target || t->cached_version != fabric_version) { t->cached_target = goose_fabric_get_cell_by_coord(t->target_coord); t->cached_version = fabric_version; }
-        if (t->cached_target && t->evolution_fn && (now - t->last_run_us) >= (t->interval_ms * 1000)) { t->cached_target->state = t->evolution_fn(t->context); t->last_run_us = now; }
+        if (t->cached_target && t->evolution_fn && (now - t->last_run_us) >= (t->interval_ms * 1000)) {
+            int8_t prev = t->cached_target->state;
+            t->cached_target->state = t->evolution_fn(t->context); t->last_run_us = now;
+            if (t->cached_target->state != prev && tdefer_n < TELEM_DEFER_MAX) {
+                const char *n = goonies_resolve_name_by_coord(t->target_coord);
+                tdefer[tdefer_n].tag = 'C';
+                snprintf(tdefer[tdefer_n].name, 40, "%s", n ? n : "?");
+                tdefer[tdefer_n].state = t->cached_target->state;
+                tdefer[tdefer_n].type = t->cached_target->type;
+                tdefer_n++;
+            }
+        }
     }
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
@@ -594,17 +628,36 @@ static reflex_err_t internal_process_transitions(goose_field_t *field, int depth
              * docs/architecture.md §5 (Asynchronous Pulse). */
             goose_field_t *sub_field = goose_fabric_find_field_by_name_hash(r->cached_source->hardware_addr);
             if (sub_field && sub_field->route_count > 0 && sub_field->routes[0].cached_source) {
+                int8_t prev = r->cached_source->state;
                 r->cached_source->state = sub_field->routes[0].cached_source->state;
+                if (r->cached_source->state != prev && tdefer_n < TELEM_DEFER_MAX) {
+                    const char *n = goonies_resolve_name_by_coord(r->source_coord);
+                    tdefer[tdefer_n].tag = 'C';
+                    snprintf(tdefer[tdefer_n].name, 40, "%s", n ? n : "?");
+                    tdefer[tdefer_n].state = r->cached_source->state;
+                    tdefer[tdefer_n].type = r->cached_source->type;
+                    tdefer_n++;
+                }
             }
         } else if (r->cached_source->type == GOOSE_CELL_NEURON) {
             /* Aggregation: multi-route ternary sum with majority threshold. */
             goose_field_t *sub_field = goose_fabric_find_field_by_name_hash(r->cached_source->hardware_addr);
+            int8_t prev = r->cached_source->state;
             r->cached_source->state = neuron_quorum(sub_field);
+            if (r->cached_source->state != prev && tdefer_n < TELEM_DEFER_MAX) {
+                const char *n = goonies_resolve_name_by_coord(r->source_coord);
+                tdefer[tdefer_n].tag = 'C';
+                snprintf(tdefer[tdefer_n].name, 40, "%s", n ? n : "?");
+                tdefer[tdefer_n].state = r->cached_source->state;
+                tdefer[tdefer_n].type = r->cached_source->type;
+                tdefer_n++;
+            }
         }
         if (r->coupling == GOOSE_COUPLING_SOFTWARE) {
             reflex_trit_t effective_orient = r->learned_orientation ? r->learned_orientation : r->orientation;
             reflex_trit_t control = r->cached_control ? (reflex_trit_t)r->cached_control->state : effective_orient;
             int8_t new_state = (int8_t)((int)r->cached_source->state * (int)control);
+            int8_t prev_sink = r->cached_sink->state;
             if (r->cached_sink->peer_id != 0) {
                 const char *sink_name = goonies_resolve_name_by_coord(r->sink_coord);
                 if (sink_name && strncmp(sink_name, GOOSE_NS_PEER, GOOSE_NS_PEER_LEN) == 0) {
@@ -625,11 +678,31 @@ static reflex_err_t internal_process_transitions(goose_field_t *field, int depth
                     reflex_critical_exit(&agency_mux);
                 }
             }
+            if (r->cached_sink->state != prev_sink && tdefer_n < TELEM_DEFER_MAX) {
+                const char *sn = goonies_resolve_name_by_coord(r->source_coord);
+                const char *dn = goonies_resolve_name_by_coord(r->sink_coord);
+                tdefer[tdefer_n].tag = 'R';
+                snprintf(tdefer[tdefer_n].name, 40, "%s", sn ? sn : "?");
+                snprintf(tdefer[tdefer_n].name2, 40, "%s", dn ? dn : "?");
+                tdefer[tdefer_n].state = r->cached_sink->state;
+                tdefer[tdefer_n].type = (int8_t)r->coupling;
+                tdefer_n++;
+            }
         } else if (r->coupling == GOOSE_COUPLING_RADIO) {
             goose_atmosphere_emit_arc(r->cached_source);
         }
     }
     if (depth == 0) goose_loom_unlock();
+
+    /* Emit deferred telemetry outside the lock. */
+    for (size_t td = 0; td < tdefer_n; td++) {
+        if (tdefer[td].tag == 'C') {
+            TELEM_IF(goose_telem_cell(tdefer[td].name, tdefer[td].state, tdefer[td].type));
+        } else {
+            TELEM_IF(goose_telem_route(tdefer[td].name, tdefer[td].name2, tdefer[td].state, tdefer[td].type));
+        }
+    }
+
     field->stats.total_pulses++; return REFLEX_OK;
 }
 
@@ -642,6 +715,6 @@ reflex_err_t goose_field_start_pulse(goose_field_t *field) {
     if (!field) return REFLEX_ERR_INVALID_ARG;
     if (global_field_count < 16) { global_fields[global_field_count++] = field; }
     char task_name[16]; snprintf(task_name, sizeof(task_name), "p_%.13s", field->name);
-    reflex_task_create(goose_regional_pulse_task, task_name, 4096, field, 10, NULL);
+    reflex_task_create(goose_regional_pulse_task, task_name, 6144, field, 10, NULL);
     return REFLEX_OK;
 }

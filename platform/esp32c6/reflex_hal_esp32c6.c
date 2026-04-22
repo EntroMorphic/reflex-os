@@ -347,6 +347,10 @@ static void usj_write_bytes(const char *data, int len) {
     REG32_HAL(USJ_EP1_CONF) |= (1U << 0);
 }
 
+void reflex_hal_write_raw(const char *data, int len) {
+    usj_write_bytes(data, len);
+}
+
 void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
     static char log_buf[256];
     const char *prefix;

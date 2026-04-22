@@ -29,6 +29,9 @@ dependencies = [
     "pyserial>=3.5",
 ]
 
+[project.optional-dependencies]
+viewer = ["rerun-sdk>=0.21"]
+
 [project.scripts]
 reflex-cli = "reflex:main"
 

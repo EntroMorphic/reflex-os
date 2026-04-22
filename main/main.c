@@ -147,7 +147,7 @@ void app_main(void)
     goose_lp_heartbeat_init();  // LP RISC-V Coherent Heartbeat
 
     // 6. Background Regulation
-    reflex_task_create(goose_supervisor_task, "goose-super", 4096, NULL, 20, NULL);
+    reflex_task_create(goose_supervisor_task, "goose-super", 6144, NULL, 20, NULL);
     
     // 7. Binary Services
     reflex_service_manager_init();

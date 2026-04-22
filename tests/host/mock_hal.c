@@ -86,3 +86,8 @@ void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
     (void)tag;
     (void)fmt;
 }
+
+void reflex_hal_write_raw(const char *data, int len) {
+    (void)data;
+    (void)len;
+}

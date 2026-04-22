@@ -10,6 +10,7 @@
 #include "reflex_kernel.h"
 #include "reflex_service.h"
 #include "reflex_tuning.h"
+#include "goose_telemetry.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -331,6 +332,7 @@ reflex_err_t goose_supervisor_evaluate(void) {
         goose_cell_t *pc = goonies_resolve_cell("sys.ai.pain");
         if (pc) pc->state = -1;
     }
+    TELEM_IF(goose_telem_eval(reward_score, pain_triggered));
     return REFLEX_OK;
 }
 
@@ -350,6 +352,11 @@ reflex_err_t goose_supervisor_learn_sync(void) {
      * tells it what they're trying to do. */
     goose_cell_t *purpose_cell = goonies_resolve_cell("sys.purpose");
     int purpose_multiplier = (purpose_cell && purpose_cell->state != 0) ? 2 : 1;
+
+    /* Deferred telemetry: snapshot route state inside lock, emit outside. */
+    typedef struct { char name[16]; int16_t counter; int8_t learned; } telem_snap_t;
+    telem_snap_t tsnap[32];
+    size_t tsnap_count = 0;
 
     if (!goose_loom_try_lock(NULL)) return REFLEX_OK;
 
@@ -376,16 +383,33 @@ reflex_err_t goose_supervisor_learn_sync(void) {
                     route->learned_orientation = REFLEX_TRIT_NEG;
                     route->hebbian_counter = 0;
                 }
+                if (tsnap_count < 32) {
+                    memcpy(tsnap[tsnap_count].name, route->name, 16);
+                    tsnap[tsnap_count].counter = route->hebbian_counter;
+                    tsnap[tsnap_count].learned = route->learned_orientation;
+                    tsnap_count++;
+                }
             } else if (pained) {
                 /* Decay toward zero under pain signal. */
                 if (route->hebbian_counter > 0) route->hebbian_counter--;
                 else if (route->hebbian_counter < 0) route->hebbian_counter++;
+                if (tsnap_count < 32) {
+                    memcpy(tsnap[tsnap_count].name, route->name, 16);
+                    tsnap[tsnap_count].counter = route->hebbian_counter;
+                    tsnap[tsnap_count].learned = route->learned_orientation;
+                    tsnap_count++;
+                }
             }
         }
     }
 
     if (rewarded) reward_cell->state = 0;
     goose_loom_unlock();
+
+    /* Emit telemetry outside the lock. */
+    for (size_t t = 0; t < tsnap_count; t++) {
+        TELEM_IF(goose_telem_hebbian(tsnap[t].name, tsnap[t].counter, tsnap[t].learned));
+    }
     return REFLEX_OK;
 }
 
@@ -530,6 +554,7 @@ reflex_err_t goose_supervisor_pulse(void) {
             goose_supervisor_rebalance(supervised_fields[i]);
         }
     }
+    TELEM_IF(goose_telem_balance(system_balance.state));
 
     // Mirror HP intent into LP coprocessor for Coherent Heartbeat.
     goose_lp_heartbeat_sync();

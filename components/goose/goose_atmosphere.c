@@ -10,6 +10,7 @@
 #include "reflex_crypto.h"
 #include "reflex_task.h"
 #include "reflex_tuning.h"
+#include "goose_telemetry.h"
 #include <string.h>
 
 #define TAG "GOOSE_ATMOSPHERE"
@@ -259,9 +260,11 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
         mesh_stats.rx_sync++;
         goose_route_t *route = goose_fabric_find_radio_route_by_source_coord(arc->coord);
         if (route && route->cached_sink) { route->cached_sink->state = arc->state; }
+        TELEM_IF(goose_telem_mesh("SYNC", arc->state));
     }
     else if (arc->op == ARC_OP_QUERY) {
         mesh_stats.rx_query++;
+        TELEM_IF(goose_telem_mesh("QUERY", arc->state));
         if (now - last_query_processed_us < 100000) return;
         last_query_processed_us = now;
         uint32_t count = goonies_get_count();
@@ -276,11 +279,13 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
     }
     else if (arc->op == ARC_OP_ADVERTISE) {
         mesh_stats.rx_advertise++;
+        TELEM_IF(goose_telem_mesh("ADVERTISE", arc->state));
         REFLEX_LOGI(TAG, "Ghost Solidified for hash [0x%08lX] at " REFLEX_MAC_FMT,
                      (unsigned long)arc->name_hash, REFLEX_MAC_ARG(recv_info->src_addr));
     }
     else if (arc->op == ARC_OP_POSTURE) {
         mesh_stats.rx_posture++;
+        TELEM_IF(goose_telem_mesh("POSTURE", arc->state));
         uint8_t wire_weight = (uint8_t)(arc->nonce & 0x0F);
         if (wire_weight > REFLEX_SWARM_WEIGHT_MAX) wire_weight = REFLEX_SWARM_WEIGHT_MAX;
         int32_t delta = (int32_t)arc->state * (int32_t)wire_weight;
@@ -300,10 +305,12 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
     }
     else if (arc->op == ARC_OP_MMIO_SYNC) {
         mesh_stats.rx_mmio_sync++;
+        TELEM_IF(goose_telem_mesh("MMIO_SYNC", arc->state));
         goose_mmio_sync_recv(recv_info->src_addr, arc->name_hash, arc->state);
     }
     else if (arc->op == ARC_OP_DISCOVER) {
         mesh_stats.rx_discover++;
+        TELEM_IF(goose_telem_mesh("DISCOVER", 0));
         char name[9] = {0};
         memcpy(name, arc->coord.trits, 8);
         name[8] = '\0';
