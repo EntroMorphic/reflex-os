@@ -18,9 +18,9 @@ The transition from a flat "Message Fabric" to a coherent **"Geometric Tapestry"
 **Goal:** Saving the learned/fabricated state to Non-Volatile Storage (NVS).
 - **[Realized]** `goose_snapshot_save/load/clear` serialize supervised-route plasticity (`learned_orientation` + `hebbian_counter`) to NVS under FNV-hashed keys, with `loom_authority` held for consistency. Shell commands: `snapshot save/load/clear`. The infrastructure is in place; it persists data as soon as the plasticity layer has active routes (requires environmental stimulus or reward/pain signals). Full loom-wide snapshots (all cell states, all routes, purpose metadata) remain a follow-up.
 
-### Phase 30: Substrate Visualization (The Loom Viewer)
+### Phase 30: Substrate Visualization (The Loom Viewer) — Realized
 **Goal:** A real-time graphical interface to "see" the Tapestry.
-- **Potential:** With 9,500+ nodes, the shell is no longer enough. We need a Web-based or Desktop tool that renders the Loom as a 3D field of nodes and signal flows. Developers should be able to see the "Geometric Pressure" of the AI manifolds in real-time.
+- **[Realized]** Push-based telemetry streaming via `goose_telemetry.c`: the firmware emits `#T:`-prefixed structured lines on serial as state mutations occur (cell changes, route propagation, Hebbian updates, mesh arcs, autonomous evaluation). The host bridge (`tools/loom_viewer.py`) reads the serial stream and logs to [Rerun.io](https://rerun.io) for real-time visualization — `GraphNodes`/`GraphEdges` for topology, `Scalars` for time series, `TextLog` for events. No polling: the viewer never queries the board. Shell command: `telemetry on/off`. Hardware-validated at 10Hz balance stream, 1Hz eval events, zero malformed lines in 10-second soak.
 
 ### Phase 31: Biological Parity (Metabolic Regulation)
 **Goal:** Tying the plasticity and fabrication logic to "Vitals" (Battery, Temp, RSSI).

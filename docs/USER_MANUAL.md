@@ -257,6 +257,7 @@ reflex> reboot
 | Command | Description |
 |---------|-------------|
 | `heartbeat` | LP coprocessor pulse count |
+| `telemetry <on\|off>` | Enable/disable real-time substrate telemetry streaming to the host |
 | `bonsai <exp> <start\|status>` | Bonsai hardware experiments (exp1-exp5, runtime) |
 
 ---
@@ -601,7 +602,66 @@ Deep sleep uses `esp_deep_sleep_start()` with LP timer wakeup. Sleep current is 
 
 ---
 
-## 14. What Can You Build?
+## 14. Loom Viewer (Substrate Visualization)
+
+The Loom Viewer renders the GOOSE substrate in real-time via [Rerun.io](https://rerun.io). The firmware pushes telemetry as state changes occur — the viewer never polls the board.
+
+### Installation
+
+```bash
+pip install rerun-sdk pyserial
+```
+
+### Usage
+
+```bash
+python tools/loom_viewer.py /dev/cu.usbmodem1101
+```
+
+The viewer:
+1. Connects to the board and sends `telemetry on`
+2. Requests `goonies ls` to seed the initial cell inventory
+3. Streams live telemetry events to a Rerun window
+
+### What You See
+
+- **Topology graph** — cells as nodes (color by type), routes as edges (color by coupling). Rebuilt on alloc/evict/weave events.
+- **Time series** — Hebbian counters per route, system balance, autonomous reward/pain scores.
+- **Event log** — cell lifecycle (alloc, evict, weave), mesh arcs (sync, query, discover), purpose changes.
+
+### Telemetry Event Types
+
+| Prefix | Meaning |
+|--------|---------|
+| `#T:B` | Supervisor equilibrium (10Hz) |
+| `#T:V` | Autonomous evaluation — reward score + pain flag (1Hz) |
+| `#T:C` | Cell state change (on delta) |
+| `#T:R` | Route sink write (on delta) |
+| `#T:H` | Hebbian counter update |
+| `#T:W` | New route autonomously woven |
+| `#T:A` | Cell allocated |
+| `#T:E` | Cell evicted |
+| `#T:M` | Mesh arc received |
+| `#T:P` | Purpose set or cleared |
+
+### Manual Telemetry
+
+You can also enable telemetry from the shell without the viewer:
+
+```
+reflex> telemetry on
+#T:B,1
+#T:B,1
+#T:V,0,0
+...
+reflex> telemetry off
+```
+
+When disabled (the default), the cost is a single branch-not-taken per hook site (~2 CPU cycles).
+
+---
+
+## 15. What Can You Build?
 
 ### Sensor Mesh
 Three boards with temperature sensors, purpose "monitor". Each reads its local temp, broadcasts state via atmosphere. A Python script on your laptop discovers all nodes and aggregates readings.
@@ -620,7 +680,7 @@ Set purpose → watch kernel log show holon activation → trigger reward signal
 
 ---
 
-## 15. Troubleshooting
+## 16. Troubleshooting
 
 ### Board Not Responding on USB
 
@@ -677,7 +737,7 @@ node = ReflexNode("/dev/cu.usbmodem1101")
 
 ---
 
-## 16. Glossary
+## 17. Glossary
 
 | Term | Definition |
 |------|-----------|

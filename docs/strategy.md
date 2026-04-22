@@ -27,7 +27,7 @@ Reflex OS has moved from a binary-hosted VM to a hardened, geometric substrate. 
 - **Phase 29.5:** `GOOSE_CELL_PURPOSE` — intent as a first-class cell type. (Completed — `purpose set/get/clear` shell commands; learn_sync doubles Hebbian reward increments when a purpose is active.)
 - **Phase 29.7:** Purpose name persistence + purpose-modulated routing. (Completed — purpose name persisted to NVS, restored on boot; `weave_sync` biases routing toward the purpose domain via segment-bounded matching.)
 - **Phase 29.6:** First real perception — internal temperature sensor projected as `perception.temp.reading` on the GOOSE fabric. (Completed.)
-- **Phase 30:** Substrate Visualization (Loom Viewer).
+- **Phase 30:** Substrate Visualization (Loom Viewer). (Completed — push-based telemetry via `goose_telemetry.c` + `tools/loom_viewer.py` + Rerun.io. Shell: `telemetry on/off`. 10 event types, deferred emission outside locks, direct USB JTAG writes.)
 - **Phase 31:** Metabolic Regulation (vitals-gated plasticity).
 - **Phase 32:** Collective Unconscious (mesh-shared plasticity deltas).
 

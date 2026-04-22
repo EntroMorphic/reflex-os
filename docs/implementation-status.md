@@ -59,6 +59,16 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - Example fragments: `examples/button_blink.loom`, `examples/self_heal.loom`
 - Compiler: `tools/loomc.py`
 
+### G8 — Streaming Telemetry (Loom Viewer — Phase 30)
+- Source: `goose_telemetry.c`, `include/goose_telemetry.h`, `tools/loom_viewer.py`
+- Push-based telemetry: firmware emits `#T:`-prefixed lines on serial as state mutations occur. No polling.
+- Gate: `goose_telemetry_enabled` volatile bool, toggled via `telemetry on/off` shell command. Zero cost when disabled (~2 cycles per hook site).
+- Deferred emission: hot-path hooks (10Hz route evaluation, 1Hz Hebbian learning) snapshot state inside `loom_authority` and emit after unlock.
+- Output: direct USB JTAG register writes via `reflex_hal_write_raw`, bypassing stdio buffering so all task contexts produce output.
+- 10 event types: cell state change (`C`), route sink write (`R`), Hebbian update (`H`), weave (`W`), alloc/evict (`A`/`E`), supervisor equilibrium (`B`), mesh arc (`M`), purpose (`P`), autonomous evaluation (`V`).
+- Host bridge: `tools/loom_viewer.py` reads serial in a background thread, parses events, and logs to Rerun.io for real-time visualization (GraphNodes/GraphEdges for topology, Scalars for time series, TextLog for events).
+- Hardware-validated: 10Hz balance stream (50 lines in 5s), 1Hz eval events, purpose/alloc events from shell context, clean disable with zero stray lines, 10-second soak with zero malformed lines, shell commands work while telemetry streams, 10 rapid on/off toggles with no crash.
+
 ### G7 — Gateway, ETM, DMA Bridges
 - Source: `goose_gateway.c` (legacy message bridge), `goose_etm.c` (event-task-matrix scaffold), `goose_dma.c` (GDMA route manifestation)
 - Gateway wires fabric traffic to/from legacy message APIs
@@ -121,6 +131,7 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - **Purpose name persistence**: `purpose set sensor` persists `"sensor"` to NVS; reboot restores both the name and the active cell (`purpose restored from NVS: "sensor"` in boot log); `purpose get` reports the name; `purpose clear` + reboot → `inactive`
 - **Purpose-modulated routing**: `weave_sync` uses segment-bounded domain matching (`.<purpose>.` or trailing `.<purpose>`) to bias capability resolution when a purpose is active, falling back to generic suffix match when no domain candidate exists
 - **Tapestry Snapshots**: `snapshot save/load/clear` exercised on Alpha with NVS read/write paths returning `ESP_OK`; 0 routes persisted (correct — no active plasticity scenario at boot without external stimulus)
+- **Streaming telemetry (Phase 30)**: `telemetry on` produces `#T:B,1` at exactly 10Hz (50 lines in 5s) and `#T:V,0,0` at 1Hz. `telemetry off` produces zero stray lines. `#T:P,<name>` and `#T:A,<name>,<type>` fire from shell context on `purpose set`. 10-second soak: B=100, V=10, 0 malformed. Shell commands (`status`, `goonies ls`, `heartbeat`) work while telemetry streams. 10 rapid on/off toggles stable.
 
 ## Current Developer Flow
 
@@ -140,6 +151,7 @@ Closed in the current remediation sweep:
 - ~~Aura key material~~: NVS-backed key with `aura setkey <hex>` shell command; compile-time default retained as unprovisioned fallback (Phase 1).
 - ~~"MMU-backed memory" framing~~: README narrowed to "region-protected shared ternary memory" to match `vm/mmu.c` (Phase 4).
 - ~~LP-core "Coherent Heartbeat"~~: ULP enabled (`CONFIG_ULP_COPROC_TYPE_LP_CORE=y`), LP program rewritten to LP-local globals, HP bootstrap via `ulp_lp_core_load_binary`/`ulp_lp_core_run` with 1 Hz LP_TIMER wakeup, `heartbeat` shell command reads `lp_pulse_count` (Phase 5).
+- ~~Kernel task backend dormant~~: `reflex_task_kernel.c` was delegating to the cooperative scheduler (`reflex_sched.c`) which was never started, so supervisor task, field pulse tasks, and all substrate tasks were silently not running under `CONFIG_REFLEX_KERNEL_SCHEDULER=y`. Rewrote to delegate task management to FreeRTOS (matching `reflex_task_esp32c6.c`), preserving kernel ownership of interrupt context switching and scheduling policy.
 
 Remaining (honest limits, not regressions):
 

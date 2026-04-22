@@ -8,6 +8,8 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 ## [Unreleased]
 
 ### Added
+- **Phase 30 Loom Viewer** — real-time substrate visualization via Rerun.io. Push-based telemetry: `goose_telemetry.c` emits `#T:`-prefixed lines on serial at mutation points (cell state, route propagation, Hebbian learning, mesh arcs, autonomous evaluation). `tools/loom_viewer.py` reads serial and logs to Rerun (GraphNodes/GraphEdges for topology, Scalars for time series, TextLog for events). Shell command: `telemetry on/off`. Deferred emission outside `loom_authority` locks. Direct USB JTAG register writes via `reflex_hal_write_raw`. Hardware-validated: 10Hz balance, 1Hz eval, 15/15 on-device tests.
+- **`reflex_hal_write_raw`** — direct serial write bypassing stdio buffering. Used by telemetry to ensure output from all task contexts (supervisor, pulse, shell).
 - **Reflex kernel port assembly** — owns interrupt context switching via `--wrap` on `rtos_int_enter/rtos_int_exit`. Hardware stack guard management with proper TCB bounds (pxStack=0x30, pxEndOfStack=0x44). Compile-time assertions prevent silent offset drift.
 - **Kernel supervisor (purpose-modulated scheduling)** — 1Hz policy tick adjusts FreeRTOS task priorities based on purpose, Hebbian maturity, holon lifecycle, and pain signals. Domain-specific: `reflex_domain_match` uses dot-boundary matching (purpose "led" matches "agency.led.intent" but not "misled").
 - **Holonic lifecycle management** — named field groups with domain tags. Holons matching the current purpose stay active; non-matching ones are deactivated and drop to base priority. Three holons created at boot: autonomy, comm (mesh), agency (led). `reflex_holon_create`/`reflex_holon_add_field` API.
@@ -29,6 +31,7 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 - **Internal temperature sensor service** — die temperature projected into fabric as `perception.temp.reading`.
 
 ### Fixed
+- **Kernel task backend dormant** — `reflex_task_kernel.c` delegated to the cooperative scheduler (`reflex_sched.c`) which was never started. Supervisor task, field pulse tasks, and all substrate tasks were silently not running under `CONFIG_REFLEX_KERNEL_SCHEDULER=y`. Rewrote to delegate task management to FreeRTOS while preserving kernel ownership of interrupt context switching and scheduling policy. Supervisor and pulse task stacks increased from 4096 to 6144 bytes for telemetry deferred-emission arrays.
 - **Port assembly ra clobber** — `call vTaskSwitchContext` clobbered return address; `ret` jumped to garbage. Fixed by saving ra/mstatus in callee-saved registers (s10/s11).
 - **Port assembly mstatus passthrough** — was reading from CSR instead of passing caller's value through. ISR vector expects mstatus returned in a0.
 - **LOOM_CONTENTION_FAULT spam** — rate-limited from per-interrupt to once per 5 seconds with contention count.
