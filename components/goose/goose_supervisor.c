@@ -287,7 +287,10 @@ static uint8_t s_stuck_ticks[MAX_SUPERVISED_FIELDS];
 
 reflex_err_t goose_supervisor_evaluate(void) {
     const char *purpose = goose_purpose_get_name();
-    if (!purpose || !purpose[0]) return REFLEX_OK;
+    if (!purpose || !purpose[0]) {
+        TELEM_IF(goose_telem_eval(0, false));
+        return REFLEX_OK;
+    }
 
     int reward_score = 0;
     bool pain_triggered = false;
