@@ -245,6 +245,17 @@ goose_route_t* goose_fabric_find_radio_route_by_source_coord(reflex_tryte9_t coo
  */
 goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving);
 
+/** Loom lock hold duration instrumentation. */
+uint32_t goose_loom_hold_max_cycles(void);
+uint64_t goose_loom_hold_total_cycles(void);
+uint32_t goose_loom_hold_count(void);
+
+/** Total number of cell evictions since boot. */
+uint32_t goose_fabric_get_eviction_count(void);
+
+/** Copy the last N evicted cell names into buf. *count returns actual entries. */
+void goose_fabric_get_eviction_ring(char buf[][40], size_t *count);
+
 /**
  * @brief Securely map a cell to physical agency (Sanctuary Guarded).
  */

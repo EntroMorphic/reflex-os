@@ -433,6 +433,8 @@ reflex_err_t goose_supervisor_learn_sync(void) {
  * blob limits.
  */
 #define SNAP_ROUTE_ENTRY_SIZE (16 + 1 + 2)
+#define SNAP_VERSION 1  /* Increment on format change; load rejects mismatches. */
+#define SNAP_HEADER_SIZE 4  /* version(2) + route_count(2) */
 
 reflex_err_t goose_snapshot_save(void) {
     reflex_kv_handle_t h;
@@ -451,8 +453,10 @@ reflex_err_t goose_snapshot_save(void) {
         goose_field_t *field = supervised_fields[f];
         if (field->route_count == 0) continue;
 
-        uint8_t buf[2 + 16 * SNAP_ROUTE_ENTRY_SIZE];
+        uint8_t buf[SNAP_HEADER_SIZE + 16 * SNAP_ROUTE_ENTRY_SIZE];
         size_t pos = 0;
+        uint16_t version = SNAP_VERSION;
+        memcpy(&buf[pos], &version, 2); pos += 2;
         uint16_t count = (uint16_t)field->route_count;
         memcpy(&buf[pos], &count, 2); pos += 2;
 
@@ -497,14 +501,22 @@ reflex_err_t goose_snapshot_load(void) {
         char key[16];
         snprintf(key, sizeof(key), "s_%08lx", (unsigned long)goose_fnv1a(field->name));
 
-        uint8_t buf[2 + 16 * SNAP_ROUTE_ENTRY_SIZE];
+        uint8_t buf[SNAP_HEADER_SIZE + 16 * SNAP_ROUTE_ENTRY_SIZE];
         size_t len = sizeof(buf);
         rc = reflex_kv_get_blob(h, key, buf, &len);
-        if (rc != REFLEX_OK || len < 2) continue;
+        if (rc != REFLEX_OK || len < SNAP_HEADER_SIZE) continue;
+
+        uint16_t snap_version;
+        memcpy(&snap_version, buf, 2);
+        if (snap_version != SNAP_VERSION) {
+            REFLEX_LOGW(TAG, "snapshot version mismatch: field=%s got=%u want=%u (skipped)",
+                     field->name, (unsigned)snap_version, (unsigned)SNAP_VERSION);
+            continue;
+        }
 
         uint16_t snap_count;
-        memcpy(&snap_count, buf, 2);
-        size_t pos = 2;
+        memcpy(&snap_count, &buf[2], 2);
+        size_t pos = SNAP_HEADER_SIZE;
 
         for (uint16_t s = 0; s < snap_count && pos + SNAP_ROUTE_ENTRY_SIZE <= len; s++) {
             char snap_name[16];

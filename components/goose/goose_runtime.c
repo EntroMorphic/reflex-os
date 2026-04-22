@@ -133,6 +133,16 @@ static bool is_sanctuary_address(uint32_t addr) {
     return true; 
 }
 
+/* Lock hold duration instrumentation. */
+static uint32_t s_lock_acquire_cycles = 0;
+static uint32_t s_lock_hold_max_cycles = 0;
+static uint64_t s_lock_hold_total_cycles = 0;
+static uint32_t s_lock_hold_count = 0;
+
+uint32_t goose_loom_hold_max_cycles(void)   { return s_lock_hold_max_cycles; }
+uint64_t goose_loom_hold_total_cycles(void)  { return s_lock_hold_total_cycles; }
+uint32_t goose_loom_hold_count(void)         { return s_lock_hold_count; }
+
 bool goose_loom_try_lock(goose_field_t *field) {
     static uint32_t s_contention_count = 0;
     static uint64_t s_last_log_us = 0;
@@ -155,10 +165,17 @@ bool goose_loom_try_lock(goose_field_t *field) {
     }
     uint32_t end = reflex_hal_cpu_cycles();
     if (field) field->stats.lock_contention_cycles += (end - start);
+    s_lock_acquire_cycles = end;  /* record for hold duration measurement */
     return true;
 }
 
-void goose_loom_unlock(void) { __atomic_clear(&loom_authority, __ATOMIC_RELEASE); }
+void goose_loom_unlock(void) {
+    uint32_t held = reflex_hal_cpu_cycles() - s_lock_acquire_cycles;
+    s_lock_hold_total_cycles += held;
+    s_lock_hold_count++;
+    if (held > s_lock_hold_max_cycles) s_lock_hold_max_cycles = held;
+    __atomic_clear(&loom_authority, __ATOMIC_RELEASE);
+}
 
 static char purpose_name[16] = {0};
 
@@ -260,6 +277,23 @@ static void ensure_mux_init(void) {
 }
 static uint32_t last_eviction_idx = 0;
 
+/* Eviction instrumentation: track total evictions and recent evicted names
+ * to detect thrashing (same cell repeatedly evicted and re-paged). */
+static uint32_t s_eviction_count = 0;
+#define EVICTION_RING_SIZE 8
+static char s_eviction_ring[EVICTION_RING_SIZE][40];
+static uint32_t s_eviction_ring_idx = 0;
+
+uint32_t goose_fabric_get_eviction_count(void) { return s_eviction_count; }
+
+void goose_fabric_get_eviction_ring(char buf[][40], size_t *count) {
+    *count = s_eviction_count < EVICTION_RING_SIZE ? s_eviction_count : EVICTION_RING_SIZE;
+    for (size_t i = 0; i < *count; i++) {
+        size_t idx = (s_eviction_ring_idx - *count + i) % EVICTION_RING_SIZE;
+        memcpy(buf[i], s_eviction_ring[idx], 40);
+    }
+}
+
 goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
     /* Resource governance (Layer 2): block non-system allocations when heap is tight. */
     if (!is_system_weaving) {
@@ -302,6 +336,10 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
                 for (uint32_t g = 0; g < goonies_count; g++) {
                     if (goose_coord_equal(goonies_registry[g].coord, fabric_cells[target].coord)) {
                         TELEM_IF(goose_telem_evict(goonies_registry[g].name));
+                        snprintf(s_eviction_ring[s_eviction_ring_idx % EVICTION_RING_SIZE],
+                                 40, "%s", goonies_registry[g].name);
+                        s_eviction_ring_idx++;
+                        s_eviction_count++;
                         goonies_registry[g] = goonies_registry[--goonies_count]; break;
                     }
                 }

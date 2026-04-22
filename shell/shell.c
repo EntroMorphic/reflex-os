@@ -668,6 +668,13 @@ static void shell_cmd_status(int argc, char *argv[]) {
            reflex_led_get() ? "on" : "off",
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
            (unsigned)goose_mmio_sync_peer_count());
+    uint32_t hold_count = goose_loom_hold_count();
+    uint32_t avg_hold = hold_count > 0 ? (uint32_t)(goose_loom_hold_total_cycles() / hold_count) : 0;
+    printf("loom lock_holds=%lu max_cycles=%lu avg_cycles=%lu evictions=%lu\n",
+           (unsigned long)hold_count,
+           (unsigned long)goose_loom_hold_max_cycles(),
+           (unsigned long)avg_hold,
+           (unsigned long)goose_fabric_get_eviction_count());
 }
 
 static void shell_cmd_reboot(int argc, char *argv[]) {
