@@ -205,6 +205,11 @@ void goose_metabolic_clear_overrides(void) {
     s_override_batt = false;
     s_override_mesh = false;
     s_override_heap = false;
+    /* Reset circuit breaker to thriving and clear hysteresis.
+     * This is an explicit operator action, not organic recovery. */
+    s_metabolic_state = 1;
+    s_recovery_ticks = 0;
+    if (s_metabolic) s_metabolic->state = 1;
 }
 
 void goose_metabolic_format_vitals(char *buf, size_t buf_len) {
