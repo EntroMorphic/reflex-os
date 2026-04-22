@@ -39,6 +39,7 @@ Reflex OS reinterprets physical hardware as a coherent **Geometric Tapestry**, r
 - **Autonomous Learning** — The OS generates its own reward/pain signals by evaluating purpose fulfillment. No manual input needed.
 - **Mesh Auto-Discovery** — Boards sharing an Aura key find each other automatically via `ARC_OP_DISCOVER` heartbeats.
 - **Loom Viewer** — Real-time substrate visualization via Rerun.io. Push-based telemetry streams topology, plasticity, and mesh events to a graphical viewer with zero polling overhead.
+- **Metabolic Regulation** — The substrate governs itself based on physical constraints (temperature, heap, mesh, battery). Circuit breaker for instant protection; per-vital resource governance for fine-grained modulation. Hysteretic recovery prevents oscillation.
 
 ## Hardware
 
@@ -115,6 +116,9 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `config <get\|set>` | Persistence management |
 | `bonsai <experiment>` | Run one of the in-tree bonsai experiments — see `bonsai/EXPERIMENT-*.md` |
 | `telemetry <on\|off>` | Enable/disable real-time substrate telemetry streaming to the host |
+| `vitals` | Display vital cell states (temp, battery, mesh, heap) and metabolic state |
+| `vitals override <vital> <state>` | Inject synthetic vital state for bench testing (-1, 0, +1) |
+| `vitals clear` | Clear all overrides; resume reading real hardware |
 
 ## Loom Viewer (Substrate Visualization)
 

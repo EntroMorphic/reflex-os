@@ -37,6 +37,7 @@
 #include "reflex_vm_loader.h"
 #include "goose.h"
 #include "goose_telemetry.h"
+#include "goose_metabolic.h"
 #include "programs.h"
 
 #define REFLEX_SHELL_LINE_MAX 1024
@@ -653,6 +654,7 @@ static void shell_cmd_help(int argc, char *argv[]) {
     printf("aura:    aura setkey <32 hex chars>\n");
     printf("bonsai:  bonsai <exp1|exp2|exp3a|exp4|exp5|runtime> <start|status|...>\n");
     printf("telem:   telemetry <on|off>  (stream substrate state to host)\n");
+    printf("vitals:  vitals [override <vital> <state>|clear]\n");
 }
 
 static void shell_cmd_status(int argc, char *argv[]) {
@@ -950,6 +952,24 @@ static void shell_cmd_vm(int argc, char *argv[]) {
     }
 }
 
+static void shell_cmd_vitals(int argc, char *argv[]) {
+    if (argc >= 4 && strcmp(argv[1], "override") == 0) {
+        int8_t state = (int8_t)atoi(argv[3]);
+        if (goose_metabolic_override(argv[2], state) == REFLEX_OK) {
+            printf("override: %s=%d\n", argv[2], (int)state);
+        } else {
+            printf("unknown vital: %s (use temp, battery, mesh, heap)\n", argv[2]);
+        }
+    } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
+        goose_metabolic_clear_overrides();
+        printf("overrides cleared\n");
+    } else {
+        char buf[128];
+        goose_metabolic_format_vitals(buf, sizeof(buf));
+        printf("%s\n", buf);
+    }
+}
+
 static void shell_cmd_telemetry(int argc, char *argv[]) {
     if (argc >= 2 && strcmp(argv[1], "on") == 0) {
         goose_telemetry_enabled = true;
@@ -985,6 +1005,7 @@ static const shell_cmd_t s_commands[] = {
     {"aura",      shell_cmd_aura},
     {"vm",        shell_cmd_vm},
     {"telemetry", shell_cmd_telemetry},
+    {"vitals",    shell_cmd_vitals},
     {NULL, NULL}
 };
 

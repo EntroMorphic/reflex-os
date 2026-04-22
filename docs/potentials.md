@@ -22,9 +22,9 @@ The transition from a flat "Message Fabric" to a coherent **"Geometric Tapestry"
 **Goal:** A real-time graphical interface to "see" the Tapestry.
 - **[Realized]** Push-based telemetry streaming via `goose_telemetry.c`: the firmware emits `#T:`-prefixed structured lines on serial as state mutations occur (cell changes, route propagation, Hebbian updates, mesh arcs, autonomous evaluation). The host bridge (`tools/loom_viewer.py`) reads the serial stream and logs to [Rerun.io](https://rerun.io) for real-time visualization — `GraphNodes`/`GraphEdges` for topology, `Scalars` for time series, `TextLog` for events. No polling: the viewer never queries the board. Shell command: `telemetry on/off`. Hardware-validated at 10Hz balance stream, 1Hz eval events, zero malformed lines in 10-second soak.
 
-### Phase 31: Biological Parity (Metabolic Regulation)
-**Goal:** Tying the plasticity and fabrication logic to "Vitals" (Battery, Temp, RSSI).
-- **Potential:** The machine should "hibernate" (inhibit high-speed routes) when battery is low, or "hunt" (increase discovery plasticity) when its "Need" cells are unsatisfied. This creates a system with true metabolic self-preservation.
+### Phase 31: Metabolic Regulation (Biological Parity) — Realized
+**Goal:** Tying the plasticity and fabrication logic to "Vitals" (Battery, Temp, Mesh, Heap).
+- **[Realized]** Two-layer self-governance in `goose_metabolic.c`: a circuit breaker (`sys.metabolic`: +1 thriving / 0 conserving / -1 surviving) provides instant protection when hard-constraint vitals (battery, heap) are critical. Per-vital resource governance modulates individual sub-passes: mesh isolation increases discover frequency (inverted logic), heap pressure blocks shadow paging, conserving mode halves learning rate, surviving mode suspends learning/fabrication/swarm/snapshots entirely. Recovery is hysteretic (30s sustained stability required). Vital cells: `perception.power.battery` (USB default +1), `perception.mesh.health` (rx delta over 30s window), `perception.heap.pressure` (free heap thresholds). `vitals override` enables bench testing without hardware stress. Hardware-validated: 10/10 on-device tests.
 
 ### Phase 32: Collective Unconscious (Mesh Learning)
 **Goal:** Swarms that learn together through postural resonance.

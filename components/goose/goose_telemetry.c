@@ -77,3 +77,10 @@ void goose_telem_eval(int reward_score, bool pain) {
     int n = snprintf(buf, sizeof(buf), "#T:V,%d,%d\n", reward_score, pain ? 1 : 0);
     telem_emit(buf, n);
 }
+
+void goose_telem_metabolic(int8_t metabolic, int8_t temp, int8_t batt, int8_t mesh, int8_t heap) {
+    char buf[32];
+    int n = snprintf(buf, sizeof(buf), "#T:X,%d,%d,%d,%d,%d\n",
+                     (int)metabolic, (int)temp, (int)batt, (int)mesh, (int)heap);
+    telem_emit(buf, n);
+}

@@ -11,6 +11,7 @@
 #include "reflex_service.h"
 #include "reflex_tuning.h"
 #include "goose_telemetry.h"
+#include "goose_metabolic.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -584,53 +585,89 @@ reflex_err_t goose_supervisor_pulse(void) {
         lp_stall_warned = true;
     }
     
-    // Autonomic Fabrication pass at 1Hz (offset by 2)
+    /* Metabolic regulation — 1Hz vital scan + circuit breaker. */
+    static int metabolic_div = 0;
+    if (metabolic_div++ >= REFLEX_SUPERVISOR_METABOLIC_DIV) {
+        goose_metabolic_sync();
+        metabolic_div = 0;
+    }
+
+    int8_t metabolic = goose_metabolic_get_state();
+
+    /* Autonomic Fabrication — gated: suspended in surviving mode. */
     static int weave_div = 0;
-    if (weave_div++ >= REFLEX_SUPERVISOR_WEAVE_DIV) {
+    if (metabolic >= 0 && weave_div++ >= REFLEX_SUPERVISOR_WEAVE_DIV) {
         goose_supervisor_weave_sync();
         weave_div = 0;
     }
 
+    /* Autonomous evaluation — always runs (provides reward/pain signal). */
     static int eval_div = 0;
     if (eval_div++ >= REFLEX_SUPERVISOR_EVAL_DIV) {
         goose_supervisor_evaluate();
         eval_div = 0;
     }
 
+    /* Hebbian learning — gated: suspended in surviving, halved in conserving.
+     * Resource governance (Layer 2): temp stress further doubles divisor. */
     static int learn_div = 0;
-    if (learn_div++ >= REFLEX_SUPERVISOR_LEARN_DIV) {
-        goose_supervisor_learn_sync();
-        learn_div = 0;
+    if (metabolic > 0) {
+        /* Thriving: normal rate. */
+        if (learn_div++ >= REFLEX_SUPERVISOR_LEARN_DIV) {
+            goose_supervisor_learn_sync();
+            learn_div = 0;
+        }
+    } else if (metabolic == 0) {
+        /* Conserving: half rate. */
+        if (learn_div++ >= REFLEX_SUPERVISOR_LEARN_DIV * 2) {
+            goose_supervisor_learn_sync();
+            learn_div = 0;
+        }
     }
+    /* metabolic == -1: learning suspended entirely. */
 
+    /* Swarm sync — gated: suspended in surviving. */
     static int sync_div = 0;
-    if (sync_div++ >= REFLEX_SUPERVISOR_SYNC_DIV) {
+    if (metabolic >= 0 && sync_div++ >= REFLEX_SUPERVISOR_SYNC_DIV) {
         goose_supervisor_swarm_sync();
         sync_div = 0;
     }
 
+    /* Staleness check — always runs (safety: detect dead peers). */
     static int stale_div = 0;
     if (stale_div++ >= REFLEX_SUPERVISOR_STALE_DIV) {
         goose_mmio_sync_staleness_check();
         stale_div = 0;
     }
 
+    /* Snapshot save — gated: suspended in surviving. */
     static int snap_div = 0;
-    if (snap_div++ >= REFLEX_SUPERVISOR_SNAP_DIV) {
+    if (metabolic >= 0 && snap_div++ >= REFLEX_SUPERVISOR_SNAP_DIV) {
         goose_snapshot_save();
         snap_div = 0;
     }
 
+    /* Watchdog — always runs (safety). */
     static int watchdog_div = 0;
     if (watchdog_div++ >= REFLEX_SUPERVISOR_WATCHDOG_DIV) {
         reflex_service_watchdog_tick();
         watchdog_div = 0;
     }
 
+    /* Discovery heartbeat — resource governance (Layer 2):
+     * Mesh isolation INCREASES discovery frequency (inverted logic).
+     * Mesh health reads perception.mesh.health directly. */
     static int discover_div = 0;
-    if (discover_div++ >= REFLEX_SUPERVISOR_DISCOVER_DIV) {
-        goose_atmosphere_emit_discover();
-        discover_div = 0;
+    {
+        goose_cell_t *mesh_cell = goonies_resolve_cell("perception.mesh.health");
+        int discover_interval = REFLEX_SUPERVISOR_DISCOVER_DIV;
+        if (mesh_cell && mesh_cell->state == -1) discover_interval /= 2;  /* isolated: hunt faster */
+        else if (mesh_cell && mesh_cell->state == 1) discover_interval *= 2;  /* connected: relax */
+        if (discover_interval < 1) discover_interval = 1;
+        if (discover_div++ >= discover_interval) {
+            goose_atmosphere_emit_discover();
+            discover_div = 0;
+        }
     }
     return REFLEX_OK;
 }

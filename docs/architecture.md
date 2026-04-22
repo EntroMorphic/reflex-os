@@ -80,6 +80,16 @@ Real-time visualization of the GOOSE substrate via [Rerun.io](https://rerun.io).
 - **Shell command:** `telemetry on/off` toggles emission. The Loom Viewer sends this automatically on connect.
 - **Source:** `goose_telemetry.h` (gate macro + declarations), `goose_telemetry.c` (emitters), `tools/loom_viewer.py` (host bridge).
 
+### 9. Metabolic Regulation (Phase 31)
+Two-layer self-governance that modulates the substrate based on physical constraints.
+
+- **Vital cells:** `perception.power.battery` (USB = permanent +1), `perception.mesh.health` (rx delta over 30s window), `perception.heap.pressure` (free heap thresholds). `perception.temp.reading` (existing) is also consumed.
+- **Circuit breaker** (`sys.metabolic`): single cell, +1 thriving / 0 conserving / -1 surviving. Hard constraints (battery, heap) trigger surviving instantly. Recovery requires `REFLEX_METABOLIC_RECOVERY_TICKS` (30s) of sustained stability.
+- **Surviving mode:** learning, fabrication, swarm sync, snapshots suspended. Only equilibrium check, evaluation, staleness, and watchdog run. Purpose-matching routes continue evaluating.
+- **Resource governance (Layer 2):** per-vital, per-sub-pass. Mesh isolation *increases* discover frequency (inverted). Heap pressure blocks non-system shadow paging.
+- **Testing:** `vitals override <vital> <state>` injects synthetic values. `vitals clear` resumes real hardware.
+- **Source:** `goose_metabolic.h` / `goose_metabolic.c`. Telemetry: `#T:X,<metabolic>,<temp>,<batt>,<mesh>,<heap>`.
+
 ## Module Layout
 
 ## `components/goose/`
@@ -90,6 +100,7 @@ The core GOOSE implementation.
 - `goose_atlas.c`: the Root Zone — 26 peripheral categories × 4 register channels = 104 pre-woven atlas cells.
 - `goose_shadow_atlas.c`: SVD-generated shadow catalog of 9,527 additional MMIO nodes, paged in on demand via `goose_shadow_resolve`.
 - `goose_telemetry.c`: push-based telemetry emitters for the Loom Viewer; `#T:`-prefixed serial lines gated by `goose_telemetry_enabled`.
+- `goose_metabolic.c`: vital perception cells (battery, mesh, heap), circuit-breaker computation with hysteretic recovery, `vitals` shell data, override system for bench testing.
 - `goose_gateway.c`: legacy message bridge between the fabric and GOOSE cell state.
 - `goose_library.c`: LoomScript binary loader (`.loom` format, magic `LOOM`).
 - `goose_dma.c`, `goose_etm.c`: scaffold bridges for Geometric Flow (GDMA) and Silicon Agency (ETM).

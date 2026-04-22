@@ -59,6 +59,17 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - Example fragments: `examples/button_blink.loom`, `examples/self_heal.loom`
 - Compiler: `tools/loomc.py`
 
+### G9 — Metabolic Regulation (Phase 31)
+- Source: `goose_metabolic.c`, `include/goose_metabolic.h`
+- Two-layer self-governance: circuit breaker (aggregate, instant degradation, hysteretic recovery) + resource governance (per-vital, per-sub-pass).
+- Vital cells: `perception.power.battery` (USB default +1), `perception.mesh.health` (rx delta, 30s window), `perception.heap.pressure` (free heap thresholds 8K/16K). Reads existing `perception.temp.reading`.
+- Circuit breaker (`sys.metabolic`): +1 thriving / 0 conserving / -1 surviving. Hard constraints (battery, heap) trigger surviving instantly. Mesh excluded from circuit breaker (connectivity issue, not resource constraint — handled by discover governance). Recovery requires 30s sustained stability.
+- Surviving mode: learning, fabrication, swarm sync, snapshots suspended. Equilibrium, evaluation, staleness, watchdog always run.
+- Resource governance: mesh isolation increases discover frequency (inverted logic). Heap pressure blocks non-system shadow paging. Conserving mode halves learning rate.
+- Testing: `vitals override <vital> <state>` injects synthetic values. `vitals clear` resumes real hardware.
+- Telemetry: `#T:X,<metabolic>,<temp>,<batt>,<mesh>,<heap>` at 1Hz.
+- Hardware-validated: default thriving on USB, temp override → conserving, battery override → surviving, learning/weave suspended in surviving, hysteresis holds on recovery, all cells visible on fabric, system stable throughout.
+
 ### G8 — Streaming Telemetry (Loom Viewer — Phase 30)
 - Source: `goose_telemetry.c`, `include/goose_telemetry.h`, `tools/loom_viewer.py`
 - Push-based telemetry: firmware emits `#T:`-prefixed lines on serial as state mutations occur. No polling.
@@ -131,6 +142,7 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - **Purpose name persistence**: `purpose set sensor` persists `"sensor"` to NVS; reboot restores both the name and the active cell (`purpose restored from NVS: "sensor"` in boot log); `purpose get` reports the name; `purpose clear` + reboot → `inactive`
 - **Purpose-modulated routing**: `weave_sync` uses segment-bounded domain matching (`.<purpose>.` or trailing `.<purpose>`) to bias capability resolution when a purpose is active, falling back to generic suffix match when no domain candidate exists
 - **Tapestry Snapshots**: `snapshot save/load/clear` exercised on Alpha with NVS read/write paths returning `ESP_OK`; 0 routes persisted (correct — no active plasticity scenario at boot without external stimulus)
+- **Metabolic Regulation (Phase 31)**: `vitals` shows temp=0, battery=1, mesh=-1, heap=1, metabolic=thriving on USB-powered board. `vitals override temp -1` → conserving within 2s. `vitals override battery -1` → surviving (hard constraint). In surviving: zero `#T:H` and `#T:W` events (learning+weave suspended). `vitals clear` → hysteresis holds (stays degraded for recovery window). `#T:X,1,0,1,-1,1` streams at 1Hz. All vital cells visible in `goonies ls`. 10/10 on-device tests.
 - **Streaming telemetry (Phase 30)**: `telemetry on` produces `#T:B,1` at exactly 10Hz (50 lines in 5s) and `#T:V,0,0` at 1Hz. `telemetry off` produces zero stray lines. `#T:P,<name>` and `#T:A,<name>,<type>` fire from shell context on `purpose set`. 10-second soak: B=100, V=10, 0 malformed. Shell commands (`status`, `goonies ls`, `heartbeat`) work while telemetry streams. 10 rapid on/off toggles stable.
 
 ## Current Developer Flow

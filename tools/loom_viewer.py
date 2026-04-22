@@ -259,6 +259,15 @@ def process_telemetry(line, state):
             rr.log("reflex/scalars/reward", rr.Scalar(float(reward)))
             rr.log("reflex/scalars/pain", rr.Scalar(float(pain)))
 
+        elif tag == "X" and len(fields) >= 5:
+            metabolic = int(fields[0])
+            temp, batt, mesh, heap = int(fields[1]), int(fields[2]), int(fields[3]), int(fields[4])
+            rr.log("reflex/scalars/metabolic", rr.Scalar(float(metabolic)))
+            rr.log("reflex/scalars/vitals/temp", rr.Scalar(float(temp)))
+            rr.log("reflex/scalars/vitals/battery", rr.Scalar(float(batt)))
+            rr.log("reflex/scalars/vitals/mesh", rr.Scalar(float(mesh)))
+            rr.log("reflex/scalars/vitals/heap", rr.Scalar(float(heap)))
+
     except (ValueError, IndexError):
         pass  # skip malformed telemetry lines
 

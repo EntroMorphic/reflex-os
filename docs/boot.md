@@ -27,7 +27,8 @@ Entry point: `app_main()` in `main/main.c`.
 - `goose_gateway_init()` -- external-facing API gate.
 - `goose_atlas_manifest_weave()` -- projects 26 MMIO nodes x 4 registers = **104 pre-woven cells** into the Loom.
 - `goose_lp_heartbeat_init()` -- LP RISC-V coherent heartbeat.
-- `goose_supervisor_task` spawned at 10 Hz (`reflex_task_create`, priority 20).
+- `goose_metabolic_init()` -- vital perception cells + circuit breaker (Phase 31).
+- `goose_supervisor_task` spawned at 10 Hz (`reflex_task_create`, priority 20, stack 6144).
 - Service watchdog: checks service health at 1Hz, restarts faulted services with exponential backoff.
 
 **Note:** With `CONFIG_REFLEX_KERNEL_SCHEDULER=y` (default), the kernel

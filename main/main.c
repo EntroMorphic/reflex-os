@@ -31,6 +31,7 @@
 #include "reflex_vm_task.h"
 #include "reflex_vm_loader.h"
 #include "goose.h"
+#include "goose_metabolic.h"
 #include "reflex_tuning.h"
 
 /* Boot constants now live in reflex_tuning.h:
@@ -145,6 +146,7 @@ void app_main(void)
     goose_gateway_init();
     goose_atlas_manifest_weave();
     goose_lp_heartbeat_init();  // LP RISC-V Coherent Heartbeat
+    goose_metabolic_init();     // Vital perception + circuit breaker
 
     // 6. Background Regulation
     reflex_task_create(goose_supervisor_task, "goose-super", 6144, NULL, 20, NULL);

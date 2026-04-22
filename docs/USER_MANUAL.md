@@ -258,6 +258,9 @@ reflex> reboot
 |---------|-------------|
 | `heartbeat` | LP coprocessor pulse count |
 | `telemetry <on\|off>` | Enable/disable real-time substrate telemetry streaming to the host |
+| `vitals` | Show vital cell states and metabolic state |
+| `vitals override <vital> <state>` | Inject synthetic vital state (-1, 0, +1) for bench testing |
+| `vitals clear` | Clear all overrides; resume reading real hardware |
 | `bonsai <exp> <start\|status>` | Bonsai hardware experiments (exp1-exp5, runtime) |
 
 ---

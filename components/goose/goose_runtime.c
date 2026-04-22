@@ -261,6 +261,11 @@ static void ensure_mux_init(void) {
 static uint32_t last_eviction_idx = 0;
 
 goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
+    /* Resource governance (Layer 2): block non-system allocations when heap is tight. */
+    if (!is_system_weaving) {
+        goose_cell_t *heap_cell = goonies_resolve_cell("perception.heap.pressure");
+        if (heap_cell && heap_cell->state == -1) return NULL;
+    }
     /* Serialize against the supervisor pulse. Lock order is
      * loom_authority -> fabric_mux. The pulse path holds loom_authority
      * for the duration of internal_process_transitions and never takes

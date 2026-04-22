@@ -5,7 +5,7 @@ elseif("${IDF_TARGET}" STREQUAL "esp32")
     list(APPEND GOOSE_PLATFORM_REQUIRES esp32)
 endif()
 
-idf_component_register(SRCS "goose_runtime.c" "goose_supervisor.c" "goose_library.c" "goose_gateway.c" "goose_atlas.c" "goose_atmosphere.c" "goose_shadow_atlas.c" "goose_mmio_sync.c" "goose_telemetry.c"
+idf_component_register(SRCS "goose_runtime.c" "goose_supervisor.c" "goose_library.c" "goose_gateway.c" "goose_atlas.c" "goose_atmosphere.c" "goose_shadow_atlas.c" "goose_mmio_sync.c" "goose_telemetry.c" "goose_metabolic.c"
                        INCLUDE_DIRS "include" "../../include"
                        REQUIRES ${GOOSE_PLATFORM_REQUIRES}
                        PRIV_REQUIRES drivers log core)

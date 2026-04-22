@@ -53,4 +53,7 @@ void goose_telem_purpose(const char *name);
 /** Autonomous evaluation: #T:V,<reward_score>,<pain> */
 void goose_telem_eval(int reward_score, bool pain);
 
+/** Metabolic state: #T:X,<metabolic>,<temp>,<battery>,<mesh>,<heap> */
+void goose_telem_metabolic(int8_t metabolic, int8_t temp, int8_t batt, int8_t mesh, int8_t heap);
+
 #endif /* GOOSE_TELEMETRY_H */
