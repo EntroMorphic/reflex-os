@@ -161,6 +161,32 @@ class ReflexNode:
         name = _sanitize(name)
         return self.cmd(f"goonies find {name}")
 
+    def goonies_read(self, name: str) -> str:
+        name = _sanitize(name)
+        return self.cmd(f"goonies read {name}")
+
+    # --- Vitals ---
+
+    def vitals(self) -> str:
+        return self.cmd("vitals")
+
+    def vitals_override(self, vital: str, state: int) -> str:
+        vital = _sanitize(vital)
+        if state not in (-1, 0, 1):
+            raise ValueError("state must be -1, 0, or 1")
+        return self.cmd(f"vitals override {vital} {state}")
+
+    def vitals_clear(self) -> str:
+        return self.cmd("vitals clear")
+
+    # --- Telemetry ---
+
+    def telemetry_on(self) -> str:
+        return self.cmd("telemetry on")
+
+    def telemetry_off(self) -> str:
+        return self.cmd("telemetry off")
+
     # --- Mesh ---
 
     def mesh_status(self) -> str:

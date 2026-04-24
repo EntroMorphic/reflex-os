@@ -1,6 +1,6 @@
 # Reflex OS Security Model: The Sanctuary
 
-Reflex OS v2.5.1 implements a "Substrate-First" security model designed to protect the integrity of the **Geometric Loom** against malicious hijacking and physical privilege escalation.
+Reflex OS implements a "Substrate-First" security model designed to protect the integrity of the **Geometric Loom** against malicious hijacking and physical privilege escalation.
 
 ## 1. The Sanctuary Guard (MMIO Isolation)
 The Sanctuary Guard prevents non-system ternary cells from mapping to critical hardware registers. 

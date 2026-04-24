@@ -64,6 +64,12 @@ for n in nodes:
 | `status()` | System status summary |
 | `goonies_ls()` | List all registered cell names |
 | `goonies_find(name)` | Look up a cell by name |
+| `goonies_read(name)` | Read a live MMIO register by name (raw hex + ternary) |
+| `vitals()` | Display metabolic state (temp, battery, mesh, heap) |
+| `vitals_override(vital, state)` | Inject synthetic vital state for testing (-1, 0, +1) |
+| `vitals_clear()` | Clear all overrides; resume real hardware readings |
+| `telemetry_on()` | Enable push-based substrate telemetry streaming |
+| `telemetry_off()` | Disable telemetry streaming |
 | `mesh_status()` | Show mesh state |
 | `mesh_ping()` | Broadcast ping to peers |
 | `vm_info()` | Ternary VM status |
