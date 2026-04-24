@@ -62,6 +62,7 @@ def scrape_svd(svd_path, zones_path, output_path):
                 dim_elem = register.find("dim")
                 dim_inc_elem = register.find("dimIncrement")
                 dim = int(dim_elem.text) if dim_elem is not None else 1
+                assert dim > 0, f"{p_name}.{r_name}: dim={dim} (invalid SVD)"
                 dim_inc = (
                     int(dim_inc_elem.text, 16)
                     if dim_inc_elem is not None
