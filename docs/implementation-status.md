@@ -27,11 +27,11 @@ Both layers build and have been revalidated on the XIAO ESP32C6 after the audit-
 - `peer.*` prefix triggers atmospheric discovery and allocates a ghost cell
 
 ### G3 — Atlas and Shadow Paging
-- Source: `goose_atlas.c`, `goose_shadow_atlas.c` (SVD-generated from `tools/esp32c6.svd` via `tools/goose_scraper.py`, 9527 MMIO nodes)
+- Source: `goose_atlas.c`, `goose_shadow_atlas.c` (SVD-generated from `tools/esp32c6.svd` via `tools/goose_scraper.py`, 12738 MMIO nodes)
 - Boot-time weave projects 104 high-priority MMIO cells into the active Loom
 - On-demand paging via `goonies_resolve_cell`: unregistered names fall through to shadow resolve, allocate a cell, bind agency
-- **Full-surface name resolution**: `goonies find <name>` falls through from the live registry to `goose_shadow_resolve`, so every one of the 9527 catalog entries is addressable by name without pre-paging a cell. Live vs shadow hits are labeled in the shell output (`[live]` vs `[shadow]`).
-- **`atlas verify`** shell command walks the entire 9527-entry catalog with a full round-trip equality check (name resolves, `addr` / `mask` / `type` all match, coord round-trips through `goose_make_shadow_coord`). Adjacent-pair duplicate sweep runs first to catch any scraper regression that would let binary search silently consolidate dupes. Validated on-device: `ok=9527/9527, duplicates=0, failures=0`.
+- **Full-surface name resolution**: `goonies find <name>` falls through from the live registry to `goose_shadow_resolve`, so every one of the 12738 catalog entries is addressable by name without pre-paging a cell. Live vs shadow hits are labeled in the shell output (`[live]` vs `[shadow]`).
+- **`atlas verify`** shell command walks the entire 12738-entry catalog with a full round-trip equality check (name resolves, `addr` / `mask` / `type` all match, coord round-trips through `goose_make_shadow_coord`). Adjacent-pair duplicate sweep runs first to catch any scraper regression that would let binary search silently consolidate dupes. Validated on-device: `ok=12738/12738, duplicates=0, failures=0`.
 - Sanctuary Guard: `is_sanctuary_address` restricts non-system mappings to a whitelist of peripheral bases.
 
 The distinction between "catalog coverage" and "live Loom capacity" is load-bearing: the catalog holds 100% of the SVD-documented MMIO surface (not undocumented registers, eFuse bits outside the SVD schema, or silicon-revision deltas), while the live Loom is bounded to `GOOSE_FABRIC_MAX_CELLS=256` by the RTC SLOW memory budget. Name resolution does not require a cell allocation; only state read/write and route establishment do.
@@ -134,8 +134,8 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - **LP core Coherent Heartbeat**: ULP RISC-V LP core runs a 1 Hz counter loop in parallel to HP; `heartbeat` shell command exposes `lp_pulse_count`; HP mirrors `agency.led.intent` into `ulp_lp_led_intent` each supervisor pulse
 - **Hebbian plasticity**: reward-gated co-activation counter per route commits to `learned_orientation` at threshold; pain signal decays counters toward zero
 - **NEURON quorum**: `GOOSE_CELL_NEURON` cells aggregate all sub-field routes via ternary sum-and-majority via `neuron_quorum`
-- **Full-surface MMIO name resolution**: the shell's `goonies find` falls through from the live registry to `goose_shadow_resolve` so every one of the 9527 SVD-documented entries is addressable by name without pre-paging a cell
-- **Atlas verify**: `atlas verify` walks the full catalog with a complete round-trip (name / addr / mask / type / coord) plus an adjacent-pair duplicate sweep; validated on Alpha with `ok=9527/9527, duplicates=0, failures=0`
+- **Full-surface MMIO name resolution**: the shell's `goonies find` falls through from the live registry to `goose_shadow_resolve` so every one of the 12738 SVD-documented entries is addressable by name without pre-paging a cell
+- **Atlas verify**: `atlas verify` walks the full catalog with a complete round-trip (name / addr / mask / type / coord) plus an adjacent-pair duplicate sweep; validated on Alpha with `ok=12738/12738, duplicates=0, failures=0`
 - **Three-board mesh field trial**: cross-board `ARC_OP_SYNC` propagation at ~5 Hz (317+ packets across two peers), `goonies find <peer-name>` triggers `ARC_OP_QUERY` → `ARC_OP_ADVERTISE` round-trip with `Ghost Solidified` log confirmation, `mesh posture <state> <weight>` crosses the `SWARM_THRESHOLD=10` hysteresis with three cooperating peers, and HMAC Aura rejection is observable (`aura_fail` counter climbs at the offending peer's emit rate after a deliberate key mismatch, then freezes after re-pairing)
 - **Internal temperature sensor**: `perception.temp.reading` reads the C6 die at ~50-55°C, projecting live ternary state (cold/normal/warm) into the fabric; `temp` shell command reports raw celsius + state
 - **`GOOSE_CELL_PURPOSE`**: `purpose set/get/clear` creates, queries, and clears a user-declared intent cell; learn_sync observably doubles Hebbian reward increments when active

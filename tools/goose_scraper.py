@@ -37,14 +37,11 @@ def scrape_svd(svd_path, zones_path, output_path):
             if r_name_elem is None:
                 continue
             r_name = r_name_elem.text
-            if "%s" in r_name:
-                r_name = r_name.replace("%s", "0")  # Simplify arrays
 
             r_offset_elem = register.find("addressOffset")
             if r_offset_elem is None:
                 continue
             r_offset = int(r_offset_elem.text, 16)
-            addr = base_addr + r_offset
 
             node_type = "GOOSE_CELL_VIRTUAL"
             if zone == "perception":
@@ -58,31 +55,39 @@ def scrape_svd(svd_path, zones_path, output_path):
             elif zone == "radio":
                 node_type = "GOOSE_CELL_SYSTEM_ONLY"
 
-            gname = f"{zone}.{p_name.lower()}.{r_name.lower()}"
-            shadow_nodes.append(
-                {
-                    "name": gname,
-                    "addr": addr,
-                    "mask": 0xFFFFFFFF,
-                    "f": field,
-                    "r": region,
-                    "c": cell_idx,
-                    "type": node_type,
-                }
-            )
-            cell_idx += 1
+            # Array expansion: SVD uses %s placeholder with <dim> and
+            # <dimIncrement> to describe register arrays. Expand every
+            # index so the full hardware surface is addressable by name.
+            if "%s" in r_name:
+                dim_elem = register.find("dim")
+                dim_inc_elem = register.find("dimIncrement")
+                dim = int(dim_elem.text) if dim_elem is not None else 1
+                dim_inc = (
+                    int(dim_inc_elem.text, 16)
+                    if dim_inc_elem is not None
+                    else 4
+                )
+                indices = range(dim)
+            else:
+                indices = [None]
+                dim_inc = 0
 
-            for field_xml in register.findall(".//fields/field"):
-                f_name = field_xml.find("name").text
-                f_offset = int(field_xml.find("bitOffset").text)
-                f_width = int(field_xml.find("bitWidth").text)
-                mask = ((1 << f_width) - 1) << f_offset
-                fname = f"{gname}.{f_name.lower()}"
+            fields_xml = register.findall(".//fields/field")
+
+            for idx in indices:
+                if idx is not None:
+                    inst_name = r_name.replace("%s", str(idx))
+                    addr = base_addr + r_offset + idx * dim_inc
+                else:
+                    inst_name = r_name
+                    addr = base_addr + r_offset
+
+                gname = f"{zone}.{p_name.lower()}.{inst_name.lower()}"
                 shadow_nodes.append(
                     {
-                        "name": fname,
+                        "name": gname,
                         "addr": addr,
-                        "mask": mask,
+                        "mask": 0xFFFFFFFF,
                         "f": field,
                         "r": region,
                         "c": cell_idx,
@@ -90,6 +95,25 @@ def scrape_svd(svd_path, zones_path, output_path):
                     }
                 )
                 cell_idx += 1
+
+                for field_xml in fields_xml:
+                    f_name = field_xml.find("name").text
+                    f_offset = int(field_xml.find("bitOffset").text)
+                    f_width = int(field_xml.find("bitWidth").text)
+                    mask = ((1 << f_width) - 1) << f_offset
+                    fname = f"{gname}.{f_name.lower()}"
+                    shadow_nodes.append(
+                        {
+                            "name": fname,
+                            "addr": addr,
+                            "mask": mask,
+                            "f": field,
+                            "r": region,
+                            "c": cell_idx,
+                            "type": node_type,
+                        }
+                    )
+                    cell_idx += 1
 
     # Invariant: every name must be pure ASCII so Python's sort and
     # C's strcmp produce the same ordering. goose_shadow_resolve relies

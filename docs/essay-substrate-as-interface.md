@@ -1,6 +1,6 @@
 # Hardware as a Named Geometric Field
 
-*What happens when you treat an ESP32-C6's MMIO surface as a 9,527-node addressable catalog and build a ternary OS substrate around it.*
+*What happens when you treat an ESP32-C6's MMIO surface as a 12,738-node addressable catalog and build a ternary OS substrate around it.*
 
 ---
 
@@ -30,16 +30,16 @@ The naming is intentional. `agency.led.intent` is not a GPIO pin number. It's a 
 
 ## The catalog
 
-The ESP32-C6 has a silicon surface described by Espressif's SVD (System View Description) file: thousands of registers across dozens of peripherals, each with named fields and bit masks. A Python scraper (`tools/goose_scraper.py`) walks the SVD and generates a 9,527-entry shadow catalog that maps every documented register and field to a hierarchical name, a physical address, a bit mask, and an ontological type (perception, agency, system, communication, logic, radio).
+The ESP32-C6 has a silicon surface described by Espressif's SVD (System View Description) file: thousands of registers across dozens of peripherals, each with named fields and bit masks. A Python scraper (`tools/goose_scraper.py`) walks the SVD and generates a 12,738-entry shadow catalog that maps every documented register and field to a hierarchical name, a physical address, a bit mask, and an ontological type (perception, agency, system, communication, logic, radio).
 
 This catalog lives in flash as a sorted array with O(log n) binary-search resolution. It's the "shadow" half of a two-tier memory model:
 
-- **The shadow catalog** (9,527 entries, flash-resident, read-only) knows every name the silicon has.
+- **The shadow catalog** (12,738 entries, flash-resident, read-only) knows every name the silicon has.
 - **The active Loom** (256 slots, RTC RAM, mutable) holds the cells that are currently in use.
 
 When someone asks for a name that isn't in the active Loom — say, `sys.soc_etm.clk_en` — the resolver pages it in from the shadow catalog, allocates a cell, binds it to the physical register, and evicts an unpinned cell to make room. The result: 100% of the SVD-documented MMIO surface is addressable by name at any time, but only the working set occupies scarce RTC RAM.
 
-This is verified on hardware. The `atlas verify` shell command walks all 9,527 entries with a full round-trip equality check (name, address, bit mask, type, and coordinate) plus an adjacent-pair duplicate sweep. On the three boards in the lab: `ok=9527/9527, duplicates=0, failures=0`.
+This is verified on hardware. The `atlas verify` shell command walks all 12,738 entries with a full round-trip equality check (name, address, bit mask, type, and coordinate) plus an adjacent-pair duplicate sweep. On the three boards in the lab: `ok=12738/12738, duplicates=0, failures=0`.
 
 ---
 
@@ -106,7 +106,7 @@ That's not a metaphor. That's the specification.
 
 2. **Audits are for friends.** The audit that produced v2.6.0 was not adversarial. It was a sustained collaboration between a maintainer and an AI working through the codebase together, red-teaming every change, and insisting that every commit either matches a doc claim or honestly narrows it. The session ran for hours. Neither side treated it as a test.
 
-3. **Hardware is the tiebreaker.** Every architectural argument in this session was resolved the same way: flash the board, run the command, read the number. `rx_sync=317`. `aura_fail=172 frozen`. `atlas verify: ok=9527/9527`. Numbers don't care about your length budget.
+3. **Hardware is the tiebreaker.** Every architectural argument in this session was resolved the same way: flash the board, run the command, read the number. `rx_sync=317`. `aura_fail=172 frozen`. `atlas verify: ok=12738/12738`. Numbers don't care about your length budget.
 
 4. **The prior should be a voice, not a verdict.** The project's sibling research (`EntroMorphic/the-reflex`) arrived at this principle through a different path — ternary dot products in peripheral hardware, episodic memory in the LP core, structural separation between prior and evidence. But the underlying problem is the same one the OS substrate is trying to solve: how to let accumulated experience inform the system's behavior without the accumulation overriding direct measurement. For the substrate, the answer is structural: the Hebbian plasticity layer can learn, but the supervisor's equilibrium check can always override what it learned. The prior is a voice. The evidence is the verdict.
 

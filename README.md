@@ -34,7 +34,7 @@ Reflex OS reinterprets physical hardware as a coherent **Geometric Tapestry**, r
 - **Hardware Independent** — In 802.15.4 mode, the platform depends on ONE open-source component (ieee802154). All drivers are direct register writes. Custom bootloader (Boot0, 5.2KB).
 - **Global G.O.O.N.I.E.S.** — Hardware addressable by name across physical devices via secure atmospheric mesh.
 - **Recursive Holons** — Named field groups managed as lifecycle units, activated/deactivated by purpose domain matching.
-- **The All-Seeing Atlas** — 9,527-node shadow catalog of the ESP32-C6 MMIO surface, 104 nodes pre-woven at boot.
+- **The All-Seeing Atlas** — 12,738-node shadow catalog of the ESP32-C6 MMIO surface, 104 nodes pre-woven at boot.
 - **Coherent Heartbeat** — LP RISC-V coprocessor mirroring intent state at 1Hz across the RTC boundary.
 - **Autonomous Learning** — The OS generates its own reward/pain signals by evaluating purpose fulfillment. No manual input needed.
 - **Mesh Auto-Discovery** — Boards sharing an Aura key find each other automatically via `ARC_OP_DISCOVER` heartbeats.
@@ -87,7 +87,7 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `led on` / `led off` | Control the onboard LED |
 | `led status` | Query the physical LED state |
 | `goonies ls` | List the hierarchical hardware DNS registry |
-| `goonies find <name>` | Resolve a name: live registry first, then fall through to the 9527-entry shadow catalog. Output is labeled `[live]` or `[shadow]`. |
+| `goonies find <name>` | Resolve a name: live registry first, then fall through to the 12,738-entry shadow catalog. Output is labeled `[live]` or `[shadow]`. |
 | `goonies read <name>` | Read the live MMIO register value for a named hardware cell. Shows raw hex, masked hex, and ternary state. Works on live cells, shadow entries, and GPIO pins. |
 | `atlas verify` | Walk the entire SVD-documented MMIO shadow catalog (full round-trip + duplicate sweep). Prints progress dots; reports `ok=N/N, duplicates=D, failures=F`. |
 | `temp` | Read the internal die temperature (ternary state: cold/normal/warm) |

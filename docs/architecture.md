@@ -98,7 +98,7 @@ The core GOOSE implementation.
 - `goose_supervisor.c`: equilibrium checking, harmonic rebalancing, autonomous fabrication (`weave_sync`), Hebbian plasticity (`learn_sync`), swarm decay, LP liveness monitor.
 - `goose_atmosphere.c`: ESP-NOW atmospheric mesh — HMAC-SHA256 Aura, replay cache, protocol epoch, self-arc suppression, posture weight cap, mesh RX stats.
 - `goose_atlas.c`: the Root Zone — 26 peripheral categories × 4 register channels = 104 pre-woven atlas cells.
-- `goose_shadow_atlas.c`: SVD-generated shadow catalog of 9,527 additional MMIO nodes, paged in on demand via `goose_shadow_resolve`.
+- `goose_shadow_atlas.c`: SVD-generated shadow catalog of 12,738 MMIO nodes (registers + fields, including fully expanded array registers), paged in on demand via `goose_shadow_resolve`.
 - `goose_telemetry.c`: push-based telemetry emitters for the Loom Viewer; `#T:`-prefixed serial lines gated by `goose_telemetry_enabled`.
 - `goose_metabolic.c`: vital perception cells (battery, mesh, heap), circuit-breaker computation with hysteretic recovery, `vitals` shell data, override system for bench testing.
 - `goose_gateway.c`: legacy message bridge between the fabric and GOOSE cell state.

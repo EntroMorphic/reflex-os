@@ -198,7 +198,7 @@ temp=28.5C state=0
 |---------|-------------|
 | `goonies ls` | List all registered cell names |
 | `goonies find <name>` | Look up a cell by name (live, shadow, or phantom) |
-| `atlas verify` | Verify shadow atlas integrity (9,527 entries) |
+| `atlas verify` | Verify shadow atlas integrity (12,738 entries) |
 
 ```
 reflex> goonies find agency.led.intent

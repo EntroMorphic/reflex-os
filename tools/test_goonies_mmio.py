@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 GOONIES MMIO Exhaustive Test — validates register reads across the full
-9,527-entry shadow atlas.
+12,738-entry shadow atlas.
 
 Modes:
   --sample   Test 1-2 entries per peripheral (default, ~120 tests, ~2 min)
-  --full     Test every entry in the shadow atlas (9,527 tests, ~80 min)
+  --full     Test every entry in the shadow atlas (12,738 tests, ~80 min)
   --zone X   Test all entries in a specific zone (agency, perception, sys, comm, logic, radio)
 
 For each entry, the script sends `goonies read <name>` and classifies:
@@ -144,7 +144,7 @@ def main():
     parser = argparse.ArgumentParser(description="GOONIES MMIO exhaustive test")
     parser.add_argument("port", help="Serial port")
     parser.add_argument("--baud", type=int, default=115200)
-    parser.add_argument("--full", action="store_true", help="Test all 9,527 entries")
+    parser.add_argument("--full", action="store_true", help="Test all 12,738 entries")
     parser.add_argument("--zone", help="Test all entries in a specific zone")
     args = parser.parse_args()
 

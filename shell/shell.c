@@ -541,7 +541,7 @@ static void reflex_shell_goonies_find(const char *name) {
 /* `atlas verify`: walk every entry in the shadow catalog, call
  * goose_shadow_resolve on its name, and report any failures. This is
  * the full-surface coverage check — proves every MMIO node in the
- * 9527-entry shadow catalog is reachable by name. */
+ * 12738-entry shadow catalog is reachable by name. */
 static void reflex_shell_atlas_verify(void) {
     uint32_t total = (uint32_t)shadow_map_count;
     uint32_t ok = 0;
