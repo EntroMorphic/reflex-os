@@ -136,6 +136,7 @@ The viewer connects to the board, enables telemetry, and renders the live substr
 
 Canonical project documentation lives in [`docs/`](docs/):
 
+- **[`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) — Start here: hardware, toolchain, build, flash, shell, SDK.**
 - [`docs/architecture.md`](docs/architecture.md) — Module layout and the GOOSE substrate.
 - [`docs/boot.md`](docs/boot.md) — Boot sequence: what happens from power-on to shell.
 - [`docs/holons.md`](docs/holons.md) — Holon lifecycle: purpose-driven field group activation.

@@ -2,6 +2,13 @@
 
 Canonical design and status documents.
 
+## Getting started
+
+- [`GETTING_STARTED.md`](GETTING_STARTED.md) — Zero to running firmware: hardware, toolchain, build, flash, shell, SDK.
+- [`ONBOARDING.md`](ONBOARDING.md) — Contributor onboarding (fork → first PR).
+- [`DEBUGGING.md`](DEBUGGING.md) — Panic decoding, crash types, recovery.
+- [`PLATFORM_BACKEND.md`](PLATFORM_BACKEND.md) — Porting to new chips.
+
 ## Architecture and substrate
 
 - [`architecture.md`](architecture.md) — Module layout and the GOOSE substrate (cells, routes, fields, supervisor).
