@@ -2,7 +2,7 @@
 
 ## Birds-Eye View (v2.5.1)
 
-Reflex OS has moved from a binary-hosted VM to a hardened, geometric substrate. The ESP32-C6 MMIO surface is reachable by name through a 9,531-node shadow catalog, of which 104 high-priority cells are pre-woven into the active Loom at boot and the remainder are paged on demand via `goose_shadow_resolve`. Cross-board coordination is live via HMAC-SHA256-signed ESP-NOW Arcs with a time-bounded replay cache and a protocol version epoch. The LP RISC-V coprocessor runs a parallel heartbeat alongside HP.
+Reflex OS has moved from a binary-hosted VM to a hardened, geometric substrate. The ESP32-C6 MMIO surface is reachable by name through a 12,738-node shadow catalog (all 65 SVD peripherals with fully expanded array registers), of which 104 high-priority cells are pre-woven into the active Loom at boot and the remainder are paged on demand via `goose_shadow_resolve`. Cross-board coordination is live via HMAC-SHA256-signed ESP-NOW Arcs with a time-bounded replay cache and a protocol version epoch. The LP RISC-V coprocessor runs a parallel heartbeat alongside HP.
 
 ### 1. Accepted Design Decisions (Former Technical Debt)
 

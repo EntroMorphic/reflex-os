@@ -4,14 +4,14 @@
 
 ### Vision
 
-Every board in the Reflex mesh exposes its hardware to every other board. The 9,531-node Atlas on each device merges into a **single distributed Tapestry** where `peer.bravo.perception.temp.reading` is as addressable as `perception.temp.reading` on the local board — and the value is live.
+Every board in the Reflex mesh exposes its hardware to every other board. The 12,738-node Atlas on each device merges into a **single distributed Tapestry** where `peer.bravo.perception.temp.reading` is as addressable as `perception.temp.reading` on the local board — and the value is live.
 
 ### Architecture
 
 ```
 Board A                          Board B
 ┌─────────────────┐              ┌─────────────────┐
-│ Atlas (9,531)   │              │ Atlas (9,531)    │
+│ Atlas (12,738)   │              │ Atlas (12,738)    │
 │ Local cells     │──── Arc ────→│ Remote cells     │
 │ Remote cells    │←─── Arc ─────│ Local cells      │
 │                 │              │                  │
@@ -131,7 +131,7 @@ Brain dump — everything about this idea, unfiltered:
 
 - This is essentially distributed shared memory but for MMIO registers. Every board sees every other board's hardware.
 - The Atlas already knows every register address and its bit mask. The naming system already handles `peer.*` prefixes. The atmosphere already sends authenticated packets. We're just wiring them together.
-- Bandwidth is the real constraint. 9,531 registers × 4 bytes × 10Hz = 381KB/s. That's way more than ESP-NOW (250Kbps effective). Must be selective.
+- Bandwidth is the real constraint. 12,738 registers × 4 bytes × 10Hz = 510KB/s. That's way more than ESP-NOW (250Kbps effective). Must be selective.
 - The tiered broadcast (hot/warm/cold) solves bandwidth. Most registers don't change. Only broadcast deltas or on-change.
 - Security: who gets to write my LED? The Sanctuary Guard already has namespace-based access control. `agency.*` is writable, `sys.*` is not, `perception.*` is read-only. This maps perfectly.
 - What about conflicts? Two boards both try to write the same remote LED at the same time. Last-write-wins is simple. Or: only one board "owns" each remote cell at a time (lease model). For v1: last-write-wins.

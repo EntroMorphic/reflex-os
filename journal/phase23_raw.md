@@ -1,7 +1,7 @@
 # Raw Thoughts: Phase 23 (Atmospheric Discovery)
 
 ## Stream of Consciousness
-We have a local naming service, but it's a "walled garden." If I have two XIAOs, Node A doesn't know Node B has a `agency.relay.fan`. To melt faces, Node A should just be able to call `goonies_resolve("remote.node_b.agency.relay.fan")` and have it *just work*. But how? We can't broadcast 9,531 shadow nodes per board—that would saturate the 2.4GHz band instantly. Discovery must be reactive.
+We have a local naming service, but it's a "walled garden." If I have two XIAOs, Node A doesn't know Node B has a `agency.relay.fan`. To melt faces, Node A should just be able to call `goonies_resolve("remote.node_b.agency.relay.fan")` and have it *just work*. But how? We can't broadcast 12,738 shadow nodes per board—that would saturate the 2.4GHz band instantly. Discovery must be reactive.
 
 When a resolution fails locally, we need to broadcast a "Geometric Query." 
 Node A: "Who has `agency.relay.fan`?"

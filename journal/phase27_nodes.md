@@ -23,5 +23,5 @@ Loops in the tapestry create "Echoes."
 *Risk:* Geometric runaway (Positive feedback loop).
 
 ## Node 5: The "Dark" Atlas (Unmapped Potential)
-The All-Seeing Atlas has 9,531 nodes. Most are inactive.
+The All-Seeing Atlas has 12,738 nodes. Most are inactive.
 *Vision:* The AI shouldn't just use predefined cells. It should **Search the Shadow Atlas** for new "Perceptions" that help it reduce `sys.ai.pain`. (Self-Expanding Perception).
