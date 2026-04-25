@@ -38,6 +38,7 @@
 #include "goose.h"
 #include "goose_telemetry.h"
 #include "goose_metabolic.h"
+#include "reflex_tuning.h"
 #include "programs.h"
 
 #define REFLEX_SHELL_LINE_MAX 1024

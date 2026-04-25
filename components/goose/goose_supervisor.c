@@ -582,8 +582,14 @@ static void goose_supervisor_explore(void) {
         return;
     }
 
+    /* Trigger on sustained zero progress: either explicit pain (sys.ai.pain
+     * == -1) or no reward signal (sys.ai.reward != 1). On a bare board the
+     * pain/reward cells may not even exist — that counts as zero progress. */
+    goose_cell_t *reward_cell = goonies_resolve_cell("sys.ai.reward");
     goose_cell_t *pain_cell = goonies_resolve_cell("sys.ai.pain");
-    if (!pain_cell || pain_cell->state != -1) {
+    bool making_progress = (reward_cell && reward_cell->state > 0);
+    bool in_pain = (pain_cell && pain_cell->state == -1);
+    if (making_progress && !in_pain) {
         s_explore_pain_ticks = 0;
         return;
     }
@@ -688,10 +694,12 @@ reflex_err_t goose_supervisor_pulse(void) {
         eval_div = 0;
     }
 
-    /* Self-Expanding Perception — gated: suspended in surviving.
-     * Runs after eval so the pain signal is fresh. */
-    if (metabolic >= 0) {
+    /* Self-Expanding Perception — 1Hz, gated: suspended in surviving.
+     * Runs after eval so the pain/reward signals are fresh. */
+    static int explore_div = 0;
+    if (metabolic >= 0 && explore_div++ >= REFLEX_SUPERVISOR_EVAL_DIV) {
         goose_supervisor_explore();
+        explore_div = 0;
     }
 
     /* Hebbian learning — gated: suspended in surviving, halved in conserving.
