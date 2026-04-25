@@ -567,19 +567,29 @@ reflex_err_t goose_snapshot_clear(void) {
  * lets Hebbian learning + eviction decide which survive. The OS grows
  * new senses without being told what hardware is connected. */
 
-static uint16_t s_explore_cursor = 0;
+static size_t s_explore_cursor = 0;
 static uint16_t s_explore_pain_ticks = 0;
-static uint16_t s_explore_active = 0;
+static uint16_t s_explore_total = 0;      /* cumulative cells paged in */
+static char s_explore_purpose[16] = {0};   /* purpose at exploration start */
 
 uint16_t goose_explore_pain_ticks(void) { return s_explore_pain_ticks; }
-uint16_t goose_explore_cursor(void) { return s_explore_cursor; }
-uint16_t goose_explore_active(void) { return s_explore_active; }
+uint16_t goose_explore_cursor(void) { return (uint16_t)(s_explore_cursor < 0xFFFF ? s_explore_cursor : 0xFFFF); }
+uint16_t goose_explore_active(void) { return s_explore_total; }
 
 static void goose_supervisor_explore(void) {
     const char *purpose = goose_purpose_get_name();
     if (!purpose || !purpose[0]) {
         s_explore_pain_ticks = 0;
+        s_explore_purpose[0] = '\0';
         return;
+    }
+
+    /* Reset exploration state if purpose changed. */
+    if (strncmp(s_explore_purpose, purpose, sizeof(s_explore_purpose) - 1) != 0) {
+        strncpy(s_explore_purpose, purpose, sizeof(s_explore_purpose) - 1);
+        s_explore_purpose[sizeof(s_explore_purpose) - 1] = '\0';
+        s_explore_pain_ticks = 0;
+        s_explore_total = 0;
     }
 
     /* Trigger on sustained zero progress: either explicit pain (sys.ai.pain
@@ -596,17 +606,33 @@ static void goose_supervisor_explore(void) {
 
     if (s_explore_pain_ticks < 0xFFFF) s_explore_pain_ticks++;
     if (s_explore_pain_ticks < REFLEX_EXPLORE_PAIN_THRESHOLD) return;
-    if (s_explore_active >= REFLEX_EXPLORE_MAX_ACTIVE) return;
+
+    /* Cap: s_explore_total tracks cumulative pages per purpose cycle.
+     * It resets when purpose changes, so exploration resumes under a
+     * new purpose even if the cap was hit under the old one. Evicted
+     * cells are naturally forgotten — the cursor re-discovers them on
+     * subsequent passes if still needed. */
+    if (s_explore_total >= REFLEX_EXPLORE_MAX_ACTIVE) return;
+
+    /* Explicit heap guard — don't explore if heap is tight, even though
+     * we use is_system_weaving=true (required for shadow paging). */
+    goose_cell_t *heap_cell = goonies_resolve_cell("perception.heap.pressure");
+    if (heap_cell && heap_cell->state < 0) return;
 
     int8_t metabolic = goose_metabolic_get_state();
     int budget = (metabolic == 0) ? 1 : REFLEX_EXPLORE_BUDGET;
 
     /* Walk the shadow atlas from the cursor, looking for HARDWARE_IN
-     * register-level entries not yet in the live Loom. */
-    uint16_t examined = 0;
-    uint16_t map_count = (uint16_t)shadow_map_count;
+     * register-level entries not yet in the live Loom. The atlas is
+     * sorted alphabetically so non-perception zones (agency, comm,
+     * logic) precede perception entries. We scan up to 2000 entries
+     * per pulse to reach perception within a few seconds — the
+     * per-entry cost is a single type check (~nanoseconds). */
+    size_t examined = 0;
+    size_t map_count = shadow_map_count;
+    size_t max_scan = 2000;
 
-    while (budget > 0 && examined < map_count) {
+    while (budget > 0 && examined < map_count && examined < max_scan) {
         const shadow_node_t *entry = &shadow_map[s_explore_cursor];
         s_explore_cursor++;
         if (s_explore_cursor >= map_count) s_explore_cursor = 0;
@@ -621,13 +647,21 @@ static void goose_supervisor_explore(void) {
         reflex_tryte9_t dummy;
         if (goonies_resolve(entry->name, &dummy) == REFLEX_OK) continue;
 
-        /* Page it in. */
+        /* Page it in. is_system_weaving=true is required for shadow atlas
+         * entries (alloc_cell rejects shadow names without it). Heap
+         * pressure is guarded explicitly above.
+         * alloc_cell uses try_lock and fails fast on contention with
+         * field pulse tasks. Retry a few times — the lock hold is
+         * microseconds, so immediate retry usually succeeds. */
         reflex_tryte9_t coord = goose_make_shadow_coord(entry->f, entry->r, entry->c);
-        goose_cell_t *cell = goose_fabric_alloc_cell(entry->name, coord, true);
+        goose_cell_t *cell = NULL;
+        for (int attempt = 0; attempt < 5 && !cell; attempt++) {
+            cell = goose_fabric_alloc_cell(entry->name, coord, true);
+        }
         if (!cell) continue;
 
         goose_fabric_set_agency(cell, entry->addr, GOOSE_CELL_HARDWARE_IN);
-        s_explore_active++;
+        s_explore_total++;
         budget--;
 
         TELEM_IF(goose_telem_explore(entry->name));
@@ -697,7 +731,7 @@ reflex_err_t goose_supervisor_pulse(void) {
     /* Self-Expanding Perception — 1Hz, gated: suspended in surviving.
      * Runs after eval so the pain/reward signals are fresh. */
     static int explore_div = 0;
-    if (metabolic >= 0 && explore_div++ >= REFLEX_SUPERVISOR_EVAL_DIV) {
+    if (metabolic >= 0 && explore_div++ >= REFLEX_SUPERVISOR_EXPLORE_DIV) {
         goose_supervisor_explore();
         explore_div = 0;
     }

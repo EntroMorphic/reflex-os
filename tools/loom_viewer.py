@@ -268,7 +268,7 @@ def process_telemetry(line, state):
             rr.log("reflex/scalars/vitals/mesh", rr.Scalar(float(mesh)))
             rr.log("reflex/scalars/vitals/heap", rr.Scalar(float(heap)))
 
-        elif tag == "D" and len(fields) >= 1:
+        elif tag == "D" and len(fields) >= 1 and fields[0]:
             name = fields[0]
             state.upsert_cell(name, 0, -1)  # type -1 = exploration
             rr.log("reflex/events/lifecycle", rr.TextLog(f"EXPLORE {name}"))
