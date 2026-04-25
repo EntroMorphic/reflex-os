@@ -84,3 +84,9 @@ void goose_telem_metabolic(int8_t metabolic, int8_t temp, int8_t batt, int8_t me
                      (int)metabolic, (int)temp, (int)batt, (int)mesh, (int)heap);
     telem_emit(buf, n);
 }
+
+void goose_telem_explore(const char *name) {
+    char buf[64];
+    int n = snprintf(buf, sizeof(buf), "#T:D,%s\n", name ? name : "?");
+    telem_emit(buf, n);
+}

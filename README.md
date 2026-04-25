@@ -40,6 +40,7 @@ Reflex OS reinterprets physical hardware as a coherent **Geometric Tapestry**, r
 - **Mesh Auto-Discovery** — Boards sharing an Aura key find each other automatically via `ARC_OP_DISCOVER` heartbeats.
 - **Loom Viewer** — Real-time substrate visualization via Rerun.io. Push-based telemetry streams topology, plasticity, and mesh events to a graphical viewer with zero polling overhead.
 - **Metabolic Regulation** — The substrate governs itself based on physical constraints (temperature, heap, mesh, battery). Circuit breaker for instant protection; per-vital resource governance for fine-grained modulation. Hysteretic recovery prevents oscillation.
+- **Self-Expanding Perception** — Under sustained pain, the OS autonomously pages in HARDWARE_IN entries from the shadow atlas, sampling hardware it has never observed. Hebbian learning decides which new senses survive; eviction forgets the rest. The OS grows new nerve endings.
 
 ## Hardware
 

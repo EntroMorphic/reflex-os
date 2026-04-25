@@ -560,6 +560,74 @@ reflex_err_t goose_snapshot_clear(void) {
     return REFLEX_OK;
 }
 
+/* --- Self-Expanding Perception (Phase 33) ---
+ *
+ * Under sustained pain, the supervisor walks the shadow atlas for
+ * HARDWARE_IN entries not yet in the live Loom, pages them in, and
+ * lets Hebbian learning + eviction decide which survive. The OS grows
+ * new senses without being told what hardware is connected. */
+
+static uint16_t s_explore_cursor = 0;
+static uint16_t s_explore_pain_ticks = 0;
+static uint16_t s_explore_active = 0;
+
+uint16_t goose_explore_pain_ticks(void) { return s_explore_pain_ticks; }
+uint16_t goose_explore_cursor(void) { return s_explore_cursor; }
+uint16_t goose_explore_active(void) { return s_explore_active; }
+
+static void goose_supervisor_explore(void) {
+    const char *purpose = goose_purpose_get_name();
+    if (!purpose || !purpose[0]) {
+        s_explore_pain_ticks = 0;
+        return;
+    }
+
+    goose_cell_t *pain_cell = goonies_resolve_cell("sys.ai.pain");
+    if (!pain_cell || pain_cell->state != -1) {
+        s_explore_pain_ticks = 0;
+        return;
+    }
+
+    if (s_explore_pain_ticks < 0xFFFF) s_explore_pain_ticks++;
+    if (s_explore_pain_ticks < REFLEX_EXPLORE_PAIN_THRESHOLD) return;
+    if (s_explore_active >= REFLEX_EXPLORE_MAX_ACTIVE) return;
+
+    int8_t metabolic = goose_metabolic_get_state();
+    int budget = (metabolic == 0) ? 1 : REFLEX_EXPLORE_BUDGET;
+
+    /* Walk the shadow atlas from the cursor, looking for HARDWARE_IN
+     * register-level entries not yet in the live Loom. */
+    uint16_t examined = 0;
+    uint16_t map_count = (uint16_t)shadow_map_count;
+
+    while (budget > 0 && examined < map_count) {
+        const shadow_node_t *entry = &shadow_map[s_explore_cursor];
+        s_explore_cursor++;
+        if (s_explore_cursor >= map_count) s_explore_cursor = 0;
+        examined++;
+
+        /* Only expand perception: HARDWARE_IN entries. */
+        if (entry->type != GOOSE_CELL_HARDWARE_IN) continue;
+        /* Only register-level entries, not individual bit fields. */
+        if (entry->bit_mask != 0xFFFFFFFF) continue;
+
+        /* Skip if already in the live Loom. */
+        reflex_tryte9_t dummy;
+        if (goonies_resolve(entry->name, &dummy) == REFLEX_OK) continue;
+
+        /* Page it in. */
+        reflex_tryte9_t coord = goose_make_shadow_coord(entry->f, entry->r, entry->c);
+        goose_cell_t *cell = goose_fabric_alloc_cell(entry->name, coord, true);
+        if (!cell) continue;
+
+        goose_fabric_set_agency(cell, entry->addr, GOOSE_CELL_HARDWARE_IN);
+        s_explore_active++;
+        budget--;
+
+        TELEM_IF(goose_telem_explore(entry->name));
+    }
+}
+
 reflex_err_t goose_supervisor_pulse(void) {
     reflex_critical_enter(&supervisor_mux);
     size_t count = supervised_field_count;
@@ -618,6 +686,12 @@ reflex_err_t goose_supervisor_pulse(void) {
     if (eval_div++ >= REFLEX_SUPERVISOR_EVAL_DIV) {
         goose_supervisor_evaluate();
         eval_div = 0;
+    }
+
+    /* Self-Expanding Perception — gated: suspended in surviving.
+     * Runs after eval so the pain signal is fresh. */
+    if (metabolic >= 0) {
+        goose_supervisor_explore();
     }
 
     /* Hebbian learning — gated: suspended in surviving, halved in conserving.

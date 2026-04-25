@@ -477,6 +477,11 @@ reflex_err_t goose_supervisor_pulse(void);
  */
 reflex_err_t goose_supervisor_weave_sync(void);
 
+/** Self-Expanding Perception state accessors. */
+uint16_t goose_explore_pain_ticks(void);
+uint16_t goose_explore_cursor(void);
+uint16_t goose_explore_active(void);
+
 // --- Atmospheric API (Distributed Mesh) ---
 
 /**

@@ -124,4 +124,15 @@
 #define REFLEX_METABOLIC_RECOVERY_TICKS  30  /* 30s at 1Hz metabolic sync */
 #endif
 
+/* Self-Expanding Perception (Phase 33) */
+#ifndef REFLEX_EXPLORE_PAIN_THRESHOLD
+#define REFLEX_EXPLORE_PAIN_THRESHOLD    5   /* Consecutive pain ticks before exploring */
+#endif
+#ifndef REFLEX_EXPLORE_BUDGET
+#define REFLEX_EXPLORE_BUDGET            2   /* Max cells paged in per 1Hz pulse */
+#endif
+#ifndef REFLEX_EXPLORE_MAX_ACTIVE
+#define REFLEX_EXPLORE_MAX_ACTIVE        30  /* Hard cap on exploration cells */
+#endif
+
 #endif /* REFLEX_TUNING_H */

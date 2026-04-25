@@ -90,6 +90,17 @@ Two-layer self-governance that modulates the substrate based on physical constra
 - **Testing:** `vitals override <vital> <state>` injects synthetic values. `vitals clear` resumes real hardware.
 - **Source:** `goose_metabolic.h` / `goose_metabolic.c`. Telemetry: `#T:X,<metabolic>,<temp>,<batt>,<mesh>,<heap>`.
 
+### 7. Self-Expanding Perception (Phase 33)
+
+Under sustained pain, the supervisor autonomously pages in HARDWARE_IN entries from the shadow atlas — sampling hardware it has never observed. Hebbian learning decides which new senses matter; eviction forgets the rest.
+
+- **Trigger:** pain must persist for `REFLEX_EXPLORE_PAIN_THRESHOLD` (5) consecutive ticks before exploration begins.
+- **Scope:** HARDWARE_IN register-level entries only (perception zone). The OS expands its senses, not its actuators.
+- **Budget:** `REFLEX_EXPLORE_BUDGET` (2) cells per 1Hz pulse, halved in conserving mode, suspended in surviving.
+- **Cap:** `REFLEX_EXPLORE_MAX_ACTIVE` (30) total exploration cells. Prevents Loom flooding.
+- **Evaluation:** no new logic — existing Hebbian learning reinforces useful cells, eviction reclaims useless ones.
+- **Source:** `goose_supervisor_explore()` in `goose_supervisor.c`. Telemetry: `#T:D,<name>`.
+
 ## Module Layout
 
 ## `components/goose/`
