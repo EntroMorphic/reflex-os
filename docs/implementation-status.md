@@ -80,6 +80,16 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - Host bridge: `tools/loom_viewer.py` reads serial in a background thread, parses events, and logs to Rerun.io for real-time visualization (GraphNodes/GraphEdges for topology, Scalars for time series, TextLog for events).
 - Hardware-validated: 10Hz balance stream (50 lines in 5s), 1Hz eval events, purpose/alloc events from shell context, clean disable with zero stray lines, 10-second soak with zero malformed lines, shell commands work while telemetry streams, 10 rapid on/off toggles with no crash.
 
+### G10 — Self-Expanding Perception (Phase 33: Curiosity Attractor)
+- Source: `goose_supervisor_explore()` in `goose_supervisor.c`
+- The OS is curious when purpose is active. A two-phase probe reads HARDWARE_IN shadow atlas registers 1 second apart. Registers whose values changed are **hot** — something is alive — and get paged into the Loom.
+- Three layers: curiosity (probing) finds what's alive, Hebbian learning finds what's relevant, eviction forgets what's not. Timer noise (uncorrelated with purpose) never commits under Hebbian learning.
+- Pain amplifies curiosity: under zero progress (5+ ticks), probe count doubles from 4 to 8 per pulse.
+- Metabolic-gated: suspended in surviving, halved in conserving. Explicit heap guard.
+- Cap: `REFLEX_EXPLORE_MAX_ACTIVE` (30) per purpose cycle. Resets on purpose change.
+- Telemetry: `#T:D,<name>`. Shell: `status` shows `explore: curious/urgent/idle`.
+- Hardware-validated: 9/9 on-device tests pass. Board discovered `perception.apb_saradc.apb_tsens_ctrl` and 29 other registers autonomously. Cap respected. Metabolic gating confirmed. Telemetry streaming.
+
 ### G7 — Gateway, ETM, DMA Bridges
 - Source: `goose_gateway.c` (legacy message bridge), `goose_etm.c` (event-task-matrix scaffold), `goose_dma.c` (GDMA route manifestation)
 - Gateway wires fabric traffic to/from legacy message APIs
@@ -142,6 +152,9 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - **Purpose name persistence**: `purpose set sensor` persists `"sensor"` to NVS; reboot restores both the name and the active cell (`purpose restored from NVS: "sensor"` in boot log); `purpose get` reports the name; `purpose clear` + reboot → `inactive`
 - **Purpose-modulated routing**: `weave_sync` uses segment-bounded domain matching (`.<purpose>.` or trailing `.<purpose>`) to bias capability resolution when a purpose is active, falling back to generic suffix match when no domain candidate exists
 - **Tapestry Snapshots**: `snapshot save/load/clear` exercised on Alpha with NVS read/write paths returning `ESP_OK`; 0 routes persisted (correct — no active plasticity scenario at boot without external stimulus)
+- **Self-Expanding Perception**: `purpose set led` triggers curiosity probing; board discovered `perception.apb_saradc.apb_tsens_ctrl` and 29 other registers autonomously; 30-cell cap respected; metabolic gating confirmed (surviving blocks exploration); telemetry `#T:D` events streaming; 9/9 on-device tests pass
+- **HARDWARE_IN live sampling**: route evaluation reads live GPIO pins (`reflex_hal_gpio_get_level`) and MMIO registers (volatile pointer + bit_mask) before using source cell state
+- **`goonies read`**: reads any named MMIO register (live cell, shadow entry, or GPIO pin) with raw hex, masked hex, and ternary interpretation
 - **Metabolic Regulation (Phase 31)**: `vitals` shows temp=0, battery=1, mesh=-1, heap=1, metabolic=thriving on USB-powered board. `vitals override temp -1` → conserving within 2s. `vitals override battery -1` → surviving (hard constraint). In surviving: zero `#T:H` and `#T:W` events (learning+weave suspended). `vitals clear` → hysteresis holds (stays degraded for recovery window). `#T:X,1,0,1,-1,1` streams at 1Hz. All vital cells visible in `goonies ls`. 10/10 on-device tests.
 - **Streaming telemetry (Phase 30)**: `telemetry on` produces `#T:B,1` at exactly 10Hz (50 lines in 5s) and `#T:V,0,0` at 1Hz. `telemetry off` produces zero stray lines. `#T:P,<name>` and `#T:A,<name>,<type>` fire from shell context on `purpose set`. 10-second soak: B=100, V=10, 0 malformed. Shell commands (`status`, `goonies ls`, `heartbeat`) work while telemetry streams. 10 rapid on/off toggles stable.
 

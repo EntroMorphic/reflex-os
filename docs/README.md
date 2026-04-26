@@ -32,6 +32,15 @@ See [`vm/`](vm/):
 - [`vm/state.md`](vm/state.md) — VM register file, flags, and IP semantics.
 - [`vm/syscalls.md`](vm/syscalls.md) — Syscall dispatch from ternary code into host services.
 
+## Design documents
+
+- [`design-self-expanding-perception.md`](design-self-expanding-perception.md) — Phase 33 original architecture (pain-driven).
+- [`design-mmio-sync.md`](design-mmio-sync.md) — MMIO sync design for distributed atlas.
+- [`design-metabolic-regulation.md`](design-metabolic-regulation.md) — Phase 31 initial design.
+- [`lmm-curiosity-attractor.md`](lmm-curiosity-attractor.md) — LMM: reframe from pain to curiosity attractor.
+- [`lmm-self-expanding-perception.md`](lmm-self-expanding-perception.md) — LMM: original exploration design analysis.
+- [`lmm-metabolic-regulation.md`](lmm-metabolic-regulation.md) — LMM: two-layer metabolic architecture.
+
 ## Languages and tooling
 
 - [`tasm-spec.md`](tasm-spec.md) — Ternary Assembler syntax and GOOSE-native opcodes.

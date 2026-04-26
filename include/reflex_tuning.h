@@ -128,11 +128,11 @@
 #ifndef REFLEX_SUPERVISOR_EXPLORE_DIV
 #define REFLEX_SUPERVISOR_EXPLORE_DIV    10  /* 1Hz at 10Hz supervisor */
 #endif
-#ifndef REFLEX_EXPLORE_PAIN_THRESHOLD
-#define REFLEX_EXPLORE_PAIN_THRESHOLD    5   /* Consecutive 1Hz ticks before exploring */
+#ifndef REFLEX_EXPLORE_PROBE_COUNT
+#define REFLEX_EXPLORE_PROBE_COUNT       4   /* Baseline probes per pulse (doubled under pain) */
 #endif
-#ifndef REFLEX_EXPLORE_BUDGET
-#define REFLEX_EXPLORE_BUDGET            2   /* Max cells paged in per 1Hz pulse */
+#ifndef REFLEX_EXPLORE_PAIN_THRESHOLD
+#define REFLEX_EXPLORE_PAIN_THRESHOLD    5   /* Pain ticks before rate amplification */
 #endif
 #ifndef REFLEX_EXPLORE_MAX_ACTIVE
 #define REFLEX_EXPLORE_MAX_ACTIVE        30  /* Hard cap on exploration cells */

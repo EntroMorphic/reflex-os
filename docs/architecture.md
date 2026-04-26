@@ -90,15 +90,19 @@ Two-layer self-governance that modulates the substrate based on physical constra
 - **Testing:** `vitals override <vital> <state>` injects synthetic values. `vitals clear` resumes real hardware.
 - **Source:** `goose_metabolic.h` / `goose_metabolic.c`. Telemetry: `#T:X,<metabolic>,<temp>,<batt>,<mesh>,<heap>`.
 
-### 7. Self-Expanding Perception (Phase 33)
+### 7. Self-Expanding Perception (Phase 33): Curiosity Attractor
 
-Under sustained pain, the supervisor autonomously pages in HARDWARE_IN entries from the shadow atlas — sampling hardware it has never observed. Hebbian learning decides which new senses matter; eviction forgets the rest.
+The OS is curious when purpose is active. A two-phase probe pipeline reads HARDWARE_IN registers 1 second apart. Registers whose values changed are **hot** — something is alive there. Hot registers get paged into the Loom. Three layers, each doing one job:
 
-- **Trigger:** pain must persist for `REFLEX_EXPLORE_PAIN_THRESHOLD` (5) consecutive ticks before exploration begins.
-- **Scope:** HARDWARE_IN register-level entries only (perception zone). The OS expands its senses, not its actuators.
-- **Budget:** `REFLEX_EXPLORE_BUDGET` (2) cells per 1Hz pulse, halved in conserving mode, suspended in surviving.
-- **Cap:** `REFLEX_EXPLORE_MAX_ACTIVE` (30) total exploration cells. Prevents Loom flooding.
-- **Evaluation:** no new logic — existing Hebbian learning reinforces useful cells, eviction reclaims useless ones.
+- **Curiosity** (probing) → finds what's alive. `REFLEX_EXPLORE_PROBE_COUNT` (4) shadow entries probed per 1Hz pulse.
+- **Learning** (Hebbian) → finds what's relevant. Routes that correlate with purpose get reinforced; timer noise (uncorrelated) oscillates around zero.
+- **Forgetting** (eviction) → discards what's not. Unreinforced exploration cells stay VIRTUAL and are reclaimed by round-robin eviction.
+
+Pain doesn't trigger exploration — it **amplifies** it. Under zero progress (`s_explore_pain_ticks >= 5`), probe count doubles. The OS is always a little curious; it becomes voraciously curious under stress.
+
+- **Cap:** `REFLEX_EXPLORE_MAX_ACTIVE` (30). Resets on purpose change.
+- **Heap guard:** exploration stops if `perception.heap.pressure < 0`.
+- **Metabolic gating:** suspended in surviving, halved in conserving.
 - **Source:** `goose_supervisor_explore()` in `goose_supervisor.c`. Telemetry: `#T:D,<name>`.
 
 ## Module Layout

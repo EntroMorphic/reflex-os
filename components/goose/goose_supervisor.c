@@ -560,17 +560,36 @@ reflex_err_t goose_snapshot_clear(void) {
     return REFLEX_OK;
 }
 
-/* --- Self-Expanding Perception (Phase 33) ---
+/* --- Self-Expanding Perception (Phase 33): Curiosity Attractor ---
  *
- * Under sustained pain, the supervisor walks the shadow atlas for
- * HARDWARE_IN entries not yet in the live Loom, pages them in, and
- * lets Hebbian learning + eviction decide which survive. The OS grows
- * new senses without being told what hardware is connected. */
+ * The OS is curious when purpose is active. It probes HARDWARE_IN
+ * shadow atlas entries by reading the register twice (1 second apart).
+ * Registers whose value changed are HOT — something is alive there.
+ * Hot registers get paged into the Loom. Hebbian learning decides
+ * which are relevant to purpose; eviction forgets the rest.
+ *
+ * Three layers, each doing one job:
+ *   Curiosity (probing)  → finds what's alive
+ *   Learning  (Hebbian)  → finds what's relevant
+ *   Forgetting (eviction) → discards what's not
+ *
+ * Pain doesn't trigger exploration — it amplifies it. The OS is
+ * always a little curious; it becomes voraciously curious under
+ * zero progress. */
+
+#define EXPLORE_PROBE_SLOTS 8
+
+typedef struct {
+    size_t atlas_idx;
+    uint32_t last_value;
+} explore_probe_t;
 
 static size_t s_explore_cursor = 0;
 static uint16_t s_explore_pain_ticks = 0;
-static uint16_t s_explore_total = 0;      /* cumulative cells paged in */
-static char s_explore_purpose[16] = {0};   /* purpose at exploration start */
+static uint16_t s_explore_total = 0;
+static char s_explore_purpose[16] = {0};
+static explore_probe_t s_probes[EXPLORE_PROBE_SLOTS];
+static uint8_t s_probe_count = 0;
 
 uint16_t goose_explore_pain_ticks(void) { return s_explore_pain_ticks; }
 uint16_t goose_explore_cursor(void) { return (uint16_t)(s_explore_cursor < 0xFFFF ? s_explore_cursor : 0xFFFF); }
@@ -581,6 +600,7 @@ static void goose_supervisor_explore(void) {
     if (!purpose || !purpose[0]) {
         s_explore_pain_ticks = 0;
         s_explore_purpose[0] = '\0';
+        s_probe_count = 0;
         return;
     }
 
@@ -590,69 +610,50 @@ static void goose_supervisor_explore(void) {
         s_explore_purpose[sizeof(s_explore_purpose) - 1] = '\0';
         s_explore_pain_ticks = 0;
         s_explore_total = 0;
+        s_probe_count = 0;
     }
 
-    /* Trigger on sustained zero progress: either explicit pain (sys.ai.pain
-     * == -1) or no reward signal (sys.ai.reward != 1). On a bare board the
-     * pain/reward cells may not even exist — that counts as zero progress. */
+    if (s_explore_total >= REFLEX_EXPLORE_MAX_ACTIVE) return;
+
+    /* Heap guard — don't explore if heap is tight. */
+    goose_cell_t *heap_cell = goonies_resolve_cell("perception.heap.pressure");
+    if (heap_cell && heap_cell->state < 0) return;
+
+    /* Track pain for rate amplification. */
     goose_cell_t *reward_cell = goonies_resolve_cell("sys.ai.reward");
     goose_cell_t *pain_cell = goonies_resolve_cell("sys.ai.pain");
     bool making_progress = (reward_cell && reward_cell->state > 0);
     bool in_pain = (pain_cell && pain_cell->state == -1);
     if (making_progress && !in_pain) {
         s_explore_pain_ticks = 0;
-        return;
+    } else {
+        if (s_explore_pain_ticks < 0xFFFF) s_explore_pain_ticks++;
     }
 
-    if (s_explore_pain_ticks < 0xFFFF) s_explore_pain_ticks++;
-    if (s_explore_pain_ticks < REFLEX_EXPLORE_PAIN_THRESHOLD) return;
-
-    /* Cap: s_explore_total tracks cumulative pages per purpose cycle.
-     * It resets when purpose changes, so exploration resumes under a
-     * new purpose even if the cap was hit under the old one. Evicted
-     * cells are naturally forgotten — the cursor re-discovers them on
-     * subsequent passes if still needed. */
-    if (s_explore_total >= REFLEX_EXPLORE_MAX_ACTIVE) return;
-
-    /* Explicit heap guard — don't explore if heap is tight, even though
-     * we use is_system_weaving=true (required for shadow paging). */
-    goose_cell_t *heap_cell = goonies_resolve_cell("perception.heap.pressure");
-    if (heap_cell && heap_cell->state < 0) return;
-
+    bool urgent = (s_explore_pain_ticks >= REFLEX_EXPLORE_PAIN_THRESHOLD);
     int8_t metabolic = goose_metabolic_get_state();
-    int budget = (metabolic == 0) ? 1 : REFLEX_EXPLORE_BUDGET;
 
-    /* Walk the shadow atlas from the cursor, looking for HARDWARE_IN
-     * register-level entries not yet in the live Loom. The atlas is
-     * sorted alphabetically so non-perception zones (agency, comm,
-     * logic) precede perception entries. We scan up to 2000 entries
-     * per pulse to reach perception within a few seconds — the
-     * per-entry cost is a single type check (~nanoseconds). */
-    size_t examined = 0;
-    size_t map_count = shadow_map_count;
-    size_t max_scan = 2000;
+    /* Probe count: baseline curiosity, doubled under pain, halved conserving. */
+    int probe_slots = REFLEX_EXPLORE_PROBE_COUNT;
+    if (urgent) probe_slots *= 2;
+    if (metabolic == 0) probe_slots /= 2;
+    if (probe_slots < 1) probe_slots = 1;
+    if (probe_slots > EXPLORE_PROBE_SLOTS) probe_slots = EXPLORE_PROBE_SLOTS;
 
-    while (budget > 0 && examined < map_count && examined < max_scan) {
-        const shadow_node_t *entry = &shadow_map[s_explore_cursor];
-        s_explore_cursor++;
-        if (s_explore_cursor >= map_count) s_explore_cursor = 0;
-        examined++;
+    /* --- Phase B: Check pending probes from last pulse --- */
+    for (uint8_t i = 0; i < s_probe_count; i++) {
+        if (s_explore_total >= REFLEX_EXPLORE_MAX_ACTIVE) break;
 
-        /* Only expand perception: HARDWARE_IN entries. */
-        if (entry->type != GOOSE_CELL_HARDWARE_IN) continue;
-        /* Only register-level entries, not individual bit fields. */
-        if (entry->bit_mask != 0xFFFFFFFF) continue;
+        const shadow_node_t *entry = &shadow_map[s_probes[i].atlas_idx];
+        volatile uint32_t *reg = (volatile uint32_t *)entry->addr;
+        uint32_t now = *reg;
 
-        /* Skip if already in the live Loom. */
+        if (now == s_probes[i].last_value) continue; /* Cold — static. */
+
+        /* HOT — the register changed. Something is alive. Page it in. */
         reflex_tryte9_t dummy;
         if (goonies_resolve(entry->name, &dummy) == REFLEX_OK) continue;
 
-        /* Page it in. is_system_weaving=true is required for shadow atlas
-         * entries (alloc_cell rejects shadow names without it). Heap
-         * pressure is guarded explicitly above.
-         * alloc_cell uses try_lock and fails fast on contention with
-         * field pulse tasks. Retry a few times — the lock hold is
-         * microseconds, so immediate retry usually succeeds. */
         reflex_tryte9_t coord = goose_make_shadow_coord(entry->f, entry->r, entry->c);
         goose_cell_t *cell = NULL;
         for (int attempt = 0; attempt < 5 && !cell; attempt++) {
@@ -662,9 +663,33 @@ static void goose_supervisor_explore(void) {
 
         goose_fabric_set_agency(cell, entry->addr, GOOSE_CELL_HARDWARE_IN);
         s_explore_total++;
-        budget--;
-
         TELEM_IF(goose_telem_explore(entry->name));
+    }
+    s_probe_count = 0;
+
+    /* --- Phase A: Probe new entries for next pulse --- */
+    size_t examined = 0;
+    size_t map_count = shadow_map_count;
+    size_t max_scan = 2000;
+
+    while (s_probe_count < (uint8_t)probe_slots &&
+           examined < map_count && examined < max_scan) {
+        const shadow_node_t *entry = &shadow_map[s_explore_cursor];
+        s_explore_cursor++;
+        if (s_explore_cursor >= map_count) s_explore_cursor = 0;
+        examined++;
+
+        if (entry->type != GOOSE_CELL_HARDWARE_IN) continue;
+        if (entry->bit_mask != 0xFFFFFFFF) continue;
+
+        reflex_tryte9_t dummy;
+        if (goonies_resolve(entry->name, &dummy) == REFLEX_OK) continue;
+
+        /* Read the register and store for next-pulse comparison. */
+        volatile uint32_t *reg = (volatile uint32_t *)entry->addr;
+        s_probes[s_probe_count].atlas_idx = s_explore_cursor > 0 ? s_explore_cursor - 1 : map_count - 1;
+        s_probes[s_probe_count].last_value = *reg;
+        s_probe_count++;
     }
 }
 

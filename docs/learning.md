@@ -75,3 +75,15 @@ so reward written in tick N is consumed by `learn_sync` in the same tick.
   as routes converge — no manual reward needed.
 - Counter values are visible in snapshot blobs (offset: 16-byte name + 1-byte
   orientation, then 2-byte little-endian counter per route).
+- Enable telemetry (`telemetry on`) to watch `#T:H` (Hebbian updates) and
+  `#T:V` (reward/pain evaluation) events in real time.
+
+## Exploration and the Three-Layer Model
+
+Hebbian learning is the middle layer of a three-layer system that governs how the OS discovers and retains new hardware senses (Phase 33):
+
+1. **Curiosity** (exploration) — finds what's alive. The supervisor probes HARDWARE_IN registers from the shadow atlas, reading them 1 second apart. Registers whose values change are *hot* and get paged into the Loom. This layer provides raw material.
+2. **Learning** (Hebbian) — finds what's relevant. Routes from exploration cells that correlate with purpose activity accumulate Hebbian counter increments and eventually commit `learned_orientation`. Timer registers (hot but uncorrelated) oscillate around zero and never commit.
+3. **Forgetting** (eviction) — discards what's not. Exploration cells are VIRTUAL — unreinforced cells stay eviction-eligible and are reclaimed by round-robin when Loom pressure rises.
+
+Each layer does one job. Curiosity doesn't judge relevance. Learning doesn't seek novelty. Eviction doesn't evaluate. The separation keeps each mechanism simple and composable.

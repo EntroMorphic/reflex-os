@@ -646,6 +646,8 @@ The viewer:
 | `#T:E` | Cell evicted |
 | `#T:M` | Mesh arc received |
 | `#T:P` | Purpose set or cleared |
+| `#T:X` | Metabolic state (metabolic, temp, battery, mesh, heap) |
+| `#T:D` | Exploration discovery — the OS found a hot register |
 
 ### Manual Telemetry
 

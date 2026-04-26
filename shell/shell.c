@@ -676,11 +676,13 @@ static void shell_cmd_status(int argc, char *argv[]) {
            (unsigned long)goose_loom_hold_max_cycles(),
            (unsigned long)avg_hold,
            (unsigned long)goose_fabric_get_eviction_count());
-    uint16_t pain_ticks = goose_explore_pain_ticks();
-    if (pain_ticks >= REFLEX_EXPLORE_PAIN_THRESHOLD) {
-        printf("explore: active pain=%u cursor=%u/%u paged=%u\n",
-               (unsigned)pain_ticks, (unsigned)goose_explore_cursor(),
-               (unsigned)shadow_map_count, (unsigned)goose_explore_active());
+    uint16_t explore_discovered = goose_explore_active();
+    uint16_t explore_pain = goose_explore_pain_ticks();
+    if (explore_discovered > 0 || explore_pain > 0) {
+        printf("explore: %s cursor=%u/%u discovered=%u\n",
+               explore_pain >= REFLEX_EXPLORE_PAIN_THRESHOLD ? "urgent" : "curious",
+               (unsigned)goose_explore_cursor(),
+               (unsigned)shadow_map_count, (unsigned)explore_discovered);
     } else {
         printf("explore: idle\n");
     }

@@ -40,7 +40,7 @@ Reflex OS reinterprets physical hardware as a coherent **Geometric Tapestry**, r
 - **Mesh Auto-Discovery** — Boards sharing an Aura key find each other automatically via `ARC_OP_DISCOVER` heartbeats.
 - **Loom Viewer** — Real-time substrate visualization via Rerun.io. Push-based telemetry streams topology, plasticity, and mesh events to a graphical viewer with zero polling overhead.
 - **Metabolic Regulation** — The substrate governs itself based on physical constraints (temperature, heap, mesh, battery). Circuit breaker for instant protection; per-vital resource governance for fine-grained modulation. Hysteretic recovery prevents oscillation.
-- **Self-Expanding Perception** — Under sustained pain, the OS autonomously pages in HARDWARE_IN entries from the shadow atlas, sampling hardware it has never observed. Hebbian learning decides which new senses survive; eviction forgets the rest. The OS grows new nerve endings.
+- **Self-Expanding Perception** — The OS is curious when purpose is active. It probes HARDWARE_IN registers from the shadow atlas, reading them 1 second apart. Registers whose values changed are *hot* — something is alive. Hot registers get paged into the Loom. Hebbian learning decides which are relevant; eviction forgets the rest. Pain amplifies curiosity (doubled probe rate). The OS grows new nerve endings by being attracted to what's moving.
 
 ## Hardware
 
@@ -82,7 +82,7 @@ idf.py menuconfig → Reflex OS → Radio backend
 | Command | Description |
 |---|---|
 | `help` | List available commands |
-| `status` | System summary (uptime, purpose, LED, MAC, peers) |
+| `status` | System summary (uptime, purpose, LED, MAC, peers, loom stats, exploration state) |
 | `reboot` | Warm software reset |
 | `sleep <secs>` | Enter deep sleep for N seconds (LP-timer wake) |
 | `led on` / `led off` | Control the onboard LED |
