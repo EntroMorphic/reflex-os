@@ -11,6 +11,7 @@ The transition from a flat "Message Fabric" to a coherent **"Geometric Tapestry"
 - **[Realized] Autonomous Fabrication:** The machine can perceive unfulfilled "Needs" and autonomously weave the routes to satisfy them.
 
 - **[Realized] Self-Expanding Perception (Phase 33):** The OS grows new senses autonomously via a curiosity attractor. When purpose is active, `goose_supervisor_explore()` probes HARDWARE_IN registers from the shadow atlas, reading them 1 second apart. Registers whose values change are *hot* (alive) and get paged into the Loom. Hebbian learning filters signal from noise (timers never reinforce); eviction forgets unused cells. Pain amplifies curiosity — doubled probe rate under zero progress.
+- **[Realized] Role-Based Access (RBA):** Capability-based session roles — observer (read-only), agent (AI guardrail), operator (day-to-day), admin (everything). Every shell command classified with sub-command escalation. Voluntary `auth role` declaration; SDK `ReflexNode(port, role="agent")` with `AccessDenied`. PIN auth deferred to remote-shell phase.
 
 ---
 

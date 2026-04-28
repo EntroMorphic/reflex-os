@@ -40,6 +40,8 @@ See [`vm/`](vm/):
 - [`lmm-curiosity-attractor.md`](lmm-curiosity-attractor.md) — LMM: reframe from pain to curiosity attractor.
 - [`lmm-self-expanding-perception.md`](lmm-self-expanding-perception.md) — LMM: original exploration design analysis.
 - [`lmm-metabolic-regulation.md`](lmm-metabolic-regulation.md) — LMM: two-layer metabolic architecture.
+- [`design-role-based-access.md`](design-role-based-access.md) — RBA original design (PIN-based).
+- [`lmm-role-based-access.md`](lmm-role-based-access.md) — LMM: capability-based reframe (voluntary roles, deferred PINs).
 
 ## Languages and tooling
 

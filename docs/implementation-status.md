@@ -90,6 +90,15 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - Telemetry: `#T:D,<name>`. Shell: `status` shows `explore: curious/urgent/idle`.
 - Hardware-validated: 9/9 on-device tests pass. Board discovered `perception.apb_saradc.apb_tsens_ctrl` and 29 other registers autonomously. Cap respected. Metabolic gating confirmed. Telemetry streaming.
 
+### G11 — Role-Based Access (RBA)
+- Source: `shell/shell.c` (dispatch table, subcmd_min_role, auth handler)
+- Four roles: observer (read-only), agent (AI guardrail), operator (day-to-day), admin (everything).
+- Every command has a `min_role` in the dispatch table. Commands with mixed sub-commands (config get/set, purpose get/set, led on/off/status, mesh query/peer add, vitals/vitals override, telemetry on/off, snapshot save/clear, vm info/loadhex) use `subcmd_min_role()` for fine-grained escalation.
+- Voluntary capability declaration: `auth role <role>` restricts the session. Default: admin (backward compatible). No PINs — serial cable is the trust boundary. PIN auth deferred to remote-shell phase.
+- Python SDK: `ReflexNode(port, role="agent")` sends `auth role` on connect. Commands exceeding the role raise `AccessDenied(PermissionError)`.
+- Telemetry: `#T:U,<role>` on role transitions.
+- Hardware-validated: 15/15 on-device tests pass. Observer correctly denied mutations (led on, reboot, purpose set, config set, vitals override, vm loadhex, telemetry on, mesh query). Observer allowed reads (status, temp, goonies, led status, config get, purpose get, mesh peer ls, vitals display). Agent/operator/admin escalation verified.
+
 ### G7 — Gateway, ETM, DMA Bridges
 - Source: `goose_gateway.c` (legacy message bridge), `goose_etm.c` (event-task-matrix scaffold), `goose_dma.c` (GDMA route manifestation)
 - Gateway wires fabric traffic to/from legacy message APIs
@@ -155,6 +164,7 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - **Self-Expanding Perception**: `purpose set led` triggers curiosity probing; board discovered `perception.apb_saradc.apb_tsens_ctrl` and 29 other registers autonomously; 30-cell cap respected; metabolic gating confirmed (surviving blocks exploration); telemetry `#T:D` events streaming; 9/9 on-device tests pass
 - **HARDWARE_IN live sampling**: route evaluation reads live GPIO pins (`reflex_hal_gpio_get_level`) and MMIO registers (volatile pointer + bit_mask) before using source cell state
 - **`goonies read`**: reads any named MMIO register (live cell, shadow entry, or GPIO pin) with raw hex, masked hex, and ternary interpretation
+- **Role-Based Access**: `auth role observer` → `reboot` prints `denied: requires admin`; `auth role agent` → `purpose set led` works, `reboot` denied; observer can read (status, goonies, temp, config get, led status, vitals, mesh peer ls) but not mutate (led on, purpose set, config set, telemetry on, mesh query, vitals override); 15/15 on-device tests pass
 - **Metabolic Regulation (Phase 31)**: `vitals` shows temp=0, battery=1, mesh=-1, heap=1, metabolic=thriving on USB-powered board. `vitals override temp -1` → conserving within 2s. `vitals override battery -1` → surviving (hard constraint). In surviving: zero `#T:H` and `#T:W` events (learning+weave suspended). `vitals clear` → hysteresis holds (stays degraded for recovery window). `#T:X,1,0,1,-1,1` streams at 1Hz. All vital cells visible in `goonies ls`. 10/10 on-device tests.
 - **Streaming telemetry (Phase 30)**: `telemetry on` produces `#T:B,1` at exactly 10Hz (50 lines in 5s) and `#T:V,0,0` at 1Hz. `telemetry off` produces zero stray lines. `#T:P,<name>` and `#T:A,<name>,<type>` fire from shell context on `purpose set`. 10-second soak: B=100, V=10, 0 malformed. Shell commands (`status`, `goonies ls`, `heartbeat`) work while telemetry streams. 10 rapid on/off toggles stable.
 
