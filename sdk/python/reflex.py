@@ -28,7 +28,7 @@ def _sanitize(value: str) -> str:
     return re.sub(r"[\x00-\x1f\x7f]", "", value)
 
 
-class AccessDenied(Exception):
+class AccessDenied(PermissionError):
     """Raised when a command is blocked by the session's role."""
     pass
 

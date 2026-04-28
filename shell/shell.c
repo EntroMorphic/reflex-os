@@ -1079,7 +1079,7 @@ static const shell_cmd_t s_commands[] = {
     {"sleep",     shell_cmd_sleep,         ROLE_ADMIN},
     {"goonies",   shell_cmd_goonies,       ROLE_OBSERVER},
     {"atlas",     shell_cmd_atlas,         ROLE_OBSERVER},
-    {"led",       shell_cmd_led,           ROLE_OPERATOR},
+    {"led",       shell_cmd_led,           ROLE_OBSERVER},
     {"bonsai",    shell_cmd_bonsai,        ROLE_OPERATOR},
     {"loom",      shell_cmd_loom,          ROLE_OBSERVER},
     {"tapestry",  shell_cmd_tapestry,      ROLE_OPERATOR},
@@ -1104,10 +1104,10 @@ static uint8_t subcmd_min_role(const char *cmd, int argc, char *argv[]) {
     if (argc < 2) return ROLE_OBSERVER;
     const char *sub = argv[1];
     if (strcmp(cmd, "mesh") == 0) {
-        /* mesh emit/ping/posture = operator; peer add = admin; rest = observer */
+        /* mesh emit/ping/posture/query = operator; peer add = admin; peer ls = observer */
         if (strcmp(sub, "emit") == 0 || strcmp(sub, "ping") == 0 ||
-            strcmp(sub, "posture") == 0) return ROLE_OPERATOR;
-        if (strcmp(sub, "peer") == 0) return ROLE_ADMIN;
+            strcmp(sub, "posture") == 0 || strcmp(sub, "query") == 0) return ROLE_OPERATOR;
+        if (strcmp(sub, "peer") == 0 && argc >= 3 && strcmp(argv[2], "add") == 0) return ROLE_ADMIN;
     } else if (strcmp(cmd, "vm") == 0) {
         /* vm run/stop = operator; vm loadhex = admin; rest = observer */
         if (strcmp(sub, "run") == 0 || strcmp(sub, "stop") == 0) return ROLE_OPERATOR;
@@ -1125,6 +1125,12 @@ static uint8_t subcmd_min_role(const char *cmd, int argc, char *argv[]) {
     } else if (strcmp(cmd, "vitals") == 0) {
         /* vitals (display) = observer; vitals override/clear = admin */
         if (strcmp(sub, "override") == 0 || strcmp(sub, "clear") == 0) return ROLE_ADMIN;
+    } else if (strcmp(cmd, "telemetry") == 0) {
+        /* telemetry (status) = observer; on/off = operator */
+        if (strcmp(sub, "on") == 0 || strcmp(sub, "off") == 0) return ROLE_OPERATOR;
+    } else if (strcmp(cmd, "led") == 0) {
+        /* led on/off = operator; led status = observer (base) */
+        if (strcmp(sub, "on") == 0 || strcmp(sub, "off") == 0) return ROLE_OPERATOR;
     }
     return ROLE_OBSERVER;
 }
