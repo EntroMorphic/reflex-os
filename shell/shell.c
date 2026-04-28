@@ -678,7 +678,9 @@ static void shell_cmd_status(int argc, char *argv[]) {
            (unsigned long)goose_fabric_get_eviction_count());
     uint16_t explore_discovered = goose_explore_active();
     uint16_t explore_pain = goose_explore_pain_ticks();
-    if (explore_discovered > 0 || explore_pain > 0) {
+    const char *p = goose_purpose_get_name();
+    bool exploring = (p && p[0] && goose_metabolic_get_state() >= 0);
+    if (exploring) {
         printf("explore: %s cursor=%u/%u discovered=%u\n",
                explore_pain >= REFLEX_EXPLORE_PAIN_THRESHOLD ? "urgent" : "curious",
                (unsigned)goose_explore_cursor(),
