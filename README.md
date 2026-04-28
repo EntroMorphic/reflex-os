@@ -121,6 +121,8 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `vitals` | Display vital cell states (temp, battery, mesh, heap) and metabolic state |
 | `vitals override <vital> <state>` | Inject synthetic vital state for bench testing (-1, 0, +1) |
 | `vitals clear` | Clear all overrides; resume reading real hardware |
+| `auth` | Show current session role |
+| `auth role <role>` | Set session role: `observer`, `agent`, `operator`, `admin`. Commands requiring a higher role are denied. Default: admin (backward compatible). |
 
 ## Loom Viewer (Substrate Visualization)
 

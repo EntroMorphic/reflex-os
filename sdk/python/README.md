@@ -43,11 +43,20 @@ for n in nodes:
 
 ## API Reference
 
-### `ReflexNode(port, baud=115200, timeout=2.0)`
+### `ReflexNode(port, baud=115200, timeout=2.0, role=None)`
+
+The optional `role` parameter sets the session's capability level on connect:
+- `"observer"` — read-only (status, goonies, temp, telemetry)
+- `"agent"` — observer + purpose set/clear, snapshot save/load
+- `"operator"` — agent + led, vm run/stop, mesh emit/ping
+- `"admin"` — everything (default when role is omitted)
+
+Commands that exceed the session's role raise `AccessDenied`.
 
 | Method | Description |
 |--------|-------------|
-| `cmd(command, timeout=3.0)` | Send a raw shell command, return response |
+| `cmd(command, timeout=3.0)` | Send a raw shell command, return response (raises `AccessDenied` if role insufficient) |
+| `auth(role)` | Set session role (observer, agent, operator, admin) |
 | `purpose_set(name)` | Set active purpose |
 | `purpose_get()` | Get current purpose (or None) |
 | `purpose_clear()` | Clear purpose |

@@ -59,4 +59,7 @@ void goose_telem_metabolic(int8_t metabolic, int8_t temp, int8_t batt, int8_t me
 /** Exploration discovery: #T:D,<name> */
 void goose_telem_explore(const char *name);
 
+/** Role transition: #T:U,<role> */
+void goose_telem_auth(const char *role);
+
 #endif /* GOOSE_TELEMETRY_H */

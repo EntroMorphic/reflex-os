@@ -638,9 +638,22 @@ static void reflex_shell_loom_bloat_test(void) {
 
 typedef void (*shell_handler_t)(int argc, char *argv[]);
 
+/* Role-Based Access (RBA): capability levels for shell commands.
+ * Sessions default to admin (backward compatible). The `auth` command
+ * allows voluntary capability restriction — the caller declares what
+ * it is, the OS enforces the ceiling. */
+#define ROLE_OBSERVER  0   /* Read-only: status, goonies, temp, telemetry */
+#define ROLE_AGENT     1   /* Observer + purpose, snapshot save/load */
+#define ROLE_OPERATOR  2   /* Agent + led, vm run/stop, mesh emit/ping */
+#define ROLE_ADMIN     3   /* Everything: reboot, aura, config set, vm loadhex */
+
+static uint8_t s_session_role = ROLE_ADMIN;
+static const char *role_names[] = {"observer", "agent", "operator", "admin"};
+
 typedef struct {
     const char *name;
     shell_handler_t handler;
+    uint8_t min_role;
 } shell_cmd_t;
 
 static void shell_cmd_help(int argc, char *argv[]) {
@@ -656,6 +669,7 @@ static void shell_cmd_help(int argc, char *argv[]) {
     printf("bonsai:  bonsai <exp1|exp2|exp3a|exp4|exp5|runtime> <start|status|...>\n");
     printf("telem:   telemetry <on|off>  (stream substrate state to host)\n");
     printf("vitals:  vitals [override <vital> <state>|clear]\n");
+    printf("auth:    auth [role <observer|agent|operator|admin>]\n");
 }
 
 static void shell_cmd_status(int argc, char *argv[]) {
@@ -1039,37 +1053,93 @@ static void shell_cmd_telemetry(int argc, char *argv[]) {
     }
 }
 
+static void shell_cmd_auth(int argc, char *argv[]) {
+    if (argc >= 3 && strcmp(argv[1], "role") == 0) {
+        for (int i = 0; i <= ROLE_ADMIN; i++) {
+            if (strcmp(argv[2], role_names[i]) == 0) {
+                s_session_role = (uint8_t)i;
+                printf("role: %s\n", role_names[i]);
+                TELEM_IF(goose_telem_auth(role_names[i]));
+                return;
+            }
+        }
+        printf("unknown role: %s (observer|agent|operator|admin)\n", argv[2]);
+    } else {
+        printf("role: %s\n", role_names[s_session_role]);
+    }
+}
+
 // --- Dispatch Table ---
 
 static const shell_cmd_t s_commands[] = {
-    {"help",      shell_cmd_help},
-    {"status",    shell_cmd_status},
-    {"reboot",    shell_cmd_reboot},
-    {"sleep",     shell_cmd_sleep},
-    {"goonies",   shell_cmd_goonies},
-    {"atlas",     shell_cmd_atlas},
-    {"led",       shell_cmd_led},
-    {"bonsai",    shell_cmd_bonsai},
-    {"loom",      shell_cmd_loom},
-    {"tapestry",  shell_cmd_tapestry},
-    {"services",  shell_cmd_services},
-    {"config",    shell_cmd_config},
-    {"temp",      shell_cmd_temp},
-    {"snapshot",  shell_cmd_snapshot},
-    {"purpose",   shell_cmd_purpose},
-    {"heartbeat", shell_cmd_heartbeat},
-    {"mesh",      shell_cmd_mesh},
-    {"aura",      shell_cmd_aura},
-    {"vm",        shell_cmd_vm},
-    {"telemetry", shell_cmd_telemetry},
-    {"vitals",    shell_cmd_vitals},
-    {NULL, NULL}
+    /* command       handler                  min_role */
+    {"help",      shell_cmd_help,          ROLE_OBSERVER},
+    {"status",    shell_cmd_status,        ROLE_OBSERVER},
+    {"reboot",    shell_cmd_reboot,        ROLE_ADMIN},
+    {"sleep",     shell_cmd_sleep,         ROLE_ADMIN},
+    {"goonies",   shell_cmd_goonies,       ROLE_OBSERVER},
+    {"atlas",     shell_cmd_atlas,         ROLE_OBSERVER},
+    {"led",       shell_cmd_led,           ROLE_OPERATOR},
+    {"bonsai",    shell_cmd_bonsai,        ROLE_OPERATOR},
+    {"loom",      shell_cmd_loom,          ROLE_OBSERVER},
+    {"tapestry",  shell_cmd_tapestry,      ROLE_OPERATOR},
+    {"services",  shell_cmd_services,      ROLE_OBSERVER},
+    {"config",    shell_cmd_config,        ROLE_OBSERVER},
+    {"temp",      shell_cmd_temp,          ROLE_OBSERVER},
+    {"snapshot",  shell_cmd_snapshot,      ROLE_OBSERVER},
+    {"purpose",   shell_cmd_purpose,       ROLE_OBSERVER},
+    {"heartbeat", shell_cmd_heartbeat,     ROLE_OBSERVER},
+    {"mesh",      shell_cmd_mesh,          ROLE_OBSERVER},
+    {"aura",      shell_cmd_aura,          ROLE_ADMIN},
+    {"vm",        shell_cmd_vm,            ROLE_OBSERVER},
+    {"telemetry", shell_cmd_telemetry,     ROLE_OBSERVER},
+    {"vitals",    shell_cmd_vitals,        ROLE_OBSERVER},
+    {"auth",      shell_cmd_auth,          ROLE_OBSERVER},
+    {NULL, NULL, 0}
 };
+
+/* Sub-command role escalation: some commands have sub-commands that
+ * require higher privilege than the base command. */
+static uint8_t subcmd_min_role(const char *cmd, int argc, char *argv[]) {
+    if (argc < 2) return ROLE_OBSERVER;
+    const char *sub = argv[1];
+    if (strcmp(cmd, "mesh") == 0) {
+        /* mesh emit/ping/posture = operator; peer add = admin; rest = observer */
+        if (strcmp(sub, "emit") == 0 || strcmp(sub, "ping") == 0 ||
+            strcmp(sub, "posture") == 0) return ROLE_OPERATOR;
+        if (strcmp(sub, "peer") == 0) return ROLE_ADMIN;
+    } else if (strcmp(cmd, "vm") == 0) {
+        /* vm run/stop = operator; vm loadhex = admin; rest = observer */
+        if (strcmp(sub, "run") == 0 || strcmp(sub, "stop") == 0) return ROLE_OPERATOR;
+        if (strcmp(sub, "loadhex") == 0) return ROLE_ADMIN;
+    } else if (strcmp(cmd, "snapshot") == 0) {
+        /* snapshot save/load = agent; snapshot clear = admin */
+        if (strcmp(sub, "save") == 0 || strcmp(sub, "load") == 0) return ROLE_AGENT;
+        if (strcmp(sub, "clear") == 0) return ROLE_ADMIN;
+    } else if (strcmp(cmd, "purpose") == 0) {
+        /* purpose get = observer; purpose set/clear = agent */
+        if (strcmp(sub, "set") == 0 || strcmp(sub, "clear") == 0) return ROLE_AGENT;
+    } else if (strcmp(cmd, "config") == 0) {
+        /* config get = observer; config set = admin */
+        if (strcmp(sub, "set") == 0) return ROLE_ADMIN;
+    } else if (strcmp(cmd, "vitals") == 0) {
+        /* vitals (display) = observer; vitals override/clear = admin */
+        if (strcmp(sub, "override") == 0 || strcmp(sub, "clear") == 0) return ROLE_ADMIN;
+    }
+    return ROLE_OBSERVER;
+}
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
     for (const shell_cmd_t *cmd = s_commands; cmd->name; cmd++) {
         if (strcmp(argv[0], cmd->name) == 0) {
+            uint8_t required = cmd->min_role;
+            uint8_t sub_required = subcmd_min_role(cmd->name, argc, argv);
+            if (sub_required > required) required = sub_required;
+            if (s_session_role < required) {
+                printf("denied: requires %s\n", role_names[required]);
+                return;
+            }
             cmd->handler(argc, argv);
             return;
         }

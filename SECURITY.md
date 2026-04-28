@@ -13,14 +13,31 @@ The Sanctuary Guard prevents non-system ternary cells from mapping to critical h
 
 The serial shell (`shell/shell.c`) is a trusted administrative interface — it runs with full host privileges and is trust-equivalent to JTAG. After the atlas coverage work in `6bb1f0a` / `c5ee5c6`, the shell's `goonies find <name>` command falls through from the live registry to `goose_shadow_resolve` and reports the MMIO address, bit mask, and ontological type of any of the 12738 SVD-documented registers. This is an intentional expansion of the shell's information surface in service of developer ergonomics; it does not bypass the Sanctuary Guard (the Guard enforces *agency mapping*, not *name resolution*), and anyone with shell access already has equivalent or stronger access to the same information through JTAG/flash read. Future deployments that expose the shell over a less-trusted transport (remote serial, network relay) should gate `goonies find` — or the entire shell — behind an additional authentication layer.
 
-## 2. The Authority Sentry (Deadlock Observability)
+## 2. Role-Based Access (RBA)
+
+The shell implements capability-based role restriction. Every command has a minimum role level:
+
+| Role | Level | Can do |
+|------|-------|--------|
+| observer | 0 | Read-only: status, goonies, temp, telemetry, vitals display |
+| agent | 1 | Observer + purpose set/clear, snapshot save/load |
+| operator | 2 | Agent + led, vm run/stop, mesh emit/ping/posture, bonsai |
+| admin | 3 | Everything: reboot, sleep, aura setkey, config set, vm loadhex, vitals override, snapshot clear, mesh peer add |
+
+Sessions default to **admin** (backward compatible). The `auth role <role>` command restricts the session's capability ceiling voluntarily. The Python SDK accepts `role="agent"` in the constructor; commands exceeding the role raise `AccessDenied`.
+
+This is **operational safety**, not cryptographic security. The serial cable is the trust boundary — physical access bypasses RBA by design. When remote access (WiFi/BLE shell) is added, PIN-based authentication will layer on top of the existing role infrastructure.
+
+Telemetry: `#T:U,<role>` on role transitions.
+
+## 3. The Authority Sentry (Deadlock Observability)
 To ensure system durability, the `loom_authority` spinlock is monitored by a cycle-accurate watchdog.
 
 -   **Limit:** 50,000 CPU cycles (~300μs).
 -   **Action:** If a core fails to acquire the Loom lock within the limit, the Sentry records `lock_contention_cycles` in field stats, emits a `LOOM_CONTENTION_FAULT` log, and **skips the current pulse**. The in-flight lock holder is not forcibly preempted — breaking another core's lock would permit racing mutation of the fabric.
 -   **Purpose:** Makes sustained lock contention observable (stats + log) without introducing data-race corruption. A persistently wedged holder starves pulses and is surfaced for higher-level recovery (e.g., supervisor-triggered reset), rather than being masked by silent unsynchronized execution.
 
-## 3. Atmospheric Aura (Geometric Authentication)
+## 4. Atmospheric Aura (Geometric Authentication)
 Radio-based state propagation (Arcing) is protected by a keyed message authentication layer.
 
 -   **The Aura:** Every Arc packet carries a 32-bit Aura computed as `HMAC-SHA256(GOOSE_AURA_KEY, op || coord || name_hash || state || nonce)` truncated to the first 32 bits. The wire field remains 32 bits for protocol compatibility; the truncation caps collision resistance at the birthday bound.
@@ -30,7 +47,7 @@ Radio-based state propagation (Arcing) is protected by a keyed message authentic
 -   **Replay protection:** a 64-slot time-bounded replay cache in the RX path rejects packets whose `(src_mac, nonce)` pair has been seen within a 5-second window. Stale entries outside the window are treated as empty. The slot index blends the nonce low bits with the last two bytes of the sender MAC, so two peers with colliding nonce low bits land in different slots and don't evict each other.
 -   **Known limits:** the Aura key is still extractable by anyone with JTAG or flash-read access to the board (unchanged by this provisioning model); `esp_random()` entropy quality at very early boot is bounded by the Wi-Fi/RF subsystem seed. Wire-format Aura is 32 bits (HMAC-SHA256 truncated), capping collision resistance at the birthday bound (~2^16); a future protocol epoch can bump `GOOSE_ARC_VERSION` and expand the Aura field. These limits are tracked in [`docs/implementation-status.md`](docs/implementation-status.md) "Known Gaps".
 
-## 4. G.O.O.N.I.E.S. Zone Protection
+## 5. G.O.O.N.I.E.S. Zone Protection
 Hierarchical naming is protected at the root.
 
 -   **Immutable Zones:** Names starting with `sys.` or `agency.` are immutable once woven.
@@ -39,7 +56,7 @@ Hierarchical naming is protected at the root.
 
 -   **Purpose:** Ensures that the mapping from `agency.led.intent` to physical silicon cannot be intercepted by user scripts.
 
-## 5. Loom Quota & Eviction (Resource Isolation)
+## 6. Loom Quota & Eviction (Resource Isolation)
 To prevent "Loom Bloat" (Resource Exhaustion attacks), the substrate implements a self-balancing memory policy.
 
 - **Pinned Cells:** Boot-time core nodes (Origins, Primary Agency) are marked as `GOOSE_CELL_PINNED` and can never be evicted.
@@ -47,7 +64,7 @@ To prevent "Loom Bloat" (Resource Exhaustion attacks), the substrate implements 
 - **Registry Coherency:** G.O.O.N.I.E.S. is automatically updated during eviction to ensure the name-to-coord mapping remains consistent.
 - **Purpose:** Protects the system from being paralyzed by an attacker resolving thousands of unique shadow nodes to overfill the RTC RAM Hearth.
 
-## 6. Mesh Integrity (Aura Shield)
+## 7. Mesh Integrity (Aura Shield)
 Atmospheric discovery and swarming are protected from external interference.
 - **Hashed Discovery:** `ARC_OP_QUERY` uses name-hashes to prevent passive observers from mapping the mesh's physical topology.
 - **Discovery Throttling:** Nodes rate-limit incoming queries to 10Hz, preventing Mesh Denial-of-Service (DoS) attacks.
@@ -56,14 +73,14 @@ Atmospheric discovery and swarming are protected from external interference.
 - **Self-Arc Suppression:** Nodes ignore postural arcs originating from their own MAC address, preventing atmospheric feedback loops and radio saturation.
 - **Auto-Discovery Security:** `ARC_OP_DISCOVER` broadcasts are authenticated with the same Aura HMAC. Only boards with a matching key can register as peers. Discovery arcs carry the device name in the coord field (max 8 chars). Unknown-key discover arcs are silently dropped at the Aura validation stage.
 
-## 7. MMIO Sync Layer Security (Distributed Surface)
+## 8. MMIO Sync Layer Security (Distributed Surface)
 The MMIO Sync Layer extends the mesh to carry cell state across boards. Security enforcement:
 - **Namespace restriction:** Remote writes only to `agency.*` cells. The receive handler rejects any sync arc targeting a `sys.*` cell.
 - **Phantom cell isolation:** Remote state lives in phantom cells (peer_id != 0) which are separate from local cells. A stale peer's phantom cells reset to state=0 after 5 seconds without update.
 - **Aura protection:** All sync arcs (`ARC_OP_MMIO_SYNC`) carry the same HMAC-SHA256 Aura as other arc types. Unauthenticated sync arcs are dropped.
 - **Peer registry:** max 8 peers. Auto-registration from unknown MACs creates an `auto_XXXX` entry for observability but does not bypass Aura checks.
 
-## 8. Application Integrity (LoomScript Quotas)
+## 9. Application Integrity (LoomScript Quotas)
 To protect the system from resource exhaustion at the application layer, LoomScript fragments are strictly managed.
 - **Fragment Quotas:** The system limits the number of active LoomScript fragments (max 8) and the routes per fragment (max 32).
 - **Allocation Validation:** Fragment manifests are validated before heap allocation to prevent memory exhaustion attacks.

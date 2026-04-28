@@ -90,3 +90,9 @@ void goose_telem_explore(const char *name) {
     int n = snprintf(buf, sizeof(buf), "#T:D,%s\n", name ? name : "?");
     telem_emit(buf, n);
 }
+
+void goose_telem_auth(const char *role) {
+    char buf[24];
+    int n = snprintf(buf, sizeof(buf), "#T:U,%s\n", role ? role : "?");
+    telem_emit(buf, n);
+}

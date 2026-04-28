@@ -28,14 +28,26 @@ def _sanitize(value: str) -> str:
     return re.sub(r"[\x00-\x1f\x7f]", "", value)
 
 
+class AccessDenied(Exception):
+    """Raised when a command is blocked by the session's role."""
+    pass
+
+
 class ReflexNode:
     """Interface to a single Reflex OS node over serial."""
 
-    def __init__(self, port: str, baud: int = 115200, timeout: float = 2.0):
+    VALID_ROLES = ("observer", "agent", "operator", "admin")
+
+    def __init__(self, port: str, baud: int = 115200, timeout: float = 2.0,
+                 role: Optional[str] = None):
         self.ser = serial.Serial(port, baud, timeout=timeout)
         self._lock = threading.Lock()
         time.sleep(0.3)
         self.ser.read(self.ser.in_waiting)
+        if role is not None:
+            if role not in self.VALID_ROLES:
+                raise ValueError(f"role must be one of {self.VALID_ROLES}")
+            self.cmd(f"auth role {role}")
 
     def close(self):
         self.ser.close()
@@ -79,7 +91,16 @@ class ReflexNode:
                     stripped = stripped[: -len(PROMPT.strip())].strip()
                 if stripped:
                     output.append(stripped)
-            return "\n".join(output)
+            result = "\n".join(output)
+            if result.startswith("denied:"):
+                raise AccessDenied(result)
+            return result
+
+    def auth(self, role: str) -> str:
+        """Set the session role (observer, agent, operator, admin)."""
+        if role not in self.VALID_ROLES:
+            raise ValueError(f"role must be one of {self.VALID_ROLES}")
+        return self.cmd(f"auth role {role}")
 
     # --- Purpose ---
 
