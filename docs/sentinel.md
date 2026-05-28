@@ -1,139 +1,147 @@
-# Sentinel — Model-of-Normalcy Sense (Integration Spec)
+# Sentinel — Model-of-Normalcy Sense (Integration Spec, v2)
 
-**Status:** Proposed (draft for review). **Slots as:** the next perception phase, building on Phase 33
-(Self-Expanding Perception) and Phase 31 (Metabolic Regulation).
-**Detector core (external):** `~/Projects/tsle/standalone/stream_detect_mcu.c` — a ~1 KB float,
-self-contained (no libm/newlib) model-of-normalcy detector, hardware-validated on Cortex-M4F
-(see `tsle/docs/NORMALCY_BENCHMARK.md`: 4/4 documented IMS bearing faults, 0 false alarms in healthy
-operation; bit-identical float-on-silicon result).
+**Status:** Proposed (v2 — remediated after a code-grounded red-team of v1). **Slots as:** a new
+designated-signal sense, complementary to Phase 33 (Self-Expanding Perception) and Phase 31 (Metabolic
+Regulation) — *not* a replacement for either.
+**Detector core (external, reference):** `~/Projects/tsle/standalone/stream_detect_mcu.c` — a ~1 KB
+self-contained model-of-normalcy detector, validated on Cortex-M4F (`tsle/docs/NORMALCY_BENCHMARK.md`:
+4/4 documented IMS bearing faults, 0 false alarms in healthy operation). **That validation is FLOAT on a
+chip with an FPU; reflex-os requires a fixed-point port — see §4.**
+
+### Changes from v1 (why this is v2)
+The v1 red-team (against the actual `components/goose/` code) found three design errors, all fixed here:
+1. **v1 used the float core. The substrate is `int8_t`/ternary and the primary target (ESP32-C6, RV32IMAC)
+   has no FPU** → v2 specifies a **fixed-point (Q16.16) integer port**; the M4F float numbers do **not** transfer.
+2. **v1 raised the global `sys.ai.pain` cell. Code: under `sys.ai.pain` *all* Hebbian counters decay** — one
+   sensor fault would erase unrelated learning → v2 uses a **dedicated, region-scoped anomaly signal**, never global pain.
+3. **v1 claimed to replace Phase 33's value-changed curiosity. Phase 33 probes arbitrary MMIO `HARDWARE_IN`
+   registers; the model-of-normalcy is for physical sensor signals** → v2 reframes Sentinel as a **narrow sense
+   over a handful of designated signals**, complementary to the cheap atlas-wide probe, with an explicit
+   feature front-end (§3) and a bounded memory budget (§12).
 
 ---
 
 ## 1. Summary
-The Sentinel is a purpose-activated **holon** that wraps a learned model-of-normalcy and turns its
-**prediction residual** into two signals reflex-os already runs on: **curiosity** (a sustained-but-
-unconfirmed departure → attend) and **pain** (a confirmed sustained departure → protect). It upgrades
-Phase 33's novelty trigger from *"a register value changed = hot"* to *"a value departed from learned
-normal and the departure persists = hot,"* and gives the OS a principled "sense of when something is wrong."
+Sentinel is a purpose-activated **holon** that watches **one designated physical signal** (a sensor feature or
+a vital), learns its normal during a known-good enrollment, and turns the **prediction residual** into reflex-os-
+native responses: a **ternary cell**, a **scoped curiosity bias** (sustained-but-unconfirmed departure → attend
+to *this* signal's region), and a **scoped anomaly response** (confirmed departure → protect *this* region). It
+adds a principled "sense of when a monitored signal goes wrong"; it does **not** modify the broad register-probing
+curiosity of Phase 33.
 
-## 2. The unifying principle
-Curiosity and anomaly are the same gradient — prediction error / surprise — separated only by
-**persistence**. reflex-os explores under **zero reward**; the residual is the natural intrinsic-motivation
-signal: low everywhere ⇒ the world matches the model ⇒ quiescent; rising ⇒ something to learn (curiosity);
-*persisting past confirmation* ⇒ a fault (pain). One signal, two valences, one dividing line.
+## 2. The unifying principle (unchanged)
+Curiosity and anomaly are one residual gradient separated by **persistence**: low residual ⇒ quiescent; rising ⇒
+attend (curiosity); persisting past confirmation ⇒ fault. reflex-os explores under zero reward, so the residual is
+a natural intrinsic-motivation signal — but applied **locally** to the monitored signal, not globally (see §7).
 
-## 3. Architecture
-A holon (`sentinel`) on the 1 Hz supervisor policy tick (or a dedicated faster sensor task). It owns a
-detector instance, binds to one signal source, emits one ternary cell, and wires its residual into the
-existing explore-bias and `sys.ai.pain` paths. No new substrate — a new sense.
+## 3. Architecture & the feature front-end (NEW in v2)
+Two layers, at two rates:
 
 ```
-signal source (HARDWARE_IN reg via shadow atlas / vital cell / derived feature)
-      │  read 1 value per tick
-      ▼
-  [ Det: frozen normal model + CUSUM ]          ← the model-of-normalcy core (≈1 KB)
-      │  residual ev, accumulator S
-      ▼
-  perception.normalcy.<signal>  =  +1 normal / 0 novel-watch / −1 fault   (ternary GOOSE cell)
-      │                         │
-      │ cell==0 → bias explore  │ cell==−1 → raise sys.ai.pain
-      ▼                         ▼
-  goose_supervisor_explore   pain responses (Hebbian decay, probe-rate ×2, metabolic protect, mesh arc)
+(A) Feature front-end  — at the SIGNAL's native rate (e.g. kHz ADC for vibration; or a slow vital read)
+       raw samples ──► windowed feature (e.g. RMS, or mean+std)  ──► one feature value per window
+(B) Sentinel holon     — on the feature cadence (NOT the 1 Hz policy tick unless the signal is slow)
+       feature value ──► [ fixed-point Det: frozen normal + CUSUM ] ──► residual ev, accumulator S
+                       ──► perception.normalcy.<signal> ∈ {+1,0,−1}
+                       ──► scoped curiosity bias (cell==0) / scoped anomaly response (cell==−1)
 ```
 
-## 4. Detector core (self-contained recap)
-Per signal: feature `feat()` (e.g. windowed mean+std for vibration; configurable per signal), z-scored
-against an enrollment-derived scale with a **level-scale floor** (so a quiet baseline isn't a hair-trigger);
-**evidence** = nearest-neighbour distance to a frozen episodic memory of normal snapshots; **CUSUM**
-relax-vs-persist accumulator (`S += clamp(ev/thr − 1, −1, +1)`, fire at `S ≥ confirm`); threshold
-**enrollment self-calibrated** (percentile + spread, floored by `absmin`). State = `Det`
-(`fm,fsd,mem[128][2],memn,thr,sm,S,init` ≈ 1064 B float). Deterministic; ~2,700 CPU cycles/sample.
+v1 conflated these by feeding *pre-computed per-file RMS* (one value / 10 min). A real deployment must specify the
+front-end per signal: **who samples, at what rate, and which feature**. For a slow vital (heap, temp, battery) the
+front-end is trivial (read on the 1 Hz tick); for a vibration sensor it is a dedicated kHz acquisition task that
+emits a windowed feature, and only the feature stream reaches the holon.
 
-## 5. Lifecycle (two-phase, mirrors reflex-os)
-- **ENROLL** — on first activation under a stable purpose (= a known-good commissioning window), or via
-  `sentinel enroll <signal>`. Accumulate; compute level-scale, memory, threshold; then **LOCK**.
-- **LOCK = W_f[hidden] = 0** — the nominal model is frozen; the detect path reads evidence against it with
-  **no feedback** from detection back into the model. Persist `Det` to NVS via the snapshot infrastructure
-  (Phase 29, `goose_snapshot_*` pattern) so enrollment survives reboot.
-- **DETECT** — per tick: compute `ev`, update `S`, set the cell, drive the wiring.
+## 4. Detector core — FIXED-POINT (replaces v1's float core)
+The reference algorithm (`stream_detect_mcu.c`) must be ported to **integer/fixed-point (Q16.16, `int32_t`)** so it
+is (a) native to the `int8_t`/ternary substrate and (b) runs on the FPU-less ESP32-C6. Specifics:
+- Features, z-scores, evidence, and CUSUM all in Q16.16; **integer `sqrt`** (e.g. Newton/`__builtin`-free bit method)
+  replaces `sqrtf`; the EMA decay constant is a fixed-point constant (no `expf`).
+- The threshold percentile uses an integer insertion sort over Q16.16 distances; the level-scale floor and `absmin`
+  are fixed-point constants.
+- State = `sentinel_det_t` (fixed-point `fm,fsd,mem[N][2],memn,thr,sm,S,init`). With `int16` packed memory this is
+  **smaller** than the float `Det`; budget in §12.
+- **Mandatory validation (M0):** the fixed-point port must reproduce the validated detection on the bearing data
+  (same first-flare sample, same flare count) before any numbers are quoted. Do **not** carry over the M4F
+  float footprint/cycle figures — re-measure on the C6.
+
+## 5. Lifecycle (operator-enroll only)
+- **ENROLL** — **explicit** `sentinel enroll <signal>` over a known-good window. *(v1's auto-enroll-on-purpose is
+  removed: it could silently enroll on a degrading asset and learn the fault as normal.)*
+- **LOCK** — the **normal model** (`mem, fm, fsd, thr`) is frozen; this is the `W_f[hidden]=0` separation. Note: the
+  *detect state* (`sm`, `S`) is transient and **does** evolve each step — "locked" means no feedback into the model,
+  not that the struct is immutable. Persist the frozen-model fields to NVS via a dedicated `sentinel`-blob handler
+  (§13), separate from the route-plasticity serializer.
+- **DETECT** — per feature value: residual + CUSUM → cell → scoped wiring.
 
 ## 6. The ternary cell — `perception.normalcy.<signal>`
 | state | meaning | trigger |
 |---|---|---|
-| **+1** | normal | `ev ≤ thr` and `S ≈ 0` |
-| **0** | novel / watching | `ev > thr` but `S < confirm` (the curiosity zone) |
-| **−1** | fault | `S ≥ confirm` (the pain zone) |
-Same shape as `sys.metabolic` (thriving/conserving/surviving); propagates through GOOSE routes like any cell,
-and can feed `GOOSE_CELL_NEURON` quorum aggregation.
+| **+1** | normal | `ev ≤ thr`, `S ≈ 0` |
+| **0** | novel / watching | `ev > thr`, `S < confirm` |
+| **−1** | fault | `S ≥ confirm` |
+Same shape as `sys.metabolic`; propagates through GOOSE routes; can feed `GOOSE_CELL_NEURON` quorum.
 
-## 7. Wiring
-**7.1 Residual → curiosity.** When `cell == 0`, the Sentinel nominates its source register/region as an
-explore candidate, *replacing* Phase 33's raw value-changed heuristic with residual-hotness. Integration:
-`goose_supervisor_explore()` gains a candidate-priority hook; Sentinel feeds it "registers whose residual is
-elevated-and-rising." Hebbian/eviction still arbitrate relevance downstream — but the *attractor* is now
-"where the world is departing from what I learned," not "where a timer ticked."
+## 7. Wiring — SCOPED (no global pain)
+**7.1 Residual → curiosity (scoped).** When `cell == 0`, Sentinel raises attention on **this signal's own
+field/region** — biasing probing toward its neighbourhood — *not* hijacking the atlas-wide `goose_supervisor_explore`
+heuristic. The cheap value-changed probe (Phase 33) continues unchanged for the rest of the atlas.
 
-**7.2 Residual → pain.** When `cell == −1`, raise `sys.ai.pain`. Existing pain responses then fire for free:
-`hebbian_counter` decays off the faulty routes (don't reinforce a broken world), probe rate doubles (focus
-perception on the anomaly), and metabolic protection engages if the fault is a hard-constraint vital. When the
-residual relaxes back under threshold (`S` decays), pain subsides — consistent with metabolic **hysteretic
-recovery**, so there's no oscillation on transients.
+**7.2 Residual → anomaly (scoped, NOT `sys.ai.pain`).** When `cell == −1`, Sentinel asserts a **dedicated** anomaly
+signal (e.g. `perception.normalcy.<signal> = −1` is itself the signal, optionally a per-region `*.alarm` cell). The
+response is **local**: raise an alarm/telemetry event, focus probing on this signal's region, and — if desired —
+decay only the `hebbian_counter` of routes **within this signal's holon/field**. It must **not** write the global
+`sys.ai.pain` cell, because code shows that decays **all** counters system-wide (a single sensor fault would erase
+unrelated learning). Metabolic protection engages only if the monitored signal *is* a hard-constraint vital.
+**7.3 Reward coupling.** The residual is the local zero-reward intrinsic drive for *this* signal — escalating to the
+scoped anomaly response only on persistence; relaxes back as `S` decays (hysteresis, no oscillation).
 
-**7.3 Reward coupling.** The residual *is* the zero-reward intrinsic drive: with no extrinsic reward, the
-Sentinel's `0`-state drives exploration toward novelty; escalation to `−1` only on persistence.
-
-## 8. Mesh (Phase 32 tie-in)
-A locked normal model is a shareable **topological delta**: a node that enrolled "normal for pump-A" can arc
-the model — or just the fault verdict — to peers monitoring similar assets (`ARC_OP_*`, Aura-secured). Swarm-
-wide condition monitoring with **no raw-data transfer**, matching both reflex-os's mesh-learning vision and the
-detector's no-cloud design.
+## 8. Mesh (Phase 32) — verdict only
+Arc the **verdict** — the ternary `perception.normalcy.<signal>` state — as a native `ARC_OP_*` payload
+(`int8_t`, Aura-secured). Sharing the **full model** is a future capability: a ~KB blob exceeds one arc and needs
+fragmentation/a new op; out of scope for v2.
 
 ## 9. Telemetry & viewer
-Emit `#T:`-prefixed lines (`signal, ev, thr, S, cell`) on each tick. The Loom viewer renders the residual and
-CUSUM as scalar time series and the normalcy cell as a node colour — the same play-by-play already demonstrated
-on serial (`healthy → S climbs → FAULT CONFIRMED`), now inside the substrate visualization.
+Emit `#T:` lines (`signal, ev, thr, S, cell`) per feature value (fixed-point printed as scaled integers). The Loom
+viewer renders residual/CUSUM as scalars and the normalcy cell as a node colour.
 
 ## 10. Shell & RBA
-| command | role |
-|---|---|
-| `sentinel status` | observer |
-| `sentinel enroll <signal>` / `sentinel reset` | operator |
-| `sentinel arc <peer>` | operator |
-| `sentinel override <state>` (bench) | admin |
+`sentinel status` (observer) · `sentinel enroll <signal>` / `sentinel reset` (operator) · `sentinel arc <peer>`
+(operator) · `sentinel override <state>` (admin, bench).
 
-## 11. Parameters (a-priori sensitivity priors — not fitted to data)
-`W=12` (feature window), `confirm=10` (CUSUM bound), `relfloor=0.20` (min meaningful change vs signal scale),
-`absmin=1.0` (absolute excursion floor), `pctl=0.99` (enrollment threshold percentile), `enroll_frac=0.15`.
-These transfer from the validated host/silicon config; per-signal feature choice is the one tunable that needs
-a deployment decision (see §13).
+## 11. Parameters (a-priori; fixed-point scaled)
+`W=12`, `confirm=10`, `relfloor=0.20`, `absmin=1.0`, `pctl=0.99`, `enroll_frac=0.15` — carried from the validated
+config, expressed in Q16.16. Per-signal **feature choice** is the one real deployment decision (§13).
 
-## 12. Integration points (reflex-os modules touched)
-- `components/goose/include/goose.h` — cell id `perception.normalcy.*`, Sentinel holon registration.
-- `components/goose/goose_supervisor.c` — tick hook; explore-candidate priority hook (§7.1).
-- `components/goose/goose_metabolic.c` — pattern reuse (vital-like cell + hysteresis); optional vital binding.
-- `goose_telemetry.c` — `#T:` schema for residual/S/cell.
-- `shell/shell.c` — `sentinel` command + RBA classification.
-- mesh/ARC layer — `arc_anomaly` / model-delta op.
-- NVS/snapshot — `Det` serialize/restore alongside route plasticity.
-- **import:** `tsle/standalone/stream_detect_mcu.c` core (vendored as `components/sentinel/` or a thin port).
+## 12. Memory & compute budget
+Fixed-point `sentinel_det_t` ≈ 0.5–1 KB per signal (≤ float `Det` 1064 B; `int16` packed memory ~0.5 KB). Budget
+for **a small, fixed set of designated signals** (e.g. ≤ 8), not the 12,738-node atlas. Cycle cost must be
+**re-measured on the C6** in fixed-point (the M4F ~2,700-cyc float number does not apply).
 
-## 13. Scope, caveats, open questions (honest)
-- **Feature choice per signal.** Windowed mean+std suits vibration/RMS-like signals. For raw MMIO registers or
-  vitals, the right feature (level? rate? entropy?) is undecided — the first integration question.
-- **Enroll-on-healthy is mandatory.** If enrollment captures a degrading asset, the fault is learned as normal
-  (same limit as any learn-from-normal method). Enrollment window selection is a deployment decision.
-- **It is a model-of-normalcy** (sustained-excursion / global-departure faults), **not** a contextual/
-  seasonal detector — the boundary established in `tsle/docs/lmm_phase_routing_*` and `NORMALCY_BENCHMARK.md`.
-  Variable operating regimes → route-over-regimes (future), not a single locked envelope.
-- **Float-equivalence** is validated on-silicon for one signal class (bearing). New signals should re-confirm
-  the float core matches the host before quoting numbers.
-- **Single-signal** per holon instance to start; multi-channel = multiple Sentinel holons.
+## 13. Integration points (reflex-os modules)
+- `components/goose/include/goose.h` — `perception.normalcy.*` cell ids; Sentinel holon registration.
+- `components/sentinel/` (new) — the fixed-point detector + feature front-end; or vendor the ported core here.
+- `components/goose/goose_supervisor.c` — **scoped** attention hook (do not alter the global explore heuristic).
+- `goose_telemetry.c` — `#T:` schema. `shell/shell.c` — `sentinel` command + RBA.
+- NVS — dedicated Sentinel-model blob handler (not the route-plasticity serializer).
+- mesh/ARC — verdict arc op. **Do NOT touch `sys.ai.pain`.**
 
-## 14. Milestones
-- **M1** Detector-as-holon: bind a signal, enroll/lock, emit `perception.normalcy.<signal>` (no wiring).
-- **M2** Residual → curiosity: explore-candidate hook; show novelty attends before fault.
-- **M3** Residual → pain: `sys.ai.pain` on confirm; verify Hebbian decay + probe-rate + hysteretic relax.
-- **M4** NVS persistence: enroll-once survives reboot.
-- **M5** Mesh: arc the fault verdict / model delta to a peer.
-- **Falsification gates:** a known transient must raise curiosity then relax **without** pain; a sustained
-  departure must escalate to pain; healthy operation must hold `+1` with zero pain events over a long soak.
+## 14. Scope, caveats, open questions (honest)
+- **Fixed-point equivalence is unproven until M0** — the port must reproduce the validated decisions; the float
+  numbers are not transferable.
+- **C6 has no FPU** (RV32IMAC) — fixed-point is required, not optional. Verify the actual `march` on the target.
+- **Feature choice per signal is undecided** — mean/std suits vibration/RMS; vitals and registers need a chosen
+  (and possibly different, or no) feature. Sentinel is for **physical signals with a learnable envelope**, not
+  arbitrary status registers — that's why it's a narrow designated-signal sense, not an atlas-wide upgrade.
+- **Enroll-on-healthy is mandatory and operator-gated.**
+- **Model-of-normalcy, not contextual** — sustained-excursion faults; variable operating regimes need route-over-
+  regimes (future), per `tsle/docs/lmm_phase_routing_*`.
+
+## 15. Milestones
+- **M0** Fixed-point port + **equivalence validation** on bearing data (same first-flare, same count) — gates everything.
+- **M1** Detector-as-holon on one designated signal: feature front-end + enroll/lock + emit `perception.normalcy.<signal>`.
+- **M2** Scoped residual → curiosity (attend this signal's region; atlas probe untouched).
+- **M3** Scoped residual → anomaly response (no global pain); verify a transient relaxes without alarm.
+- **M4** NVS persistence of the frozen model (dedicated blob handler).
+- **M5** Verdict arc over the mesh.
+- **Falsification gates:** a known transient must raise curiosity then relax **without** anomaly; a sustained
+  departure must escalate; a healthy soak must hold `+1` with zero anomaly events and **zero global-Hebbian disturbance**.
