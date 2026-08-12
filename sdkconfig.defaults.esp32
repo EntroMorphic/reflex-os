@@ -1,5 +1,27 @@
-# ESP32-specific defaults
+# ESP32-specific defaults.
+#
+# CI builds this target with SDKCONFIG_DEFAULTS pointing at *only* this file,
+# so it must be self-contained — nothing from sdkconfig.defaults is inherited.
+# That is why the partition and flash settings are repeated here rather than
+# assumed.
 CONFIG_ULP_COPROC_ENABLED=n
 CONFIG_REFLEX_RADIO_ESPNOW=y
-CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# Use the project's own partition table, as the C6 build does.
+#
+# This previously selected CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE, IDF's
+# built-in layout with a 1.5 MB (0x180000) app partition. The ESP32 image is
+# 1.54 MB, so the build failed with "app partition is too small" — the target
+# had outgrown that table and nobody saw it, because this build has been red
+# in CI for longer than the overflow has existed.
+#
+# partitions.csv gives the app 2 MB; with nvs (0x6000), phy_init (0x1000) and
+# a 1 MB storage partition the total is ~3.03 MB, comfortably inside the 4 MB
+# flash on the ESP32-D0WD-V3 modules this targets.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

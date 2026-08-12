@@ -51,7 +51,24 @@ static reflex_err_t temp_service_init(void *ctx) {
 
 static reflex_err_t temp_service_start(void *ctx) {
     (void)ctx;
-    if (!s_temp_handle) return REFLEX_ERR_INVALID_STATE;
+    /* No sensor on this platform is not a failure of this service.
+     *
+     * The classic ESP32 has no on-chip temperature sensor (it arrived with the
+     * S2), so reflex_hal_temp_init returns NOT_SUPPORTED and s_temp_handle
+     * stays NULL. Returning an error here aborted reflex_service_start_all,
+     * which made main.c take its early-return path and skip the atmospheric
+     * arcing block entirely — so an absent optional sensor cost the board its
+     * whole radio substrate, and it booted to a shell logging
+     * "esp now not init!".
+     *
+     * There is simply nothing to poll; report that and let the rest of the
+     * system start. Note the wider fragility this exposed: start_all still
+     * aborts every remaining service on the first failure, so any optional
+     * service that fails takes the mesh with it. Recorded in Known Gaps. */
+    if (!s_temp_handle) {
+        REFLEX_LOGW("reflex.temp", "no temperature sensor on this platform; service idle");
+        return REFLEX_OK;
+    }
     reflex_task_create(temp_poll_task, "temp-poll", 2048, NULL, 5, &s_task_handle);
     return REFLEX_OK;
 }

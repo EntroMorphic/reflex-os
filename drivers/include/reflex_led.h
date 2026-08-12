@@ -25,7 +25,14 @@ extern "C" {
 #endif
 
 /** @brief GPIO number of the onboard LED. */
+/* See the pin note in reflex_button.h. GPIO 15 is a strapping pin (MTDO) on
+ * the classic ESP32 and carries no on-board LED there; GPIO 2 is the devkit
+ * LED. */
+#if CONFIG_IDF_TARGET_ESP32
+#define REFLEX_LED_PIN 2
+#else
 #define REFLEX_LED_PIN 15
+#endif
 
 /** @brief Configure the LED pin as a push-pull output, initial level low. */
 reflex_err_t reflex_led_init(void);
