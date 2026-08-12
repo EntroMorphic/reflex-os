@@ -32,8 +32,18 @@
 #include <string.h>
 #include <stdlib.h>
 
-/* SYSTIMER registers for tick generation */
-#define SYSTIMER_BASE           0x60004000
+/* SYSTIMER registers for tick generation.
+ *
+ * The base was hardcoded as 0x60004000, which is I2C0 on the ESP32-C6 — the
+ * shadow atlas names that exact address comm.i2c0.scl_low_period. Taken from
+ * the SoC definitions now. Guarded because the host suite compiles this file
+ * and has no soc/ headers. */
+#ifndef REFLEX_HOST_BUILD
+#include "soc/systimer_reg.h"
+#define SYSTIMER_BASE           DR_REG_SYSTIMER_BASE
+#else
+#define SYSTIMER_BASE           0u
+#endif
 #define SYSTIMER_CONF           (SYSTIMER_BASE + 0x00)
 #define SYSTIMER_TARGET1_CONF   (SYSTIMER_BASE + 0x38)
 #define SYSTIMER_COMP1_LOAD     (SYSTIMER_BASE + 0x54)

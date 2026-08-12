@@ -43,7 +43,8 @@ _Static_assert(PORT_OFFSET_PX_STACK == 0x30,
 _Static_assert(PORT_OFFSET_PX_END_OF_STACK == 0x44,
     "TCB pxEndOfStack offset changed — update TCB_PX_END_OF_STACK in reflex_portasm.S");
 
-#define SYSTIMER_BASE       0x60004000
+#include "soc/systimer_reg.h"
+#define SYSTIMER_BASE       DR_REG_SYSTIMER_BASE
 #define SYSTIMER_CONF       (SYSTIMER_BASE + 0x00)
 #define SYSTIMER_TGT1_CONF  (SYSTIMER_BASE + 0x38)
 #define SYSTIMER_COMP1_LOAD (SYSTIMER_BASE + 0x54)

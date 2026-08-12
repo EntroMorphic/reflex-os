@@ -146,15 +146,41 @@ reflex_err_t reflex_vm_task_start_binary(reflex_vm_task_runtime_t *runtime,
     return REFLEX_OK;
 }
 
+/* How long to wait for the VM task to notice `running == false` and retire.
+ *
+ * The task only re-checks the flag between slices, so the wait has to cover a
+ * slice plus whatever the running program is doing — including a DELAY syscall
+ * it issued itself. Two seconds is generous for the default 20 ms slice and
+ * still bounded. */
+#define REFLEX_VM_TASK_STOP_TIMEOUT_MS 2000
+#define REFLEX_VM_TASK_STOP_POLL_MS    10
+
 reflex_err_t reflex_vm_task_stop(reflex_vm_task_runtime_t *runtime)
 {
     REFLEX_RETURN_ON_FALSE(runtime != NULL, REFLEX_ERR_INVALID_ARG, "vm_task", "runtime is required");
 
     runtime->running = false;
+
+    /* Bounded wait. This used to spin `while (runtime->handle != NULL)` with no
+     * timeout, so anything that stopped the VM task from reaching the top of
+     * its loop hung the caller permanently — and reflex_vm_task_service_stop
+     * feeds reflex_service_stop_all, so that meant system shutdown never
+     * completing. A VM program only has to sit in a DELAY syscall to cause it;
+     * before the negative-delay fix in vm/syscall.c a single instruction could
+     * park the task for about 49 days and take shutdown with it.
+     *
+     * Timing out is reported rather than papered over: the task is still alive
+     * and still owns its stack, which the caller needs to know. */
+    uint32_t waited = 0;
+    while (runtime->handle != NULL && waited < REFLEX_VM_TASK_STOP_TIMEOUT_MS) {
+        reflex_task_delay_ms(REFLEX_VM_TASK_STOP_POLL_MS);
+        waited += REFLEX_VM_TASK_STOP_POLL_MS;
+    }
+
     if (runtime->handle != NULL) {
-        while (runtime->handle != NULL) {
-            reflex_task_delay_ms(10);
-        }
+        REFLEX_LOG_ERROR_IMPL("vm_task", "%s: task did not retire within %u ms",
+                              __func__, (unsigned)REFLEX_VM_TASK_STOP_TIMEOUT_MS);
+        return REFLEX_ERR_TIMEOUT;
     }
 
     return REFLEX_OK;

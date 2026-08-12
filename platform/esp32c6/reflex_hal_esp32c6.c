@@ -9,10 +9,20 @@
 #include <stdio.h>
 #include "esp_sleep.h"
 /* SYSTIMER direct read (Gap C — replaces esp_timer_get_time) */
-#define SYSTIMER_BASE_ADDR      0x60004000
+/* SYSTIMER, from the SoC definitions rather than a literal.
+ *
+ * This was hardcoded as 0x60004000, which is I2C0 on the ESP32-C6 — the
+ * shadow atlas names that very address comm.i2c0.scl_low_period. The real
+ * base is DR_REG_SYSTIMER_BASE (0x6000A000). Every offset below was correct;
+ * only the base was wrong, so reflex_hal_time_us latched and read I2C
+ * registers and returned 0 forever. */
+#include "soc/systimer_reg.h"
+#define SYSTIMER_BASE_ADDR      DR_REG_SYSTIMER_BASE
 #define SYSTIMER_UNIT0_OP       (SYSTIMER_BASE_ADDR + 0x04)
 #define SYSTIMER_UNIT0_VAL_HI   (SYSTIMER_BASE_ADDR + 0x40)
 #define SYSTIMER_UNIT0_VAL_LO   (SYSTIMER_BASE_ADDR + 0x44)
+/* XTAL 40 MHz through the C6's fixed 2.5 divider. */
+#define SYSTIMER_TICKS_PER_US   16u
 #define REG32_HAL(a) (*(volatile uint32_t *)(a))
 #include "esp_rom_sys.h"
 
@@ -62,7 +72,14 @@
 extern void esp_rom_gpio_connect_out_signal(uint32_t gpio, uint32_t signal, bool invert, bool oen_inv);
 
 uint64_t reflex_hal_time_us(void) {
-    /* Trigger UNIT0 value latch and read. XTAL = 40 MHz, divide by 40.
+    /* Trigger UNIT0 value latch and read.
+     *
+     * Ticks per microsecond is 16, not 40. The systimer counts XTAL (40 MHz)
+     * through a divider the C6 fixes at 2.5 — soc_caps.h states it outright:
+     * "SOC_SYSTIMER_FIXED_DIVIDER 1 // Clock source divider is fixed: 2.5".
+     * Dividing by 40 made every timestamp run 2.5x slow, which was invisible
+     * while the base address was also wrong and the whole function returned 0.
+     *
      * Bounded spin (max 20 iterations) — the latch completes in ~2 cycles. */
     REG32_HAL(SYSTIMER_UNIT0_OP) = (1U << 30);
     for (volatile int i = 0; i < 20; i++) {
@@ -70,7 +87,7 @@ uint64_t reflex_hal_time_us(void) {
     }
     uint32_t lo = REG32_HAL(SYSTIMER_UNIT0_VAL_LO);
     uint32_t hi = REG32_HAL(SYSTIMER_UNIT0_VAL_HI);
-    return (((uint64_t)hi << 32) | lo) / 40;
+    return (((uint64_t)hi << 32) | lo) / SYSTIMER_TICKS_PER_US;
 }
 
 uint32_t reflex_hal_cpu_cycles(void) {
@@ -352,6 +369,10 @@ void reflex_hal_write_raw(const char *data, int len) {
 }
 
 void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
+    /* Shared across all callers and unguarded, so two tasks logging at once
+     * interleave. Kept static deliberately — 256 bytes of stack per call site
+     * is worse on the 2048-byte task stacks in this tree — but the reentrancy
+     * is a real limit, recorded in Known Gaps. */
     static char log_buf[256];
     const char *prefix;
     switch (level) {
@@ -361,11 +382,32 @@ void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
         case REFLEX_LOG_LEVEL_DEBUG: prefix = "D"; break;
         default:                     prefix = "I"; break;
     }
-    int off = snprintf(log_buf, sizeof(log_buf), "%s (%s) ", prefix, tag);
+    /* snprintf and vsnprintf return the length they *would* have written, not
+     * the length they did. Accumulating those returns as if they were byte
+     * counts let `off` run past the end of log_buf, with three consequences:
+     *
+     *   - `log_buf + off` pointed past the buffer;
+     *   - `sizeof(log_buf) - off` is size_t arithmetic, so it underflowed to
+     *     roughly 1.8e19 and told vsnprintf it had unlimited room there;
+     *   - usj_write_bytes(log_buf, off) then read past the end and streamed
+     *     whatever followed log_buf in .bss out of the serial port.
+     *
+     * The last one needed nothing exotic to trigger — any log line longer than
+     * about 236 characters did it. Clamp after every write so `off` is always
+     * the number of bytes actually in the buffer. */
+    size_t off = 0;
+    int n = snprintf(log_buf, sizeof(log_buf), "%s (%s) ", prefix, tag);
+    if (n > 0) off = ((size_t)n < sizeof(log_buf)) ? (size_t)n : sizeof(log_buf) - 1;
+
     va_list args;
     va_start(args, fmt);
-    off += vsnprintf(log_buf + off, sizeof(log_buf) - off, fmt, args);
+    n = vsnprintf(log_buf + off, sizeof(log_buf) - off, fmt, args);
     va_end(args);
-    if (off < (int)sizeof(log_buf) - 1) { log_buf[off++] = '\n'; }
-    usj_write_bytes(log_buf, off);
+    if (n > 0) {
+        size_t remaining = sizeof(log_buf) - off - 1;   /* keep room for '\n' */
+        off += ((size_t)n < remaining) ? (size_t)n : remaining;
+    }
+
+    if (off < sizeof(log_buf)) { log_buf[off++] = '\n'; }
+    usj_write_bytes(log_buf, (int)off);
 }
