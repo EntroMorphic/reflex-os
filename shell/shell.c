@@ -1102,10 +1102,28 @@ static void shell_cmd_vm(int argc, char *argv[]) {
 static void shell_cmd_vitals(int argc, char *argv[]) {
     if (argc >= 4 && strcmp(argv[1], "override") == 0) {
         int8_t state = (int8_t)atoi(argv[3]);
+        if (state < -1 || state > 1) { printf("state must be -1, 0 or 1\n"); return; }
+
+        /* sys.ai.pain and sys.ai.reward are not metabolic vitals — they are the
+         * autonomous evaluation signals. They are injectable here anyway because
+         * nothing else could set them: goose_supervisor_evaluate raises pain only
+         * after a HARDWARE_OUT route stays stuck for REFLEX_AUTO_PAIN_STUCK_TICKS
+         * under an active purpose, which is not something a bench operator can
+         * arrange on demand. That left the pain-derived WITHHELD disposition the
+         * one scheduling stance never exercised on hardware. */
+        if (strcmp(argv[2], "pain") == 0 || strcmp(argv[2], "reward") == 0) {
+            const char *cell_name = (argv[2][0] == 'p') ? "sys.ai.pain" : "sys.ai.reward";
+            goose_cell_t *c = goonies_resolve_cell(cell_name);
+            if (!c) { printf("override: %s not resolvable\n", cell_name); return; }
+            c->state = state;
+            printf("override: %s=%d\n", cell_name, (int)state);
+            return;
+        }
+
         if (goose_metabolic_override(argv[2], state) == REFLEX_OK) {
             printf("override: %s=%d\n", argv[2], (int)state);
         } else {
-            printf("unknown vital: %s (use temp, battery, mesh, heap)\n", argv[2]);
+            printf("unknown vital: %s (use temp, battery, mesh, heap, pain, reward)\n", argv[2]);
         }
     } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
         goose_metabolic_clear_overrides();

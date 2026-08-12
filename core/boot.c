@@ -10,7 +10,15 @@
  * are properties of the board, not runtime-discovered. When we own the
  * eFuse reader, we can read chip revision and flash size from registers. */
 #ifndef REFLEX_CHIP_NAME
+/* Reported in the boot banner. This was fixed at "esp32-c6" for every target,
+ * so the ESP32 build cheerfully announced itself as a C6. */
+#if CONFIG_IDF_TARGET_ESP32
+#define REFLEX_CHIP_NAME "esp32"
+#elif CONFIG_IDF_TARGET_ESP32C6
 #define REFLEX_CHIP_NAME "esp32-c6"
+#else
+#define REFLEX_CHIP_NAME CONFIG_IDF_TARGET
+#endif
 #endif
 #ifndef REFLEX_VERSION
 #define REFLEX_VERSION "v3.0-dev"

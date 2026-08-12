@@ -52,15 +52,43 @@ reflex_err_t reflex_service_start_all(void)
 {
     REFLEX_RETURN_ON_FALSE(s_reflex_service_manager_ready, REFLEX_ERR_INVALID_STATE, "reflex.svc", "manager not ready");
 
+    /* One service failing must not silence the rest.
+     *
+     * This used to return on the first error, and main.c treats a non-OK
+     * result as fatal enough to skip the whole atmospheric arcing block and
+     * drop straight to a shell. The consequence was out of all proportion to
+     * the cause: the classic ESP32 has no temperature sensor, temp_service_start
+     * reported that honestly, and the board lost its entire radio substrate
+     * over it — booting to a shell logging "esp now not init!".
+     *
+     * Every service is now given its chance to start, failures are named
+     * individually rather than as one anonymous code, and the first error is
+     * returned at the end so callers can still tell something went wrong. A
+     * service that cannot start is a degraded system, not a reason to abandon
+     * the ones that can. */
+    reflex_err_t first_err = REFLEX_OK;
+    size_t started = 0, failed = 0;
+
     for (size_t i = 0; i < s_reflex_service_count; ++i) {
         const reflex_service_desc_t *svc = s_reflex_services[i];
-        if (svc->start != NULL) {
-            REFLEX_RETURN_ON_ERROR(svc->start(svc->context), "reflex.svc", "service start failed");
+        if (svc->start == NULL) continue;
+
+        reflex_err_t err = svc->start(svc->context);
+        if (err == REFLEX_OK) {
             REFLEX_LOGI(REFLEX_BOOT_TAG, "service_started=%s", svc->name);
+            started++;
+        } else {
+            REFLEX_LOGE("reflex.svc", "service_start_failed=%s rc=0x%x", svc->name, err);
+            if (first_err == REFLEX_OK) first_err = err;
+            failed++;
         }
     }
 
-    return REFLEX_OK;
+    if (failed > 0) {
+        REFLEX_LOGW("reflex.svc", "%u service(s) started, %u failed",
+                    (unsigned)started, (unsigned)failed);
+    }
+    return first_err;
 }
 
 reflex_err_t reflex_service_stop_all(void)

@@ -293,6 +293,38 @@ reflex_err_t goose_supervisor_init(void) {
     reflex_holon_create("comm", "mesh");
     reflex_holon_create("agency", "led");
 
+    /* Seed the autonomous evaluation signals.
+     *
+     * These are read in five places across the supervisor and the kernel policy
+     * and were never created anywhere. Every goonies_resolve_cell("sys.ai.pain")
+     * and ("sys.ai.reward") returned NULL, which made the consequences far
+     * larger than a missing cell:
+     *
+     *   - goose_supervisor_evaluate computed reward_score and pain_triggered
+     *     correctly and then published neither, because both writes are guarded
+     *     on a cell that did not exist.
+     *   - goose_supervisor_learn_sync opens with
+     *     `if (!rewarded && !pained) return REFLEX_OK;`, so with both signals
+     *     permanently absent it returned immediately every single time.
+     *     Hebbian plasticity has therefore never run: learned_orientation and
+     *     hebbian_counter never moved off zero, and the snapshots dutifully
+     *     persisted those zeros.
+     *   - the kernel policy's pain dampening could never fire.
+     *
+     * So the reward-gated co-activation learning the substrate is built around
+     * was inert, while every surface that reports on it looked healthy. Seeded
+     * here as SYSTEM_ONLY so the supervisor owns them and the mesh cannot write
+     * them. */
+    goose_cell_t *reward = goose_fabric_ensure_cell("sys.ai.reward",
+                                                    goose_make_coord(0, 0, 6), true);
+    if (reward) { reward->type = GOOSE_CELL_SYSTEM_ONLY; reward->state = 0; }
+    else REFLEX_LOGW(TAG, "sys.ai.reward not seeded; Hebbian learning stays inert");
+
+    goose_cell_t *pain = goose_fabric_ensure_cell("sys.ai.pain",
+                                                  goose_make_coord(0, 0, 7), true);
+    if (pain) { pain->type = GOOSE_CELL_SYSTEM_ONLY; pain->state = 0; }
+    else REFLEX_LOGW(TAG, "sys.ai.pain not seeded; pain dampening stays inert");
+
     /* Seed the aggregate stance cell so it reads a neutral 0 from boot rather
      * than failing to resolve until the first policy tick. */
     s_kernel_disposition_cell = goose_fabric_ensure_cell("sys.kernel.disposition",

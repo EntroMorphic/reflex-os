@@ -5,7 +5,18 @@ elseif("${IDF_TARGET}" STREQUAL "esp32")
     list(APPEND GOOSE_PLATFORM_REQUIRES esp32)
 endif()
 
-idf_component_register(SRCS "goose_runtime.c" "goose_policy.c" "goose_supervisor.c" "goose_library.c" "goose_atlas.c" "goose_atmosphere.c" "goose_shadow_atlas.c" "goose_mmio_sync.c" "goose_telemetry.c" "goose_metabolic.c"
+# The shadow atlas is generated from tools/esp32c6.svd. Compiling it for other
+# targets made them claim C6 hardware knowledge — on the ESP32,
+# `goonies find agency.gpio.bt_select` resolved and reported a C6 address that
+# means something else on that silicon. Targets without a scraped catalog get an
+# empty one instead, which is the honest state.
+if("${IDF_TARGET}" STREQUAL "esp32c6")
+    set(REFLEX_ATLAS_SRC "goose_shadow_atlas.c")
+else()
+    set(REFLEX_ATLAS_SRC "goose_shadow_atlas_stub.c")
+endif()
+
+idf_component_register(SRCS "goose_runtime.c" "goose_policy.c" "goose_supervisor.c" "goose_library.c" "goose_atlas.c" "goose_atmosphere.c" "goose_mmio_sync.c" "goose_telemetry.c" "goose_metabolic.c" ${REFLEX_ATLAS_SRC}
                        INCLUDE_DIRS "include" "../../include"
                        REQUIRES ${GOOSE_PLATFORM_REQUIRES}
                        PRIV_REQUIRES drivers log core)

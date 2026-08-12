@@ -165,8 +165,16 @@ void app_main(void)
     system_vm.vm.cache = (struct reflex_cache*)&system_cache;
     reflex_vm_task_register_service(&system_vm, "system-vm");
     
+    /* A degraded service set is not a reason to abandon the substrate.
+     *
+     * This used to drop straight to a shell and skip everything below —
+     * atmospheric arcing, the stability marker, the self-checks — if any single
+     * service failed to start. On the classic ESP32, which has no temperature
+     * sensor, that cost the board its entire radio. reflex_service_start_all
+     * now starts every service it can and names the ones it cannot, so the
+     * sensible response here is to note the degradation and keep going. */
     if (reflex_service_start_all() != REFLEX_OK) {
-        reflex_shell_run(); return;
+        REFLEX_LOGW(REFLEX_BOOT_TAG, "continuing with a degraded service set");
     }
 
     // 8.5 Atmospheric arcing
