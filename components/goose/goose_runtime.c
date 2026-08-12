@@ -476,7 +476,30 @@ uint32_t goose_fabric_get_version(void) { return fabric_version; }
 reflex_err_t goose_fabric_set_agency(goose_cell_t *cell, uint32_t hardware_addr, goose_cell_type_t type) {
     if (!cell) return REFLEX_ERR_INVALID_ARG;
     if (cell->type == GOOSE_CELL_FIELD_PROXY) { return REFLEX_ERR_NOT_SUPPORTED; }
-    if (goose_fabric_addr_is_sanctuary(hardware_addr) && type != GOOSE_CELL_SYSTEM_ONLY) { return REFLEX_ERR_NOT_SUPPORTED; }
+
+    /* The Sanctuary Guard reasons in 4 KB pages, which only means anything for
+     * an MMIO address. This used to hand it hardware_addr unconditionally, so a
+     * GPIO pin index masked to page 0 — never on the whitelist — and *every*
+     * GPIO binding was refused. led_service binds led_phys with REFLEX_LED_PIN;
+     * that call failed silently, the cell kept the PINNED type alloc_cell gave
+     * it instead of becoming HARDWARE_OUT, and the fabric route to the LED was
+     * decorative. The LED still lit because the shell drives the GPIO directly,
+     * which is exactly what made it look fine. Its route endpoints stayed at 0,
+     * and Hebbian learning skips any route whose source and sink are both zero,
+     * so this also starved the plasticity system of the one field it had. */
+    if (hardware_addr >= GOOSE_AGENCY_MMIO_BASE) {
+        if (goose_fabric_addr_is_sanctuary(hardware_addr) && type != GOOSE_CELL_SYSTEM_ONLY) {
+            return REFLEX_ERR_NOT_SUPPORTED;
+        }
+    } else if (hardware_addr == GOOSE_AGENCY_NONE) {
+        /* 0 reads as "no agency bound" everywhere else, so it cannot also mean
+         * pin 0. Callers with nothing to bind should not call this at all. */
+        return REFLEX_ERR_INVALID_ARG;
+    } else if (hardware_addr > GOOSE_AGENCY_GPIO_MAX) {
+        /* Neither a pin index nor a peripheral address. */
+        return REFLEX_ERR_INVALID_ARG;
+    }
+
     cell->hardware_addr = hardware_addr; cell->type = type; return REFLEX_OK;
 }
 

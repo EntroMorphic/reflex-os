@@ -298,6 +298,19 @@ const char *goose_kernel_disposition_name(reflex_trit_t d);
  */
 bool goose_fabric_addr_is_sanctuary(uint32_t addr);
 
+/* goose_cell_t::hardware_addr is an overloaded field, and the whole runtime
+ * already reads it this way — internal_process_transitions, the GPIO route
+ * application path and the shell all branch on the same two ranges. Named here
+ * so the Sanctuary Guard stops being handed values it cannot judge.
+ *
+ *   0                       no agency bound
+ *   1 .. GPIO_MAX           a GPIO pin index
+ *   >= MMIO_BASE            a peripheral register address
+ */
+#define GOOSE_AGENCY_NONE        0u
+#define GOOSE_AGENCY_GPIO_MAX    31u
+#define GOOSE_AGENCY_MMIO_BASE   0x60000000u
+
 /** Loom lock hold duration instrumentation. */
 uint32_t goose_loom_hold_max_cycles(void);
 uint64_t goose_loom_hold_total_cycles(void);
