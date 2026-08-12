@@ -706,14 +706,15 @@ static void shell_cmd_help(int argc, char *argv[]) {
     printf("system:  help, reboot, sleep <s>, status, services, config <get|set>\n");
     printf("led:     led <on|off|status>\n");
     printf("fabric:  goonies <ls|find|read name>, atlas verify, temp, heartbeat\n");
-    printf("purpose: purpose <set name|get|clear>\n");
+    printf("purpose: purpose <set name|get|clear>, kernel (ternary stance)\n");
     printf("learn:   snapshot <save|load|clear>\n");
+    printf("loom:    loom <list|fragments|load <hex>>\n");
     printf("mesh:    mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n");
     printf("vm:      vm <info|run name|stop|list|loadhex hex>\n");
-    printf("aura:    aura setkey <32 hex chars>\n");
+    printf("aura:    aura <setkey <32 hex chars>|clear>\n");
     printf("bonsai:  bonsai <exp1|exp2|exp3a|exp4|exp5|runtime> <start|status|...>\n");
     printf("telem:   telemetry <on|off>  (stream substrate state to host)\n");
-    printf("vitals:  vitals [override <vital> <state>|clear]\n");
+    printf("vitals:  vitals [override <temp|battery|mesh|heap|pain|reward> <state>|clear]\n");
     printf("auth:    auth [role <observer|agent|operator|admin>]\n");
 }
 
@@ -772,7 +773,20 @@ static void shell_cmd_sleep(int argc, char *argv[]) {
 
 static void shell_cmd_goonies_read(const char *name) {
     /* Try live cell first (may page in from shadow). */
+    /* The Sanctuary Guard covers reads, not just agency binding — an MMIO read
+     * is not free. Read-to-clear interrupt status registers and peripheral RX
+     * FIFOs change state simply by being sampled, which is why
+     * goose_supervisor_explore consults the same predicate before probing.
+     * This command bypassed it entirely and would happily dereference any of
+     * the 12738 catalog addresses, PMU and EFUSE included. */
     goose_cell_t *cell = goonies_resolve_cell(name);
+    if (cell && cell->hardware_addr >= 0x60000000 &&
+        goose_fabric_addr_is_sanctuary(cell->hardware_addr)) {
+        printf("%s addr=0x%08lx [sanctuary — refused: reading it can clear "
+               "status bits or pop a live FIFO]\n",
+               name, (unsigned long)cell->hardware_addr);
+        return;
+    }
     if (cell && cell->hardware_addr >= 0x60000000) {
         volatile uint32_t *reg = (volatile uint32_t *)cell->hardware_addr;
         uint32_t mask = cell->bit_mask ? cell->bit_mask : 0xFFFFFFFF;
@@ -795,6 +809,11 @@ static void shell_cmd_goonies_read(const char *name) {
     reflex_tryte9_t coord;
     goose_cell_type_t type;
     if (goose_shadow_resolve(name, &addr, &mask, &coord, &type) == REFLEX_OK && addr >= 0x60000000) {
+        if (goose_fabric_addr_is_sanctuary(addr)) {
+            printf("%s addr=0x%08lx [sanctuary — refused] [shadow]\n",
+                   name, (unsigned long)addr);
+            return;
+        }
         volatile uint32_t *reg = (volatile uint32_t *)addr;
         uint32_t raw = *reg;
         uint32_t masked = raw & mask;
@@ -875,15 +894,6 @@ static void shell_cmd_bonsai(int argc, char *argv[]) {
  * that function takes wholly untrusted input, and its bounds, index and NULL
  * checks are the thing standing between a malformed fragment and the fabric. */
 static void shell_cmd_loom_load(const char *hex) {
-    /* `loom` as a whole is observer-level because listing the Tapestry is a
-     * read. Weaving a fragment is not: it introduces new routes and starts a
-     * pulse task from operator-supplied bytes, which is the same class of
-     * privilege as `vm loadhex`, and SECURITY.md places that at admin. The
-     * command table gates whole commands, so the subcommand is gated here. */
-    if (s_session_role < ROLE_ADMIN) {
-        printf("loom load: requires admin role (current: %s)\n", role_names[s_session_role]);
-        return;
-    }
     size_t hlen = strlen(hex);
     if (hlen < 2 || (hlen & 1)) { printf("loom load: even-length hex required\n"); return; }
     size_t blen = hlen / 2;
@@ -1288,6 +1298,16 @@ static uint8_t subcmd_min_role(const char *cmd, int argc, char *argv[]) {
     } else if (strcmp(cmd, "led") == 0) {
         /* led on/off = operator; led status = observer (base) */
         if (strcmp(sub, "on") == 0 || strcmp(sub, "off") == 0) return ROLE_OPERATOR;
+    } else if (strcmp(cmd, "loom") == 0) {
+        /* loom list/fragments = observer; loom load = admin. Weaving a fragment
+         * introduces routes and starts a pulse task from operator-supplied
+         * bytes — the privilege class of `vm loadhex`. */
+        if (strcmp(sub, "load") == 0) return ROLE_ADMIN;
+    } else if (strcmp(cmd, "goonies") == 0) {
+        /* goonies ls/find = observer; read = operator. `read` dereferences a
+         * hardware register, and sampling one is a side effect, so it does not
+         * belong to a role whose whole definition is read-only. */
+        if (strcmp(sub, "read") == 0) return ROLE_OPERATOR;
     }
     return ROLE_OBSERVER;
 }

@@ -18,6 +18,7 @@ The Sanctuary Guard prevents non-system ternary cells from mapping to critical h
 -   **Safe Agency:** Cells can only be mapped to specific peripherals (GPIO, LEDC, RMT).
 -   **The Sanctuary:** Access to the PMU (Power Management), EFUSE, MMU, and Interrupt Matrix is restricted to `sys.` zone cells woven by the core OS.
 -   **Enforcement:** `goose_fabric_set_agency` rejects any mapping that attempts to bridge a user-level cell to a Sanctuary address.
+-   **The shell's `goonies read` is guarded too.** It dereferences a register the caller names, so it consults the same predicate and refuses a sanctuary address rather than sampling it. It is also `operator`, not `observer`: sampling a register is a side effect, and a role whose definition is "read-only" should not be able to clear an interrupt status bit or pop a live FIFO.
 -   **Probing is guarded too:** the Guard covers *reads*, not only agency binding. The curiosity prober in `goose_supervisor_explore` samples raw MMIO from the shadow atlas before any cell is bound, so it consults `goose_fabric_addr_is_sanctuary` at both the probe gate and the confirming re-read. An MMIO read is not side-effect-free — read-to-clear interrupt status registers and peripheral RX FIFOs are disturbed by being sampled — so an unguarded prober would perturb live peripherals it never bound to.
 
 ### Serial shell information surface
@@ -30,9 +31,9 @@ The shell implements capability-based role restriction. Every command has a mini
 
 | Role | Level | Can do |
 |------|-------|--------|
-| observer | 0 | Read-only: status, goonies, temp, telemetry, vitals display |
+| observer | 0 | Read-only: status, goonies ls/find, temp, telemetry display, vitals display |
 | agent | 1 | Observer + purpose set/clear, snapshot save/load |
-| operator | 2 | Agent + led, vm run/stop, mesh emit/ping/posture, bonsai |
+| operator | 2 | Agent + led, vm run/stop, mesh emit/ping/posture, bonsai, goonies read |
 | admin | 3 | Everything: reboot, sleep, aura setkey/clear, config set, vm loadhex, loom load, vitals override, snapshot clear, mesh peer add |
 
 Sessions default to **admin** (backward compatible). The `auth role <role>` command restricts the session's capability ceiling voluntarily. The Python SDK accepts `role="agent"` in the constructor; commands exceeding the role raise `AccessDenied`.
