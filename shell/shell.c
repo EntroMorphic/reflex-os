@@ -778,12 +778,34 @@ static void shell_cmd_goonies_read(const char *name) {
      * FIFOs change state simply by being sampled, which is why
      * goose_supervisor_explore consults the same predicate before probing.
      * This command bypassed it entirely and would happily dereference any of
-     * the 12738 catalog addresses, PMU and EFUSE included. */
+     * the 12738 catalog addresses, PMU and EFUSE included.
+     *
+     * Checked here, before goonies_resolve_cell, because that call is not a
+     * lookup — it pages the entry into the Loom and binds the address. Doing it
+     * the other way round (as the first version of this guard did) refused the
+     * read but still left a live cell bound to the sanctuary register, which is
+     * the more consequential half: a bound cell is reachable by routes and by
+     * the supervisor pulse, not just by this command. goose_shadow_resolve is a
+     * pure catalog lookup and allocates nothing. */
+    {
+        uint32_t s_addr, s_mask;
+        reflex_tryte9_t s_coord;
+        goose_cell_type_t s_type;
+        if (goose_shadow_resolve(name, &s_addr, &s_mask, &s_coord, &s_type) == REFLEX_OK &&
+            s_addr >= 0x60000000 && goose_fabric_addr_is_sanctuary(s_addr)) {
+            printf("%s addr=0x%08lx [sanctuary — refused: reading it can clear "
+                   "status bits or pop a live FIFO]\n",
+                   name, (unsigned long)s_addr);
+            return;
+        }
+    }
+
     goose_cell_t *cell = goonies_resolve_cell(name);
+    /* A cell already resident from the boot weave can still hold a sanctuary
+     * address, so the resident path is checked too. */
     if (cell && cell->hardware_addr >= 0x60000000 &&
         goose_fabric_addr_is_sanctuary(cell->hardware_addr)) {
-        printf("%s addr=0x%08lx [sanctuary — refused: reading it can clear "
-               "status bits or pop a live FIFO]\n",
+        printf("%s addr=0x%08lx [sanctuary — refused]\n",
                name, (unsigned long)cell->hardware_addr);
         return;
     }
