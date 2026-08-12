@@ -359,6 +359,14 @@ typedef struct {
  */
 reflex_err_t goose_weave_loom(const uint8_t *buffer, size_t size);
 
+/**
+ * @brief Number of LoomScript fragments woven since boot.
+ *
+ * Fragments are reboot-scoped: there is no unweave path, so this only climbs.
+ * It is incremented on success, so rejected fragments do not consume a slot.
+ */
+int goose_loom_fragment_count(void);
+
 // --- Coordinate Helpers ---
 
 /**

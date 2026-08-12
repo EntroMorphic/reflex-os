@@ -6,6 +6,26 @@
  * New tasks are started by switching sp to their stack and calling
  * the entry function. Yielding saves the current context via setjmp
  * and restores the scheduler context via longjmp.
+ *
+ * @warning NOT CURRENTLY LINKED INTO THE FIRMWARE. This file compiles, but
+ *          nothing calls reflex_sched_start on device and the linker discards
+ *          every symbol here — no reflex_sched_* symbol appears in
+ *          reflex_os.elf. reflex_task_kernel.c delegates task management to
+ *          FreeRTOS instead (see docs/implementation-status.md). Note that
+ *          CONFIG_REFLEX_KERNEL_SCHEDULER=y does NOT activate this scheduler;
+ *          it selects the kernel task backend, which is the FreeRTOS-delegating
+ *          one. The host test suite exercises the parts that work without a
+ *          real context switch.
+ *
+ * @warning Before reviving this, fix the stack switch in reflex_sched_start.
+ *          Assigning sp with inline asm part-way through a C function is
+ *          undefined behaviour: the compiler still believes it owns the frame,
+ *          so `next` and `new_sp` may live in the old one, and `next->state`
+ *          is written after entry() returns through a pointer that may since
+ *          have been clobbered. It survives today only by optimisation-level
+ *          luck. A correct implementation needs an asm trampoline that
+ *          switches sp and jumps in one step, never returning into C on the
+ *          old stack.
  */
 
 #include "reflex_sched.h"
@@ -79,6 +99,9 @@ void reflex_sched_delete_task(reflex_tcb_t *tcb) {
 
 /* ---- Scheduler core ---- */
 
+/* Only reflex_sched_start consumes this, and that is compiled out of the host
+ * build, so scope it the same way rather than leave an unused-function warning. */
+#ifndef REFLEX_HOST_BUILD
 static reflex_tcb_t *pick_next(void) {
     for (int i = 0; i < REFLEX_SCHED_MAX_TASKS; i++) {
         if (s_tasks[i].state == REFLEX_TASK_STATE_BLOCKED &&
@@ -99,6 +122,7 @@ static reflex_tcb_t *pick_next(void) {
     }
     return best;
 }
+#endif /* !REFLEX_HOST_BUILD */
 
 void reflex_sched_tick(void) {
     s_tick_count++;
@@ -111,10 +135,23 @@ void reflex_sched_ack_tick(void) {
 void reflex_sched_yield(void) {
     if (!s_started) return;
 
-    /* Save current task's context. setjmp returns 0 on save,
-     * non-zero when longjmp restores us here. */
-    if (s_current && s_current->state == REFLEX_TASK_STATE_RUNNING) {
-        s_current->state = REFLEX_TASK_STATE_READY;
+    if (s_current) {
+        /* A task yielding voluntarily returns to READY. One that has already
+         * set its own state — BLOCKED via reflex_sched_delay_ms, or DEAD via
+         * reflex_sched_delete_task(NULL) — keeps that state. */
+        if (s_current->state == REFLEX_TASK_STATE_RUNNING) {
+            s_current->state = REFLEX_TASK_STATE_READY;
+        }
+
+        /* Save unconditionally. The context save used to sit inside the
+         * `state == RUNNING` test above, so reflex_sched_delay_ms — which
+         * marks itself BLOCKED *before* yielding — never reached setjmp at
+         * all. Its jmp_buf stayed zero-initialised, and when pick_next later
+         * moved it back to READY the scheduler longjmp'd into a zeroed buffer.
+         * Delaying is the primary blocking primitive, so this made any task
+         * that slept unresumable.
+         *
+         * setjmp returns 0 on save and non-zero when longjmp lands here. */
         if (setjmp(s_current->context) != 0) {
             /* We've been restored — continue from where we yielded */
             return;

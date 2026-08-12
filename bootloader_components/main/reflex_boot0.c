@@ -37,7 +37,8 @@ extern void esp_rom_install_channel_putc(int channel, void (*putc)(char c));
 extern void esp_rom_output_tx_wait_idle(uint32_t uart_no);
 
 /* Register definitions — just #define constants, no code */
-#include "soc/soc.h"          /* REG_READ/REG_WRITE, SOC_IRAM_*/SOC_RTC_IRAM_* windows */
+/* REG_READ/REG_WRITE, plus the SOC_IRAM and SOC_RTC_IRAM window bounds. */
+#include "soc/soc.h"
 #include "soc/lp_wdt_reg.h"
 #include "soc/lp_aon_reg.h"
 #include "soc/timer_group_reg.h"  /* MWDT0 feed — hashing outlives the ROM-armed timeout */

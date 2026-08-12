@@ -27,7 +27,14 @@ typedef unsigned int UBaseType_t;
 typedef void *TaskHandle_t;
 typedef void (*TaskFunction_t)(void *);
 #define pdPASS 1
+/* FreeRTOSConfig.h (reached via portmacro.h above) already defines this as 25.
+ * Defer to it rather than shadow it — redefining produced a warning, and if the
+ * two ever diverged this file would compute a priority ceiling the scheduler
+ * does not actually enforce. The fallback keeps the file self-contained if it
+ * is ever compiled without the FreeRTOS headers. */
+#ifndef configMAX_PRIORITIES
 #define configMAX_PRIORITIES 25
+#endif
 
 /* Validate FreeRTOS TCB layout for reflex_portasm.S stack guard offsets.
  * These become obsolete when the Reflex scheduler is the production default. */
