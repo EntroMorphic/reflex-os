@@ -195,6 +195,27 @@ static void load_aura_key(void) {
     }
 }
 
+reflex_err_t goose_atmosphere_clear_key(void) {
+    /* De-provision: erase the stored key so the next boot takes the
+     * first-boot path and generates a fresh per-board random key.
+     *
+     * Pairing two boards means putting a shared secret on both, and anyone who
+     * performed that pairing knows it. There was no way to undo that short of
+     * wiping all of NVS — which also destroys purpose, learned plasticity and
+     * the peer table. This erases only the key, so a board can be returned to
+     * factory-fresh mesh isolation without losing everything else it learned. */
+    reflex_kv_handle_t h;
+    reflex_err_t rc = reflex_kv_open("goose", false, &h);
+    if (rc != REFLEX_OK) return rc;
+    rc = reflex_kv_erase(h, "aura_key");
+    if (rc == REFLEX_OK) rc = reflex_kv_commit(h);
+    reflex_kv_close(h);
+    if (rc == REFLEX_OK) {
+        REFLEX_LOGI(TAG, "aura key cleared; a fresh per-board key is generated on next boot");
+    }
+    return rc;
+}
+
 reflex_err_t goose_atmosphere_set_key(const uint8_t key[16]) {
     if (!key) return REFLEX_ERR_INVALID_ARG;
     reflex_err_t rc = persist_aura_key(key);

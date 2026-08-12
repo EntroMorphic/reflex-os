@@ -165,6 +165,14 @@ typedef struct {
 reflex_err_t goose_atmosphere_init(void);
 
 /**
+ * @brief Erase the stored Aura key, returning the board to mesh isolation.
+ *
+ * The next boot regenerates a unique per-board random key, so a paired board
+ * can be de-provisioned without wiping purpose, plasticity or the peer table.
+ */
+reflex_err_t goose_atmosphere_clear_key(void);
+
+/**
  * @brief Process atmospheric arcing (TX/RX of geometric state).
  */
 reflex_err_t goose_atmosphere_process(void);

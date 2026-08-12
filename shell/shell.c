@@ -1046,8 +1046,13 @@ static void shell_cmd_aura(int argc, char *argv[]) {
         }
         if (goose_atmosphere_set_key(key) == REFLEX_OK) printf("aura: key provisioned\n");
         else printf("aura: provisioning failed\n");
+    } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
+        if (goose_atmosphere_clear_key() == REFLEX_OK)
+            printf("aura: key cleared — a fresh per-board key is generated on next boot\n");
+        else
+            printf("aura: clear failed\n");
     } else {
-        printf("aura setkey <32 hex chars>\n");
+        printf("aura <setkey <32 hex chars>|clear>\n");
     }
 }
 

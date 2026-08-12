@@ -51,6 +51,7 @@ To ensure system durability, the `loom_authority` spinlock is monitored by a cyc
 ## 4. Atmospheric Aura (Geometric Authentication)
 Radio-based state propagation (Arcing) is protected by a keyed message authentication layer.
 
+-   **Provisioning and de-provisioning:** a factory-fresh board generates its own random 16-byte key on first boot, so two new boards do not trust each other by default. `aura setkey <32 hex>` pairs boards by placing a shared secret on each; `aura clear` erases it, returning that board to isolation and causing a fresh per-board key to be generated on the next boot. De-provisioning matters because pairing is a disclosure — whoever performed it knows the secret — and previously the only way to undo it was wiping all of NVS, which also destroys purpose, learned plasticity and the peer table.
 -   **The Aura:** Every Arc packet carries a 32-bit Aura computed as `HMAC-SHA256(GOOSE_AURA_KEY, op || coord || name_hash || state || nonce)` truncated to the first 32 bits. The wire field remains 32 bits for protocol compatibility; the truncation caps collision resistance at the birthday bound.
 -   **The Ground:** Nodes will "ground" (ignore) any Arc packet whose Aura does not match the locally computed value.
 -   **Purpose:** Prevents "Geometric Spoofing" where an unauthorized node attempts to hijack local hardware by broadcasting fake state changes.
