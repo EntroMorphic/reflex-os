@@ -59,6 +59,16 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - Example fragments: `examples/button_blink.loom`, `examples/self_heal.loom`
 - Compiler: `tools/loomc.py`
 
+### G12 — Eviction Soak (2026-08-12)
+- Making shadow-paged cells evictable activated a path that had previously never run (`evictions=0` before the fix), so it was soaked before being trusted.
+- Setup: both C6s paired and purpose-active (learning and exploration running), continuous `bonsai bloat` paging churn on board A, mesh traffic between them. 27 cycles over 921s.
+- **7,977 evictions**, `resolved=300/300` on every single cycle — paging never degraded, unlike the pre-fix behaviour where it stalled permanently after the first pass.
+- **Free heap perfectly flat**: 188,412 bytes free and 185,820 minimum-ever, unchanged across all 27 cycles. No leak from the eviction path.
+- Zero anomalies: no panics, no `LOOM_CONTENTION_FAULT`, no unexpected resets.
+- Post-soak integrity intact: `atlas verify` 12738/12738 duplicates=0 failures=0; all seven seeded cells (`sys.origin`, `sys.purpose`, `sys.metabolic`, `sys.swarm.posture`, `sys.kernel.disposition`, `agency.led.intent`, `perception.heap.pressure`) still resolve; LED still responds.
+- Observation, not a defect: the peer's `perception.mesh.health` read *connected* in the first cycle and *sparse* thereafter. Sustained local paging load makes discovery beacons less regular, so a peer legitimately observes thinner traffic — the vital reporting what is actually on the air. The inverted discovery governance responds by hunting more often, which is the intended reaction.
+- `status` now reports `heap free=/min_free=` and `cells=`, added for this soak: `perception.heap.pressure` carries only a trit against 8K/16K thresholds, so a slow leak would have stayed invisible until it was already critical.
+
 ### G11 — Ternary Task Disposition (kernel policy layer)
 - Source: `goose_kernel_policy_tick` in `goose_supervisor.c`; `kernel` shell command
 - The substrate decides a **ternary stance** per supervised field before any integer priority exists:
