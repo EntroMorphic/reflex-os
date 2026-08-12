@@ -245,6 +245,41 @@ goose_route_t* goose_fabric_find_radio_route_by_source_coord(reflex_tryte9_t coo
  */
 goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving);
 
+/**
+ * @brief Ensure a spatial unit exists at a coordinate, returning it either way.
+ *
+ * Identical to goose_fabric_alloc_cell except that an already-occupied
+ * coordinate yields the existing cell instead of NULL. Use this for idempotent
+ * seeding — services, metabolic vitals, the purpose cell — where the intent is
+ * "this cell must exist", not "this cell must be new".
+ *
+ * This distinction is load-bearing across deep sleep: fabric_cells[] is
+ * RTC-retained, so on a warm boot every seeded coordinate is already occupied
+ * and goose_fabric_alloc_cell would return NULL to callers that cache the
+ * pointer, silently disabling whatever they drive.
+ *
+ * Use goose_fabric_alloc_cell when a collision is a genuine error the caller
+ * needs to detect (for example fragment weaving).
+ */
+goose_cell_t* goose_fabric_ensure_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving);
+
+/**
+ * @brief Current fabric generation counter, bumped on every cell allocation
+ *        and eviction. Consumers holding cached cell pointers compare this
+ *        against goose_route_t::cached_version to detect a stale cache.
+ */
+uint32_t goose_fabric_get_version(void);
+
+/**
+ * @brief Sanctuary Guard predicate. True means the address is protected and
+ *        must not be bound or read by non-system code.
+ *
+ * Consult this before *any* access to an atlas-derived address, not only
+ * before binding a cell — MMIO reads have side effects on read-to-clear
+ * registers and peripheral FIFOs.
+ */
+bool goose_fabric_addr_is_sanctuary(uint32_t addr);
+
 /** Loom lock hold duration instrumentation. */
 uint32_t goose_loom_hold_max_cycles(void);
 uint64_t goose_loom_hold_total_cycles(void);

@@ -16,6 +16,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifndef REFLEX_HOST_BUILD
+#include "esp_heap_caps.h"
+#endif
+
 #define TAG "GOOSE_METABOLIC"
 
 /* --- Vital cells --- */
@@ -51,10 +55,14 @@ static uint32_t s_recovery_ticks = 0;
 
 static int8_t compute_heap_state(void) {
 #ifndef REFLEX_HOST_BUILD
-    extern uint32_t heap_caps_get_free_size(uint32_t caps);
-    uint32_t free_bytes = heap_caps_get_free_size(0);  /* MALLOC_CAP_DEFAULT = 0 on some configs */
+    /* MALLOC_CAP_DEFAULT is the capability malloc() itself draws against.
+     * Passing 0 would mean "no capability required", which sums every region
+     * — including DMA-only and RTC memory that malloc() can never serve — and
+     * so over-reports free space, desensitising the circuit breaker that
+     * goose_fabric_alloc_cell relies on to refuse allocations under pressure. */
+    size_t free_bytes = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
 #else
-    uint32_t free_bytes = 65536;
+    size_t free_bytes = 65536;
 #endif
     if (free_bytes < REFLEX_METABOLIC_HEAP_CRITICAL) return -1;
     if (free_bytes < REFLEX_METABOLIC_HEAP_TIGHT)    return  0;
@@ -63,8 +71,14 @@ static int8_t compute_heap_state(void) {
 
 static int8_t compute_mesh_state(void) {
     goose_mesh_stats_t stats = goose_atmosphere_get_stats();
-    uint32_t rx_total = stats.rx_sync + stats.rx_discover + stats.rx_advertise +
-                        stats.rx_posture + stats.rx_mmio_sync;
+    /* Every authenticated inbound arc op counts as evidence of a live mesh.
+     * rx_query is included deliberately: a peer that only ever QUERYs us is
+     * still a peer, and omitting it made a QUERY-only neighbourhood read as
+     * isolation — which then halves the discovery interval via the inverted
+     * governance in goose_supervisor_pulse, hunting harder for peers we could
+     * already hear. */
+    uint32_t rx_total = stats.rx_sync + stats.rx_query + stats.rx_discover +
+                        stats.rx_advertise + stats.rx_posture + stats.rx_mmio_sync;
     uint32_t delta = rx_total - s_last_rx_total;
     s_last_rx_total = rx_total;
 
@@ -120,28 +134,28 @@ reflex_err_t goose_metabolic_init(void) {
 
     /* Register new vital cells. */
     reflex_tryte9_t coord_batt = goose_make_coord(-1, 4, 1);
-    s_batt_cell = goose_fabric_alloc_cell("perception.power.battery", coord_batt, true);
+    s_batt_cell = goose_fabric_ensure_cell("perception.power.battery", coord_batt, true);
     if (s_batt_cell) {
         goose_fabric_set_agency(s_batt_cell, 0, GOOSE_CELL_HARDWARE_IN);
         s_batt_cell->state = 1;  /* default: full (USB-powered) */
     }
 
     reflex_tryte9_t coord_mesh = goose_make_coord(-1, 4, 2);
-    s_mesh_cell = goose_fabric_alloc_cell("perception.mesh.health", coord_mesh, true);
+    s_mesh_cell = goose_fabric_ensure_cell("perception.mesh.health", coord_mesh, true);
     if (s_mesh_cell) {
         goose_fabric_set_agency(s_mesh_cell, 0, GOOSE_CELL_HARDWARE_IN);
         s_mesh_cell->state = 0;  /* default: unknown/sparse */
     }
 
     reflex_tryte9_t coord_heap = goose_make_coord(-1, 4, -1);
-    s_heap_cell = goose_fabric_alloc_cell("perception.heap.pressure", coord_heap, true);
+    s_heap_cell = goose_fabric_ensure_cell("perception.heap.pressure", coord_heap, true);
     if (s_heap_cell) {
         goose_fabric_set_agency(s_heap_cell, 0, GOOSE_CELL_HARDWARE_IN);
         s_heap_cell->state = 1;  /* default: comfortable */
     }
 
     reflex_tryte9_t coord_meta = goose_make_coord(0, 0, 3);
-    s_metabolic = goose_fabric_alloc_cell("sys.metabolic", coord_meta, true);
+    s_metabolic = goose_fabric_ensure_cell("sys.metabolic", coord_meta, true);
     if (s_metabolic) {
         s_metabolic->type = GOOSE_CELL_SYSTEM_ONLY;
         s_metabolic->state = 1;  /* thriving */

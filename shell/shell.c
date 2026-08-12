@@ -772,12 +772,17 @@ static void shell_cmd_led(int argc, char *argv[]) {
 }
 
 static void shell_cmd_bonsai(int argc, char *argv[]) {
-    if (argc < 3) return;
-    if (strcmp(argv[1], "exp1") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp1_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp1_status(); }
-    else if (strcmp(argv[1], "exp2") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp2_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp2_status(); }
-    else if (strcmp(argv[1], "exp3a") == 0) { if (strcmp(argv[2], "start") == 0) reflex_shell_bonsai_exp3a_start(); else if (strcmp(argv[2], "status") == 0) reflex_shell_bonsai_exp3a_status(); }
-    else if (strcmp(argv[1], "exp4") == 0) { if (argc >= 3 && strcmp(argv[2], "connect") == 0) reflex_shell_bonsai_exp4_route(1); else if (argc >= 3 && strcmp(argv[2], "invert") == 0) reflex_shell_bonsai_exp4_route(-1); else if (argc >= 3 && strcmp(argv[2], "detach") == 0) reflex_shell_bonsai_exp4_route(0); }
-    else if (strcmp(argv[1], "exp5") == 0) { if (argc >= 3 && strcmp(argv[2], "run") == 0) reflex_shell_bonsai_exp5_run(); }
+    /* Only the exp* subcommands take a second word. Requiring argc >= 3 here
+     * silently disabled every single-word subcommand — sleep, runtime, heal,
+     * gvm, weave and bloat all returned without doing anything. `sub_arg`
+     * defaults to "" so the two-word branches stay safe to compare. */
+    if (argc < 2) return;
+    const char *sub_arg = (argc >= 3) ? argv[2] : "";
+    if (strcmp(argv[1], "exp1") == 0) { if (strcmp(sub_arg, "start") == 0) reflex_shell_bonsai_exp1_start(); else if (strcmp(sub_arg, "status") == 0) reflex_shell_bonsai_exp1_status(); }
+    else if (strcmp(argv[1], "exp2") == 0) { if (strcmp(sub_arg, "start") == 0) reflex_shell_bonsai_exp2_start(); else if (strcmp(sub_arg, "status") == 0) reflex_shell_bonsai_exp2_status(); }
+    else if (strcmp(argv[1], "exp3a") == 0) { if (strcmp(sub_arg, "start") == 0) reflex_shell_bonsai_exp3a_start(); else if (strcmp(sub_arg, "status") == 0) reflex_shell_bonsai_exp3a_status(); }
+    else if (strcmp(argv[1], "exp4") == 0) { if (strcmp(sub_arg, "connect") == 0) reflex_shell_bonsai_exp4_route(1); else if (strcmp(sub_arg, "invert") == 0) reflex_shell_bonsai_exp4_route(-1); else if (strcmp(sub_arg, "detach") == 0) reflex_shell_bonsai_exp4_route(0); }
+    else if (strcmp(argv[1], "exp5") == 0) { if (strcmp(sub_arg, "run") == 0) reflex_shell_bonsai_exp5_run(); }
     else if (strcmp(argv[1], "runtime") == 0) { reflex_shell_bonsai_runtime_test(); }
     else if (strcmp(argv[1], "heal") == 0) { reflex_shell_bonsai_heal_test(); }
     else if (strcmp(argv[1], "gvm") == 0) { reflex_shell_bonsai_gvm_test(); }

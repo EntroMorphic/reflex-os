@@ -126,11 +126,19 @@ reflex_tryte9_t goonies_get_coord_by_idx(uint32_t idx) { return (idx < goonies_c
 static void ensure_mux_init(void);
 #define LOOM_LOCK_TIMEOUT_CYCLES 50000
 
-static bool is_sanctuary_address(uint32_t addr) {
+/* Sanctuary Guard: deny-by-default whitelist of peripheral pages that
+ * non-system code may touch. Returns true for "protected — keep out".
+ *
+ * Public because binding is not the only way to reach a register: the
+ * curiosity prober in goose_supervisor_explore *reads* raw MMIO before any
+ * cell is bound, and a read is not free — read-to-clear interrupt status
+ * registers and RX FIFOs belonging to live peripherals are disturbed by
+ * being sampled. Both paths must consult the same whitelist. */
+bool goose_fabric_addr_is_sanctuary(uint32_t addr) {
     uint32_t base = addr & 0xFFFFF000;
-    if (base == 0x60091000 || base == 0x60007000 || base == 0x60006000 || base == 0x60000000 || 
-        base == 0x60001000 || base == 0x60004000 || base == 0x60003000 || base == 0x6000C000 || base == 0x6000E000) return false; 
-    return true; 
+    if (base == 0x60091000 || base == 0x60007000 || base == 0x60006000 || base == 0x60000000 ||
+        base == 0x60001000 || base == 0x60004000 || base == 0x60003000 || base == 0x6000C000 || base == 0x6000E000) return false;
+    return true;
 }
 
 /* Lock hold duration instrumentation. */
@@ -246,7 +254,7 @@ reflex_err_t goose_fabric_init(void) {
 
     purpose_load_from_nvs();
     if (purpose_name[0]) {
-        goose_cell_t *pc = goose_fabric_alloc_cell("sys.purpose", goose_make_coord(0, 0, 2), true);
+        goose_cell_t *pc = goose_fabric_ensure_cell("sys.purpose", goose_make_coord(0, 0, 2), true);
         if (pc) {
             pc->type = GOOSE_CELL_PURPOSE;
             pc->state = 1;
@@ -294,7 +302,16 @@ void goose_fabric_get_eviction_ring(char buf[][40], size_t *count) {
     }
 }
 
-goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
+/* Shared implementation for alloc_cell and ensure_cell.
+ *
+ * `return_existing` selects what happens when the coordinate is already
+ * occupied. Callers doing collision detection (fragment weaving) want NULL
+ * so the clash is visible; callers doing idempotent seeding (services,
+ * metabolic vitals, purpose) want the existing cell, because on a warm boot
+ * from deep sleep fabric_cells[] is RTC-retained and every seeded coord is
+ * already present. See goose_fabric_ensure_cell. */
+static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coord,
+                                           bool is_system_weaving, bool return_existing) {
     /* Resource governance (Layer 2): block non-system allocations when heap is tight. */
     if (!is_system_weaving) {
         goose_cell_t *heap_cell = goonies_resolve_cell("perception.heap.pressure");
@@ -311,7 +328,8 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
      * on goose_transition_t in goose.h. */
     if (!goose_loom_try_lock(NULL)) return NULL;
     reflex_critical_enter(&fabric_mux);
-    if (goose_fabric_get_cell_by_coord(coord) != NULL) {
+    goose_cell_t *existing = goose_fabric_get_cell_by_coord(coord);
+    if (existing != NULL) {
         reflex_critical_exit(&fabric_mux);
         /* Coord is already occupied. On warm boot (wake from deep sleep),
          * fabric_cells[] persists in RTC but goonies_registry is regular
@@ -322,7 +340,10 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
          * goonies_register doesn't touch fabric_cells[]. */
         if (name) goonies_register(name, coord, is_system_weaving);
         goose_loom_unlock();
-        return NULL;
+        /* `existing` points into the static fabric_cells[] array, so it stays
+         * valid after the lock is dropped — the same lifetime guarantee the
+         * fresh-allocation path below offers. */
+        return return_existing ? existing : NULL;
     }
     uint32_t idx = 0;
     if (fabric_cell_count < REFLEX_FABRIC_MAX_CELLS) { idx = fabric_cell_count++; }
@@ -362,10 +383,20 @@ goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, b
     return c;
 }
 
+goose_cell_t* goose_fabric_alloc_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
+    return fabric_alloc_internal(name, coord, is_system_weaving, false);
+}
+
+goose_cell_t* goose_fabric_ensure_cell(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
+    return fabric_alloc_internal(name, coord, is_system_weaving, true);
+}
+
+uint32_t goose_fabric_get_version(void) { return fabric_version; }
+
 reflex_err_t goose_fabric_set_agency(goose_cell_t *cell, uint32_t hardware_addr, goose_cell_type_t type) {
     if (!cell) return REFLEX_ERR_INVALID_ARG;
     if (cell->type == GOOSE_CELL_FIELD_PROXY) { return REFLEX_ERR_NOT_SUPPORTED; }
-    if (is_sanctuary_address(hardware_addr) && type != GOOSE_CELL_SYSTEM_ONLY) { return REFLEX_ERR_NOT_SUPPORTED; }
+    if (goose_fabric_addr_is_sanctuary(hardware_addr) && type != GOOSE_CELL_SYSTEM_ONLY) { return REFLEX_ERR_NOT_SUPPORTED; }
     cell->hardware_addr = hardware_addr; cell->type = type; return REFLEX_OK;
 }
 

@@ -227,15 +227,32 @@ reflex_err_t goose_supervisor_register_field(goose_field_t *field) {
 
 reflex_err_t goose_supervisor_check_equilibrium(goose_field_t *field) {
     if (!field) return REFLEX_ERR_INVALID_ARG;
+    uint32_t version = goose_fabric_get_version();
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
-        if (r->cached_source && r->cached_source->type == GOOSE_CELL_HARDWARE_IN) continue;
+
+        /* This function only *reads* the route cache; internal_process_transitions
+         * owns re-resolution, and every supervised field has a pulse task driving
+         * it (goose_field_start_pulse is paired with every register_field call
+         * site). So a route that is unresolved or stale is simply not evaluable
+         * this pulse — defer to the next one rather than read a dangling or
+         * recycled cell.
+         *
+         * Both conditions are reachable. cached_source is NULL until the first
+         * successful resolve and again whenever a coord stops resolving; a stale
+         * cached_version means the round-robin eviction path in
+         * goose_fabric_alloc_cell recycled a slot, so the pointer may now
+         * reference a different cell entirely. */
+        if (!r->cached_source || !r->cached_sink) continue;
+        if (r->cached_version != version) continue;
+
+        if (r->cached_source->type == GOOSE_CELL_HARDWARE_IN) continue;
         reflex_trit_t orient = r->cached_control ? (reflex_trit_t)r->cached_control->state : (r->learned_orientation ? r->learned_orientation : r->orientation);
         reflex_trit_t expected = (reflex_trit_t)((int)r->cached_source->state * (int)orient);
-        if (r->cached_sink && r->cached_sink->state != (int8_t)expected) {
+        if (r->cached_sink->state != (int8_t)expected) {
             if (r->cached_sink->type == GOOSE_CELL_HARDWARE_OUT) {
                 system_balance.state = REFLEX_TRIT_ZERO;
-                return REFLEX_FAIL; 
+                return REFLEX_FAIL;
             }
         }
     }
@@ -645,6 +662,10 @@ static void goose_supervisor_explore(void) {
         if (s_explore_total >= REFLEX_EXPLORE_MAX_ACTIVE) break;
 
         const shadow_node_t *entry = &shadow_map[s_probes[i].atlas_idx];
+        /* Re-checked rather than assumed: Phase A is the gate, but this is the
+         * second read of the same address and the cost of being wrong is a
+         * disturbed peripheral, so the guard is repeated here deliberately. */
+        if (goose_fabric_addr_is_sanctuary(entry->addr)) continue;
         volatile uint32_t *reg = (volatile uint32_t *)entry->addr;
         uint32_t now = *reg;
 
@@ -681,6 +702,12 @@ static void goose_supervisor_explore(void) {
 
         if (entry->type != GOOSE_CELL_HARDWARE_IN) continue;
         if (entry->bit_mask != 0xFFFFFFFF) continue;
+
+        /* Sanctuary Guard applies to probing, not just binding. This is the
+         * primary gate: a sanctuary address must never be sampled, because the
+         * read itself can clear an interrupt status bit or pop a FIFO belonging
+         * to a peripheral something else is actively using. */
+        if (goose_fabric_addr_is_sanctuary(entry->addr)) continue;
 
         reflex_tryte9_t dummy;
         if (goonies_resolve(entry->name, &dummy) == REFLEX_OK) continue;

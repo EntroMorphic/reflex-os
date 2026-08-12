@@ -21,12 +21,18 @@ static goose_field_t led_agency_field;
 
 static void reflex_led_task(void *arg)
 {
-    // Retrieve the intent cell from the global fabric
-    goose_cell_t *led_intent = goose_fabric_get_cell("led_intent");
+    /* Retrieve the intent cell from the global fabric.
+     *
+     * The name must match what goose_fabric_init actually seeds:
+     * "agency.led.intent" (goose_runtime.c). An earlier revision looked up the
+     * bare "led_intent", which nothing has ever registered, so this lookup
+     * returned NULL on every boot and the task below deleted itself before
+     * weaving the LED field. */
+    goose_cell_t *led_intent = goose_fabric_get_cell("agency.led.intent");
     
     // Allocate a coordinate for the physical LED (Field 1, Region 1, Cell 15)
     reflex_tryte9_t phys_coord = goose_make_coord(1, 1, 15);
-    goose_cell_t *led_phys = goose_fabric_alloc_cell("led_phys", phys_coord, true);
+    goose_cell_t *led_phys = goose_fabric_ensure_cell("led_phys", phys_coord, true);
 
     if (!led_intent || !led_phys) {
         REFLEX_LOGE("LED_SERVICE", "Failed to manifest LED in Fabric!");

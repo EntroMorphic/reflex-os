@@ -82,7 +82,7 @@ reflex_err_t goose_atlas_manifest_weave(void) {
             // (0,0,0) sys.origin, (0,0,1) agency.led.intent, (0,0,2) sys.purpose.
             reflex_tryte9_t coord = goose_make_coord((int8_t)(i + 5), (int8_t)r, 0);
             
-            goose_cell_t *c = goose_fabric_alloc_cell(gname, coord, true);
+            goose_cell_t *c = goose_fabric_ensure_cell(gname, coord, true);
             if (c) {
                 goose_cell_type_t type = GOOSE_CELL_VIRTUAL;
                 

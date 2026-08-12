@@ -45,7 +45,7 @@ static reflex_err_t temp_service_init(void *ctx) {
         return rc;
     }
     reflex_tryte9_t coord = goose_make_coord(-1, 4, 0);
-    s_temp_cell = goose_fabric_alloc_cell("perception.temp.reading", coord, true);
+    s_temp_cell = goose_fabric_ensure_cell("perception.temp.reading", coord, true);
     return REFLEX_OK;
 }
 

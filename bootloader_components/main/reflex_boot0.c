@@ -25,6 +25,10 @@
 /* ROM functions — these are in mask ROM, part of the silicon */
 #include "esp_rom_sys.h"
 #include "esp_rom_spiflash.h"
+/* ROM SHA-256 engine. Mask ROM, same dependency class as the flash and
+ * printf routines above — used to verify the appended image hash before
+ * any segment is trusted. */
+#include "rom/sha.h"
 /* esp_rom_uart.h excluded — needs hal/uart_ll.h which isn't available
  * in the bootloader build. Console is set up via install_channel_putc
  * which is declared in esp_rom_sys.h. */
@@ -33,8 +37,11 @@ extern void esp_rom_install_channel_putc(int channel, void (*putc)(char c));
 extern void esp_rom_output_tx_wait_idle(uint32_t uart_no);
 
 /* Register definitions — just #define constants, no code */
+#include "soc/soc.h"          /* REG_READ/REG_WRITE, SOC_IRAM_*/SOC_RTC_IRAM_* windows */
 #include "soc/lp_wdt_reg.h"
 #include "soc/lp_aon_reg.h"
+#include "soc/timer_group_reg.h"  /* MWDT0 feed — hashing outlives the ROM-armed timeout */
+#include "soc/wdt_periph.h"       /* TIMG_WDT_WKEY_VALUE */
 #include "soc/pcr_reg.h"
 #include "soc/assist_debug_reg.h"
 
@@ -136,6 +143,20 @@ static void hw_feed_wdt(void) {
     REG_WRITE(LP_WDT_SWD_WPROTECT_REG, 0x50D83AA1);
     REG_SET_BIT(LP_WDT_SWD_CONFIG_REG, LP_WDT_SWD_AUTO_FEED_EN);
     REG_WRITE(LP_WDT_SWD_WPROTECT_REG, 0);
+}
+
+/* Feed the Timer Group 0 main watchdog.
+ *
+ * The ROM bootloader arms MWDT0 before handing control to us and expects the
+ * second-stage loader to be brief. Hashing the whole image is not brief — a
+ * 1.7 MB read via the ROM SPI routines comfortably outruns the timeout — so
+ * the verify loop feeds it explicitly. The watchdog is deliberately left armed
+ * rather than disabled: it is the only thing that catches a boot0 that wedges
+ * somewhere without its own retry path. */
+static void hw_feed_mwdt0(void) {
+    REG_WRITE(TIMG_WDTWPROTECT_REG(0), TIMG_WDT_WKEY_VALUE);
+    REG_WRITE(TIMG_WDTFEED_REG(0), 1);
+    REG_WRITE(TIMG_WDTWPROTECT_REG(0), 0);
 }
 
 static void hw_debug_init(void) {
@@ -252,16 +273,96 @@ static uint32_t find_factory_partition(void) {
 
 /* ---- Image loader ---- */
 
+/* RAM windows, taken from the SoC definitions rather than restated here.
+ * An earlier revision hardcoded the LP window as 0x50000000-0x50002000 (8 KB);
+ * the C6 actually has 16 KB (SOC_RTC_IRAM_HIGH == 0x50004000), and a real
+ * image does place a 0x3490-byte segment at 0x50000800. That mistake was
+ * invisible while the bound was never enforced — the loader only tested the
+ * start address — and became a false rejection the moment it was. */
+#define SRAM_LOW            SOC_IRAM_LOW
+#define SRAM_HIGH           SOC_IRAM_HIGH
+#define RTC_LOW             SOC_RTC_IRAM_LOW
+#define RTC_HIGH            SOC_RTC_IRAM_HIGH
+#define IMAGE_HASH_LEN      32
+#define IMAGE_MAX_SEG_LEN   (16u * 1024u * 1024u)  /* larger than any sane segment */
+
 static bool is_sram_addr(uint32_t addr) {
-    return (addr >= 0x40800000 && addr < 0x40880000);
+    return (addr >= SRAM_LOW && addr < SRAM_HIGH);
 }
 
 static bool is_rtc_addr(uint32_t addr) {
-    return (addr >= 0x50000000 && addr < 0x50002000);
+    return (addr >= RTC_LOW && addr < RTC_HIGH);
 }
 
 static bool is_flash_mapped_addr(uint32_t addr) {
     return (addr >= FLASH_MAP_BASE && addr < 0x44000000);
+}
+
+/* Is [addr, addr+len) entirely inside [low, high)?
+ *
+ * Overflow-safe: the subtraction is only evaluated once addr is known to be
+ * below high, so `high - addr` cannot wrap, and comparing len against it
+ * cannot be defeated by an addr+len that wraps past 2^32. */
+static bool range_within(uint32_t addr, uint32_t len, uint32_t low, uint32_t high) {
+    if (addr < low || addr >= high) return false;
+    return len <= (high - addr);
+}
+
+/* Verify the SHA-256 that esptool appends when hash_appended is set.
+ *
+ * Layout (confirmed against a real build): the digest covers every byte from
+ * the image header through the 1-byte checksum that terminates the 16-byte
+ * aligned body, and the 32-byte digest follows immediately after.
+ *
+ * This is corruption detection, not authentication — the digest is not signed,
+ * so anyone who can rewrite flash can rewrite the digest too. It closes the
+ * "jumped into a half-erased image" failure mode, which is the one that
+ * actually bites in the field. Real authentication needs secure boot. */
+static bool image_verify_sha256(uint32_t part_offset, uint32_t body_len) {
+    /* static, not stack: SHA_CTX alone is ~620 bytes and the bootloader stack
+     * is small. Boot0 is single-threaded, so BSS is the right home for these. */
+    static SHA_CTX ctx;
+    static __attribute__((aligned(4))) uint8_t buf[4096];
+    static __attribute__((aligned(4))) uint8_t expected[IMAGE_HASH_LEN];
+    static __attribute__((aligned(4))) uint8_t digest[IMAGE_HASH_LEN];
+
+    if (flash_read(part_offset + body_len, expected, IMAGE_HASH_LEN) != 0) {
+        esp_rom_printf("[%s] hash read failed\n", TAG);
+        return false;
+    }
+
+    ets_sha_enable();
+    if (ets_sha_init(&ctx, SHA2_256) != ETS_OK || ets_sha_starts(&ctx, 0) != ETS_OK) {
+        ets_sha_disable();
+        esp_rom_printf("[%s] sha init failed\n", TAG);
+        return false;
+    }
+
+    /* body_len is 16-byte aligned and the buffer is a multiple of 16, so every
+     * chunk stays word-aligned for the ROM flash reader. */
+    for (uint32_t off = 0; off < body_len; ) {
+        uint32_t chunk = body_len - off;
+        if (chunk > sizeof(buf)) chunk = sizeof(buf);
+        if (flash_read(part_offset + off, buf, chunk) != 0) {
+            ets_sha_disable();
+            esp_rom_printf("[%s] hash read failed at 0x%lx\n", TAG, (unsigned long)off);
+            return false;
+        }
+        ets_sha_update(&ctx, buf, chunk, true);
+        off += chunk;
+        hw_feed_mwdt0();
+    }
+
+    ets_status_t rc = ets_sha_finish(&ctx, digest);
+    ets_sha_disable();
+    if (rc != ETS_OK) {
+        esp_rom_printf("[%s] sha finish failed\n", TAG);
+        return false;
+    }
+
+    uint8_t diff = 0;
+    for (int i = 0; i < IMAGE_HASH_LEN; i++) diff |= (uint8_t)(digest[i] ^ expected[i]);
+    return diff == 0;
 }
 
 typedef struct {
@@ -288,9 +389,13 @@ static uint32_t load_image(uint32_t part_offset) {
 
     uint32_t flash_offset = part_offset + sizeof(hdr);
     flash_map_entry_t maps[IMAGE_MAX_SEGMENTS];
+    static reflex_segment_header_t segs[IMAGE_MAX_SEGMENTS];
+    static uint32_t seg_data_off[IMAGE_MAX_SEGMENTS];
     int map_count = 0;
 
-    /* First pass: load SRAM segments and record flash-mapped regions */
+    /* Pass 1: walk the segment table, bounds-check every destination, and
+     * measure the image. Nothing is written to RAM here — a segment cannot be
+     * trusted until the whole image has been verified. */
     for (int i = 0; i < hdr.segment_count; i++) {
         reflex_segment_header_t seg;
         if (flash_read(flash_offset, &seg, sizeof(seg)) != 0) {
@@ -299,22 +404,63 @@ static uint32_t load_image(uint32_t part_offset) {
         }
         flash_offset += sizeof(seg);
 
-        if (is_sram_addr(seg.load_addr) || is_rtc_addr(seg.load_addr)) {
-            if (flash_read(flash_offset, (void *)seg.load_addr, seg.data_len) != 0) {
-                esp_rom_printf("[%s] seg %d data read failed\n", TAG, i);
-                return 0;
-            }
-        } else if (is_flash_mapped_addr(seg.load_addr) && map_count < IMAGE_MAX_SEGMENTS) {
-            maps[map_count].vaddr = seg.load_addr;
-            maps[map_count].paddr = flash_offset;
-            maps[map_count].len = seg.data_len;
-            map_count++;
+        if (seg.data_len > IMAGE_MAX_SEG_LEN) {
+            esp_rom_printf("[%s] seg %d absurd length 0x%lx\n",
+                           TAG, i, (unsigned long)seg.data_len);
+            return 0;
         }
 
+        /* A destination inside a RAM window must fit *entirely* inside it.
+         * Validating only the start address (as an earlier revision did) lets
+         * a malformed image write past the end of SRAM or the 8 KB RTC window,
+         * over the bootloader's own stack and code. Reject rather than clamp:
+         * a truncated kernel is corruption, not recovery. */
+        if (is_sram_addr(seg.load_addr) || is_rtc_addr(seg.load_addr)) {
+            bool fits = range_within(seg.load_addr, seg.data_len, SRAM_LOW, SRAM_HIGH) ||
+                        range_within(seg.load_addr, seg.data_len, RTC_LOW, RTC_HIGH);
+            if (!fits) {
+                esp_rom_printf("[%s] seg %d overruns its RAM window (addr=0x%08lx len=0x%lx)\n",
+                               TAG, i, (unsigned long)seg.load_addr, (unsigned long)seg.data_len);
+                return 0;
+            }
+        }
+
+        segs[i] = seg;
+        seg_data_off[i] = flash_offset;
         flash_offset += seg.data_len;
     }
 
-    /* Second pass: set up MMU for flash-mapped segments */
+    /* Verify before trusting. The body is the header, segment table, segment
+     * data, padding and the trailing checksum byte, rounded up to 16 bytes;
+     * the digest sits immediately after it. */
+    if (hdr.hash_appended) {
+        uint32_t body_len = ((flash_offset - part_offset) + 1u + 15u) & ~15u;
+        if (!image_verify_sha256(part_offset, body_len)) {
+            esp_rom_printf("[%s] IMAGE HASH MISMATCH - refusing to boot\n", TAG);
+            return 0;
+        }
+        esp_rom_printf("[%s] image hash ok (%lu bytes)\n", TAG, (unsigned long)body_len);
+    } else {
+        esp_rom_printf("[%s] WARNING: image has no appended hash, loading unverified\n", TAG);
+    }
+
+    /* Pass 2: now that the image is known good, load RAM segments and record
+     * the flash-mapped regions. */
+    for (int i = 0; i < hdr.segment_count; i++) {
+        if (is_sram_addr(segs[i].load_addr) || is_rtc_addr(segs[i].load_addr)) {
+            if (flash_read(seg_data_off[i], (void *)segs[i].load_addr, segs[i].data_len) != 0) {
+                esp_rom_printf("[%s] seg %d data read failed\n", TAG, i);
+                return 0;
+            }
+        } else if (is_flash_mapped_addr(segs[i].load_addr) && map_count < IMAGE_MAX_SEGMENTS) {
+            maps[map_count].vaddr = segs[i].load_addr;
+            maps[map_count].paddr = seg_data_off[i];
+            maps[map_count].len = segs[i].data_len;
+            map_count++;
+        }
+    }
+
+    /* Pass 3: set up MMU for flash-mapped segments */
     reflex_cache_disable();
     reflex_mmu_unmap_all();
 
@@ -365,8 +511,14 @@ void __attribute__((noreturn)) call_start_cpu0(void)
         esp_rom_printf("[%s] no factory partition (attempt %d/%d)\n",
                        TAG, fail_count + 1, BOOT_FAIL_MAX);
         esp_rom_delay_us(100000);
-        /* Software reset to retry */
-        while (1) { REG_WRITE(0x600B1034, 0x8000); } /* LP_WDT_SWD_WPROTECT + force reset */
+        /* Software reset to retry. LP_AON_HPSYS_SW_RESET is bit 31 of
+         * LP_AON_SYS_CFG_REG; the only other defined bit in that register is
+         * FORCE_DOWNLOAD_BOOT (bit 30). Use the named constants — an earlier
+         * revision wrote the literal 0x8000 (bit 15, reserved) to a hardcoded
+         * 0x600B1034, which is a no-op, so this loop span forever instead of
+         * resetting. The fail counter is left incremented on purpose: if the
+         * reset does not take, the next boot still converges on the halt. */
+        while (1) { REG_WRITE(LP_AON_SYS_CFG_REG, LP_AON_HPSYS_SW_RESET); }
     }
 
     esp_rom_printf("[%s] factory partition at 0x%lx\n", TAG, (unsigned long)part_offset);
