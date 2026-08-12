@@ -24,7 +24,6 @@ Entry point: `app_main()` in `main/main.c`.
 ## Stage 4 -- Atlas (GOOSE Loom)
 
 - `goose_supervisor_init()` -- regulation state machine.
-- `goose_gateway_init()` -- external-facing API gate.
 - `goose_atlas_manifest_weave()` -- projects 26 MMIO nodes x 4 registers = **104 pre-woven cells** into the Loom.
 - `goose_lp_heartbeat_init()` -- LP RISC-V coherent heartbeat.
 - `goose_metabolic_init()` -- vital perception cells + circuit breaker (Phase 31).

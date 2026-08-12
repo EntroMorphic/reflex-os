@@ -143,7 +143,6 @@ void app_main(void)
 
     // 4. GOOSE Loom Manifestation
     goose_supervisor_init();
-    goose_gateway_init();
     goose_atlas_manifest_weave();
     goose_lp_heartbeat_init();  // LP RISC-V Coherent Heartbeat
     goose_metabolic_init();     // Vital perception + circuit breaker

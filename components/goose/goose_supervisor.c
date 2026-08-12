@@ -568,17 +568,23 @@ reflex_err_t goose_supervisor_learn_sync(void) {
  *     [int8_t learned_orientation]
  *     [int16_t hebbian_counter]
  *
- * Max per-field blob: 4 + 16*(16+1+2) = 308 bytes. Well within NVS limits.
+ * Max per-field blob: 4 + 32*(16+1+2) = 612 bytes. Well within NVS limits.
  *
- * Truncation: at most 16 routes are written, but the header records the
- * field's full route_count, so a field with more than 16 routes declares more
- * entries than follow. Load is bounded by the actual blob length rather than
- * that count, so this is safe to read — but plasticity beyond the 16th route
- * of such a field is silently not persisted.
+ * The count is the number of entries that actually follow, never the field's
+ * declared route_count. SNAP_MAX_ROUTES matches the largest route_count any
+ * field the system can currently build will have, so truncation is unreachable
+ * in practice; if it ever happens it is logged rather than silent, and load
+ * remains bounded by the blob length regardless.
  */
 #define SNAP_ROUTE_ENTRY_SIZE (16 + 1 + 2)
-#define SNAP_VERSION 1  /* Increment on format change; load rejects mismatches. */
-#define SNAP_HEADER_SIZE 4  /* version(2) + route_count(2) */
+/* Route cap per field. Matches MAX_ROUTES_PER_FRAGMENT in goose_library.c, the
+ * largest route_count a LoomScript fragment can produce, so truncation is
+ * unreachable for every field the system can currently build. Kept explicit
+ * rather than derived because the two limits are independent by design. */
+#define SNAP_MAX_ROUTES 32
+#define SNAP_VERSION 2  /* v2: header count is entries WRITTEN; cap raised 16 -> 32.
+                         * Increment on format change; load rejects mismatches. */
+#define SNAP_HEADER_SIZE 4  /* version(2) + entry_count(2) */
 
 reflex_err_t goose_snapshot_save(void) {
     reflex_kv_handle_t h;
@@ -597,14 +603,25 @@ reflex_err_t goose_snapshot_save(void) {
         goose_field_t *field = supervised_fields[f];
         if (field->route_count == 0) continue;
 
-        uint8_t buf[SNAP_HEADER_SIZE + 16 * SNAP_ROUTE_ENTRY_SIZE];
+        uint8_t buf[SNAP_HEADER_SIZE + SNAP_MAX_ROUTES * SNAP_ROUTE_ENTRY_SIZE];
         size_t pos = 0;
         uint16_t version = SNAP_VERSION;
         memcpy(&buf[pos], &version, 2); pos += 2;
-        uint16_t count = (uint16_t)field->route_count;
+
+        /* Write the number of entries that actually follow, not the field's
+         * full route_count. Recording the latter while emitting at most the cap
+         * made the header describe a payload that was not there — harmless to
+         * read, because load is bounded by the blob length, but a lie that
+         * would mislead any other consumer of the format. */
+        size_t n = field->route_count < SNAP_MAX_ROUTES ? field->route_count : SNAP_MAX_ROUTES;
+        if (field->route_count > SNAP_MAX_ROUTES) {
+            REFLEX_LOGW(TAG, "snapshot: field %s has %u routes, persisting first %u",
+                        field->name, (unsigned)field->route_count, (unsigned)SNAP_MAX_ROUTES);
+        }
+        uint16_t count = (uint16_t)n;
         memcpy(&buf[pos], &count, 2); pos += 2;
 
-        for (size_t r = 0; r < field->route_count && r < 16; r++) {
+        for (size_t r = 0; r < n; r++) {
             goose_route_t *route = &field->routes[r];
             memcpy(&buf[pos], route->name, 16); pos += 16;
             buf[pos++] = (uint8_t)route->learned_orientation;
@@ -617,7 +634,7 @@ reflex_err_t goose_snapshot_save(void) {
         rc = reflex_kv_set_blob(h, key, buf, pos);
         if (rc == REFLEX_OK) {
             saved_fields++;
-            saved_routes += (count > 16 ? 16 : count);
+            saved_routes += count;
         }
     }
 
@@ -645,7 +662,7 @@ reflex_err_t goose_snapshot_load(void) {
         char key[16];
         snprintf(key, sizeof(key), "s_%08lx", (unsigned long)goose_fnv1a(field->name));
 
-        uint8_t buf[SNAP_HEADER_SIZE + 16 * SNAP_ROUTE_ENTRY_SIZE];
+        uint8_t buf[SNAP_HEADER_SIZE + SNAP_MAX_ROUTES * SNAP_ROUTE_ENTRY_SIZE];
         size_t len = sizeof(buf);
         rc = reflex_kv_get_blob(h, key, buf, &len);
         if (rc != REFLEX_OK || len < SNAP_HEADER_SIZE) continue;
@@ -886,7 +903,7 @@ reflex_err_t goose_supervisor_pulse(void) {
     
     /* Metabolic regulation — 1Hz vital scan + circuit breaker. */
     static int metabolic_div = 0;
-    if (metabolic_div++ >= REFLEX_SUPERVISOR_METABOLIC_DIV) {
+    if (++metabolic_div >= REFLEX_SUPERVISOR_METABOLIC_DIV) {
         goose_metabolic_sync();
         metabolic_div = 0;
     }
@@ -895,14 +912,14 @@ reflex_err_t goose_supervisor_pulse(void) {
 
     /* Autonomic Fabrication — gated: suspended in surviving mode. */
     static int weave_div = 0;
-    if (metabolic >= 0 && weave_div++ >= REFLEX_SUPERVISOR_WEAVE_DIV) {
+    if (metabolic >= 0 && ++weave_div >= REFLEX_SUPERVISOR_WEAVE_DIV) {
         goose_supervisor_weave_sync();
         weave_div = 0;
     }
 
     /* Autonomous evaluation — always runs (provides reward/pain signal). */
     static int eval_div = 0;
-    if (eval_div++ >= REFLEX_SUPERVISOR_EVAL_DIV) {
+    if (++eval_div >= REFLEX_SUPERVISOR_EVAL_DIV) {
         goose_supervisor_evaluate();
         eval_div = 0;
     }
@@ -910,7 +927,7 @@ reflex_err_t goose_supervisor_pulse(void) {
     /* Self-Expanding Perception — 1Hz, gated: suspended in surviving.
      * Runs after eval so the pain/reward signals are fresh. */
     static int explore_div = 0;
-    if (metabolic >= 0 && explore_div++ >= REFLEX_SUPERVISOR_EXPLORE_DIV) {
+    if (metabolic >= 0 && ++explore_div >= REFLEX_SUPERVISOR_EXPLORE_DIV) {
         goose_supervisor_explore();
         explore_div = 0;
     }
@@ -920,13 +937,13 @@ reflex_err_t goose_supervisor_pulse(void) {
     static int learn_div = 0;
     if (metabolic > 0) {
         /* Thriving: normal rate. */
-        if (learn_div++ >= REFLEX_SUPERVISOR_LEARN_DIV) {
+        if (++learn_div >= REFLEX_SUPERVISOR_LEARN_DIV) {
             goose_supervisor_learn_sync();
             learn_div = 0;
         }
     } else if (metabolic == 0) {
         /* Conserving: half rate. */
-        if (learn_div++ >= REFLEX_SUPERVISOR_LEARN_DIV * 2) {
+        if (++learn_div >= REFLEX_SUPERVISOR_LEARN_DIV * 2) {
             goose_supervisor_learn_sync();
             learn_div = 0;
         }
@@ -935,28 +952,28 @@ reflex_err_t goose_supervisor_pulse(void) {
 
     /* Swarm sync — gated: suspended in surviving. */
     static int sync_div = 0;
-    if (metabolic >= 0 && sync_div++ >= REFLEX_SUPERVISOR_SYNC_DIV) {
+    if (metabolic >= 0 && ++sync_div >= REFLEX_SUPERVISOR_SYNC_DIV) {
         goose_supervisor_swarm_sync();
         sync_div = 0;
     }
 
     /* Staleness check — always runs (safety: detect dead peers). */
     static int stale_div = 0;
-    if (stale_div++ >= REFLEX_SUPERVISOR_STALE_DIV) {
+    if (++stale_div >= REFLEX_SUPERVISOR_STALE_DIV) {
         goose_mmio_sync_staleness_check();
         stale_div = 0;
     }
 
     /* Snapshot save — gated: suspended in surviving. */
     static int snap_div = 0;
-    if (metabolic >= 0 && snap_div++ >= REFLEX_SUPERVISOR_SNAP_DIV) {
+    if (metabolic >= 0 && ++snap_div >= REFLEX_SUPERVISOR_SNAP_DIV) {
         goose_snapshot_save();
         snap_div = 0;
     }
 
     /* Watchdog — always runs (safety). */
     static int watchdog_div = 0;
-    if (watchdog_div++ >= REFLEX_SUPERVISOR_WATCHDOG_DIV) {
+    if (++watchdog_div >= REFLEX_SUPERVISOR_WATCHDOG_DIV) {
         reflex_service_watchdog_tick();
         watchdog_div = 0;
     }
@@ -971,7 +988,7 @@ reflex_err_t goose_supervisor_pulse(void) {
         if (mesh_cell && mesh_cell->state == -1) discover_interval /= 2;  /* isolated: hunt faster */
         else if (mesh_cell && mesh_cell->state == 1) discover_interval *= 2;  /* connected: relax */
         if (discover_interval < 1) discover_interval = 1;
-        if (discover_div++ >= discover_interval) {
+        if (++discover_div >= discover_interval) {
             goose_atmosphere_emit_discover();
             discover_div = 0;
         }

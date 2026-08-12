@@ -116,7 +116,6 @@ The core GOOSE implementation.
 - `goose_shadow_atlas.c`: SVD-generated shadow catalog of 12,738 MMIO nodes (registers + fields, including fully expanded array registers), paged in on demand via `goose_shadow_resolve`.
 - `goose_telemetry.c`: push-based telemetry emitters for the Loom Viewer; `#T:`-prefixed serial lines gated by `goose_telemetry_enabled`.
 - `goose_metabolic.c`: vital perception cells (battery, mesh, heap), circuit-breaker computation with hysteretic recovery, `vitals` shell data, override system for bench testing.
-- `goose_gateway.c`: legacy message bridge between the fabric and GOOSE cell state.
 - `goose_library.c`: LoomScript binary loader (`.loom` format, magic `LOOM`).
 - `goose_dma.c`, `goose_etm.c`: scaffold bridges for Geometric Flow (GDMA) and Silicon Agency (ETM).
 - `ulp/lp_pulse.c`: LP core program (compiled for RISC-V LP target via `ulp_embed_binary`).

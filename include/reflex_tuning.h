@@ -3,13 +3,14 @@
 
 /* Supervisor pulse rates (divisors at 10Hz base)
  *
- * These are consumed as `if (div++ >= N) { run(); div = 0; }`, which fires on
- * the (N+1)-th pulse, not the N-th. A divisor of 10 at 10Hz therefore runs at
- * ~0.909Hz with an 1.1s period, not the 1Hz the comments below name. The rates
- * are quoted as their design intent; the ~9% shortfall is uniform across every
- * sub-pass and has no functional consequence, so the timing is left as-is
- * rather than changing the cadence of every subsystem at once. Anything that
- * needs a true 1Hz should not assume these are exact.
+ * Consumed as `if (++div >= N) { run(); div = 0; }`, which fires on exactly the
+ * N-th pulse. A divisor of 10 at 10Hz is therefore a true 1Hz.
+ *
+ * These were previously written `div++ >= N`, which fires on the (N+1)-th
+ * pulse — every sub-pass ran ~9% slow, so the "1Hz" passes were really
+ * ~0.909Hz. Harmless in itself, but it meant any constant derived from these
+ * divisors had to carry a correction term to stay honest. The rates below can
+ * now be read at face value.
  */
 #ifndef REFLEX_SUPERVISOR_WEAVE_DIV
 #define REFLEX_SUPERVISOR_WEAVE_DIV     10   /* Autonomic fabrication: 1Hz */
@@ -127,32 +128,33 @@
 /* Consecutive idle vital-scans before the mesh reads -1 (isolated).
  *
  * This must be expressed relative to the discovery beacon, not as a constant.
- * The vital is scanned every ~1.1s but a quiet-but-healthy mesh only emits a
- * beacon every ~10.1s, so a fixed threshold of 3 (~3.3s) declared isolation
- * for roughly 6.8s out of every 10.1s on a working two-board pair — which then
+ * The vital is scanned every 1s but a quiet-but-healthy mesh only emits a
+ * beacon every 10s, so a fixed threshold of 3 (3s) declared isolation
+ * for roughly 7s out of every 10s on a working two-board pair — which then
  * halved the discovery interval via the inverted governance in
  * goose_supervisor_pulse, hunting for peers that were already answering.
  * Measured on hardware: two paired C6s reported mesh=-1 and mesh=0
  * simultaneously, purely depending on where each sampled in the beacon cycle.
  *
  * Derived so it tracks the dividers if either is retuned: tolerate two whole
- * beacon periods of silence before calling the mesh isolated. Both divisors
- * use the `div++ >= N` idiom, hence the +1 on each. */
+ * beacon periods of silence before calling the mesh isolated. The +1
+ * corrections this used to carry are gone now that the dividers fire on
+ * exactly their N-th pulse. */
 #define REFLEX_METABOLIC_MESH_ISOLATED_TICKS \
-    (((REFLEX_SUPERVISOR_DISCOVER_DIV + 1) * 2) / (REFLEX_SUPERVISOR_METABOLIC_DIV + 1))
+    ((REFLEX_SUPERVISOR_DISCOVER_DIV * 2) / REFLEX_SUPERVISOR_METABOLIC_DIV)
 #endif
 /* Arcs required within the isolation window (plus the previous completed
  * window) before the mesh reads +1 connected.
  *
  * This is compared against a windowed count, not a single vital scan. It was 5
- * per ~1.1s scan, which needed ~4.5 arcs/sec while a quiet pair produces ~0.1 —
- * so +1 was unreachable and the vital was ternary in name only.
+ * per 1s scan, which needed 5 arcs/sec while a quiet pair produces ~0.1 — so
+ * +1 was unreachable and the vital was ternary in name only.
  *
- * The window spans ~2 discovery beacons and the check also counts the previous
- * window, so a healthy peer contributes ~4 arcs over the observed span. A
- * threshold of 2 therefore means "heard from someone at least twice in roughly
- * the last 40s", which stays true across one missed beacon but goes false when
- * a peer actually stops talking. */
+ * The window spans 2 discovery beacons (20s) and the check also counts the
+ * previous window, so a healthy peer contributes ~4 arcs over the observed 40s.
+ * A threshold of 2 therefore means "heard from someone at least twice in
+ * roughly the last 40s", which stays true across one missed beacon but goes
+ * false when a peer actually stops talking. */
 #ifndef REFLEX_METABOLIC_MESH_SPARSE_THRESHOLD
 #define REFLEX_METABOLIC_MESH_SPARSE_THRESHOLD 2
 #endif

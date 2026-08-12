@@ -483,9 +483,31 @@ static void reflex_shell_bonsai_weave_test(void) {
     }
 }
 
+/* Format a coordinate including its namespace and full index.
+ *
+ * The old display printed trits[0], [3] and [6] only, which was lossy twice
+ * over. It hid the namespace marker in trits[8], so a seeded cell and a
+ * shadow-paged cell at the same (f,r,c) rendered identically — after the
+ * namespaces were introduced, `peer.alpha.led` and an atlas cell both showed
+ * as (5,0,0) while being distinct cells. It also dropped the high byte of the
+ * index in trits[7], so two shadow entries 256 apart printed the same triple.
+ *
+ * Namespace 0 keeps a signed cell index (seeds legitimately use negatives,
+ * e.g. perception.heap.pressure at (-1,4,-1)); the paged namespaces compose
+ * their unsigned 16-bit index from trits[6] and trits[7]. */
+static void shell_format_coord(reflex_tryte9_t c, char *out, size_t len) {
+    if (c.trits[8] == 1 || c.trits[8] == -1) {
+        int idx = (int)((uint8_t)c.trits[6] | ((uint8_t)c.trits[7] << 8));
+        snprintf(out, len, "(%d,%d,%d)%s", (int)c.trits[0], (int)c.trits[3], idx,
+                 (c.trits[8] == 1) ? "@shadow" : "@peer");
+    } else {
+        snprintf(out, len, "(%d,%d,%d)", (int)c.trits[0], (int)c.trits[3], (int)c.trits[6]);
+    }
+}
+
 static void reflex_shell_loom_list(void) {
     printf("--- GOOSE Manifold: The Loom ---\n");
-    printf("%-20s | %-12s | %-5s | %-8s\n", "Name", "Coordinate", "State", "Type");
+    printf("%-20s | %-17s | %-5s | %-8s\n", "Name", "Coordinate", "State", "Type");
     printf("--------------------------------------------------------------\n");
     
     uint32_t count = goonies_get_count();
@@ -494,10 +516,10 @@ static void reflex_shell_loom_list(void) {
         reflex_tryte9_t coord = goonies_get_coord_by_idx(i);
         goose_cell_t *c = goose_fabric_get_cell_by_coord(coord);
         if (c) {
-            printf("%-20s | (%2d,%2d,%2d)    | %5d | %d\n", 
-                   name, 
-                   coord.trits[0], coord.trits[3], coord.trits[6],
-                   c->state, c->type);
+            char cbuf[32];
+            shell_format_coord(coord, cbuf, sizeof(cbuf));
+            printf("%-20s | %-17s | %5d | %d\n",
+                   name, cbuf, c->state, c->type);
         }
     }
 }
@@ -507,18 +529,14 @@ static void reflex_shell_goonies_find(const char *name) {
      * and shadow catalog in that order. */
     goose_cell_t *cell = goonies_resolve_cell(name);
     if (cell) {
+        char cbuf[32];
+        shell_format_coord(cell->coord, cbuf, sizeof(cbuf));
         if (cell->peer_id != 0) {
-            printf("%s coord=(%d,%d,%d) state=%d peer_id=%u [phantom]\n",
-                   name, cell->coord.trits[0], cell->coord.trits[3], cell->coord.trits[6],
-                   cell->state, cell->peer_id);
+            printf("%s coord=%s state=%d peer_id=%u [phantom]\n", name, cbuf, cell->state, cell->peer_id);
         } else if (cell->hardware_addr >= 0x60000000) {
-            printf("%s coord=(%d,%d,%d) addr=0x%08lx state=%d [shadow]\n",
-                   name, cell->coord.trits[0], cell->coord.trits[3], cell->coord.trits[6],
-                   (unsigned long)cell->hardware_addr, cell->state);
+            printf("%s coord=%s addr=0x%08lx state=%d [shadow]\n", name, cbuf, (unsigned long)cell->hardware_addr, cell->state);
         } else {
-            printf("%s coord=(%d,%d,%d) state=%d type=%d [live]\n",
-                   name, cell->coord.trits[0], cell->coord.trits[3], cell->coord.trits[6],
-                   cell->state, cell->type);
+            printf("%s coord=%s state=%d type=%d [live]\n", name, cbuf, cell->state, cell->type);
         }
         return;
     }
