@@ -22,6 +22,11 @@ Canonical design and status documents.
 - [`potentials.md`](potentials.md) — Realized milestones and the biological-frontier roadmap.
 - [`prd.md`](prd.md) — Original product requirements.
 
+## Audits
+
+- [`audit-2026-08-12.md`](audit-2026-08-12.md) — Current. Defects ranked by severity × reachability, prior-audit closure status, documentation drift.
+- [`audit-2026-04-16.md`](audit-2026-04-16.md) — First full assessment (post-v2.6.0): novelty, execution quality, and fluff.
+
 ## Ternary VM internals
 
 See [`vm/`](vm/):
