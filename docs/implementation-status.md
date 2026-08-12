@@ -257,6 +257,11 @@ Closed in the 2026-08-12 audit remediation (see [`audit-2026-08-12.md`](audit-20
   - Peer staleness and the LP heartbeat stall detector could never fire.
   The same wrong base was also in `kernel/reflex_freertos_compat.c` (live, kernel tick ISR) and `kernel/reflex_sched.c`; all three now take it from the SoC headers.
 
+- **`platform/esp32c6/reflex_crypto_esp32c6.c` and `platform/esp32/reflex_crypto_esp32.c` are byte-identical** (same MD5). Two copies of the HMAC-SHA256 backing the Aura, maintained separately: patch one and the other drifts silently. The host suite compiles only the C6 copy, so a divergence would be caught on neither target. Worth collapsing to a single shared implementation.
+- **`vm/cache.c` has no host-test coverage.** It is not in the host suite's source list because it needs the VM memory backend to link. The TINV write-back defect fixed on 2026-08-12 is exactly the kind of thing a test should pin, and it remains verified only by reading.
+- **`reflex_service_stop_all` ignores every `stop()` return.** Resilient on a shutdown path, and the `REFLEX_ERR_TIMEOUT` that `reflex_vm_task_stop` can now report still logs — but callers cannot distinguish a clean stop from a wedged one.
+- **`reflex_hal_log` uses a shared static buffer with no reentrancy guard**, so two tasks logging concurrently interleave. Kept static deliberately: 256 bytes of stack per call site is worse against the 2048-byte task stacks in this tree.
+
 Remaining (honest limits, not regressions):
 - ~~Mesh health could never read +1~~: **fixed 2026-08-12**. `compute_mesh_state` now counts arcs across the isolation window (plus the previous completed window) rather than within a single ~1.1s vital scan, and the threshold is recalibrated to 2 — "heard from someone at least twice in roughly the last 40s". All three ternary states are reachable and the `connected: relax discovery` branch runs. Verified on two paired boards.
 - ~~Shell coordinate display was lossy~~: **fixed 2026-08-12**. `goonies find` and `loom list` now render the namespace (`@shadow` / `@peer`) and compose the full 16-bit index from `trits[6]`/`trits[7]`, so distinct cells no longer print the same triple and shadow entries 256 apart are distinguishable. Namespace 0 keeps its signed index.

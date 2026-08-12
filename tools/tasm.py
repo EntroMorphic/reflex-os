@@ -200,7 +200,19 @@ def assemble(filename, output_name):
         word |= (src_a & 0x07) << 9
         word |= (src_b & 0x07) << 12
 
-        # 17-bit signed immediate
+        # 17-bit signed immediate.
+        #
+        # Range-check before masking. This used to mask straight to 0x1FFFF, so
+        # a constant the format cannot hold was silently reinterpreted rather
+        # than rejected — `TLDI r0, 100000` assembled cleanly and loaded as
+        # 34464. The loader cannot catch it either: after truncation the value
+        # is a perfectly legal 17-bit immediate. Registers were already checked
+        # this way; the immediate was not.
+        IMM_MIN, IMM_MAX = -(1 << 16), (1 << 16) - 1
+        if imm < IMM_MIN or imm > IMM_MAX:
+            raise ValueError(
+                f"Line {idx}: immediate {imm} out of range "
+                f"for the 17-bit signed field ({IMM_MIN}..{IMM_MAX})")
         imm_bits = imm & 0x1FFFF
         word |= imm_bits << 15
 

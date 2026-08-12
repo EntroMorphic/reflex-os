@@ -271,10 +271,21 @@ reflex_err_t reflex_word18_select(reflex_trit_t selector,
 reflex_err_t reflex_word18_from_int32(int32_t value, reflex_word18_t *out)
 {
     int32_t remaining = value;
+    reflex_word18_t scratch;
 
     REFLEX_RETURN_ON_FALSE(out != NULL, REFLEX_ERR_INVALID_ARG, "ternary", "output is required");
 
-    reflex_word18_zero(out);
+    /* Convert into a local and publish only on success.
+     *
+     * This used to write the trits straight into *out and check for overflow
+     * afterwards, so a value too large for a word18 returned an error *and*
+     * left the destination holding the truncated low 18 trits. Callers that
+     * pass a live register — the interpreter's TLDI does exactly that — would
+     * be handed a corrupted operand alongside the error. Nothing currently
+     * overflows on that path (a 17-bit immediate always fits), but "fails
+     * without clobbering its output" is the contract every other conversion in
+     * this file keeps. */
+    reflex_word18_zero(&scratch);
 
     for (size_t i = 0; i < REFLEX_WORD18_TRITS; ++i) {
         int32_t remainder = remaining % 3;
@@ -288,10 +299,11 @@ reflex_err_t reflex_word18_from_int32(int32_t value, reflex_word18_t *out)
             remaining -= 1;
         }
 
-        out->trits[i] = (reflex_trit_t)remainder;
+        scratch.trits[i] = (reflex_trit_t)remainder;
     }
 
     REFLEX_RETURN_ON_FALSE(remaining == 0, REFLEX_ERR_INVALID_SIZE, "ternary", "value does not fit in word18");
+    memcpy(out->trits, scratch.trits, sizeof(out->trits));
     return REFLEX_OK;
 }
 
