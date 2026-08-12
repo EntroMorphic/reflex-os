@@ -124,10 +124,22 @@
 #define REFLEX_METABOLIC_HEAP_TIGHT      16384
 #endif
 #ifndef REFLEX_METABOLIC_MESH_ISOLATED_TICKS
-/* Consecutive idle vital-scans before the mesh reads -1 (isolated). The vital
- * scan runs at REFLEX_SUPERVISOR_METABOLIC_DIV (~1.1s), not the 10s an earlier
- * comment assumed, so this is ~3.3s of silence — not 30s. */
-#define REFLEX_METABOLIC_MESH_ISOLATED_TICKS  3
+/* Consecutive idle vital-scans before the mesh reads -1 (isolated).
+ *
+ * This must be expressed relative to the discovery beacon, not as a constant.
+ * The vital is scanned every ~1.1s but a quiet-but-healthy mesh only emits a
+ * beacon every ~10.1s, so a fixed threshold of 3 (~3.3s) declared isolation
+ * for roughly 6.8s out of every 10.1s on a working two-board pair — which then
+ * halved the discovery interval via the inverted governance in
+ * goose_supervisor_pulse, hunting for peers that were already answering.
+ * Measured on hardware: two paired C6s reported mesh=-1 and mesh=0
+ * simultaneously, purely depending on where each sampled in the beacon cycle.
+ *
+ * Derived so it tracks the dividers if either is retuned: tolerate two whole
+ * beacon periods of silence before calling the mesh isolated. Both divisors
+ * use the `div++ >= N` idiom, hence the +1 on each. */
+#define REFLEX_METABOLIC_MESH_ISOLATED_TICKS \
+    (((REFLEX_SUPERVISOR_DISCOVER_DIV + 1) * 2) / (REFLEX_SUPERVISOR_METABOLIC_DIV + 1))
 #endif
 #ifndef REFLEX_METABOLIC_MESH_SPARSE_THRESHOLD
 #define REFLEX_METABOLIC_MESH_SPARSE_THRESHOLD 5

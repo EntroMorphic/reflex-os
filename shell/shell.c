@@ -912,10 +912,18 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         reflex_err_t rc = goose_atmosphere_emit_posture(state, weight);
         printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc);
     } else if (argc >= 2 && strcmp(argv[1], "stat") == 0) {
+        /* Print every counter the struct carries. DISCOVER and MMIO_SYNC were
+         * omitted here, and they are precisely the ops the supervisor emits on
+         * its own — so a healthy two-board mesh (peers registered, aura_fail
+         * zero, mesh vital recovered) still reported all-zeros, which reads as
+         * a dead mesh. */
         goose_mesh_stats_t s = goose_atmosphere_get_stats();
         printf("rx_sync=%lu rx_query=%lu rx_advertise=%lu rx_posture=%lu\n",
                (unsigned long)s.rx_sync, (unsigned long)s.rx_query,
                (unsigned long)s.rx_advertise, (unsigned long)s.rx_posture);
+        printf("rx_discover=%lu tx_discover=%lu rx_mmio_sync=%lu tx_mmio_sync=%lu\n",
+               (unsigned long)s.rx_discover, (unsigned long)s.tx_discover,
+               (unsigned long)s.rx_mmio_sync, (unsigned long)s.tx_mmio_sync);
         printf("version_mismatch=%lu aura_fail=%lu replay_drop=%lu self_drop=%lu\n",
                (unsigned long)s.rx_version_mismatch, (unsigned long)s.rx_aura_fail,
                (unsigned long)s.rx_replay_drop, (unsigned long)s.rx_self_drop);

@@ -353,6 +353,28 @@ reflex_err_t goose_atmosphere_init(void) {
     reflex_radio_register_recv(atmosphere_recv_cb);
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     reflex_radio_add_peer(broadcast_mac);
+
+    /* Materialise the swarm posture cell.
+     *
+     * The POSTURE handler in atmosphere_recv_cb resolves "sys.swarm.posture"
+     * and skips the write when it is absent — and nothing ever created it, so
+     * the accumulator saturated and crossed its hysteresis threshold exactly
+     * as designed while the consensus result was published nowhere. Postural
+     * consensus was inert: observable only as an internal variable, never as
+     * substrate state anything else could route on or read.
+     *
+     * Seeded here rather than lazily in the handler so the cell exists before
+     * the first arc arrives, and so `goonies find sys.swarm.posture` reports
+     * a neutral 0 on a quiet mesh instead of failing to resolve. */
+    goose_cell_t *posture = goose_fabric_ensure_cell("sys.swarm.posture",
+                                                     goose_make_coord(0, 0, 4), true);
+    if (posture) {
+        posture->type = GOOSE_CELL_SYSTEM_ONLY;
+        posture->state = 0;  /* neutral until consensus crosses the threshold */
+    } else {
+        REFLEX_LOGW(TAG, "sys.swarm.posture not seeded; postural consensus will not publish");
+    }
+
     goose_atmosphere_emit_discover();
     return REFLEX_OK;
 }
