@@ -55,7 +55,14 @@ static reflex_err_t reflex_vm_default_syscall_handler(reflex_vm_state_t *vm,
         return REFLEX_ERR_NOT_SUPPORTED;
     case REFLEX_VM_SYSCALL_DELAY:
         REFLEX_RETURN_ON_ERROR(reflex_word18_to_int32(src_a, &scalar), "vm_syscall", "delay input invalid");
-        reflex_task_delay_ms(scalar);
+        /* reflex_task_delay_ms takes a uint32_t, and a word18 reaches down to
+         * about -193 million. A negative delay therefore converted to an
+         * enormous unsigned value — -1 becomes 4294967295 ms, roughly 49 days —
+         * so a single instruction could park the VM task effectively forever
+         * with no diagnostic. Reject it as the program error it is. */
+        REFLEX_RETURN_ON_FALSE(scalar >= 0, REFLEX_ERR_INVALID_ARG,
+                            "vm_syscall", "negative delay");
+        reflex_task_delay_ms((uint32_t)scalar);
         return reflex_word18_from_int32(0, out);
     default:
         return REFLEX_ERR_NOT_SUPPORTED;

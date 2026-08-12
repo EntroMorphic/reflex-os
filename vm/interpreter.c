@@ -306,7 +306,7 @@ reflex_err_t reflex_vm_step(reflex_vm_state_t *vm)
     {
         int32_t addr;
         REFLEX_RETURN_ON_ERROR(reflex_word18_to_int32(&vm->registers[instruction->src_a], &addr), "vm", "invalid addr");
-        if (vm->cache) reflex_cache_invalidate(vm, (uint32_t)addr);
+        if (vm->cache) reflex_cache_flush_invalidate(vm, (uint32_t)addr);
         break;
     }
     case REFLEX_VM_OPCODE_TROUTE:

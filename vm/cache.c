@@ -101,6 +101,12 @@ reflex_err_t reflex_cache_flush(reflex_vm_state_t *vm, uint32_t addr)
     return REFLEX_OK;
 }
 
+/* Discarding invalidate. The line is dropped whether or not it is dirty.
+ *
+ * This is the right primitive for reflex_vm_host_write, which has just written
+ * newer data straight to memory: the cached copy is stale by definition and
+ * writing it back would clobber the host's value. It is the wrong primitive for
+ * TINV — see reflex_cache_flush_invalidate. */
 reflex_err_t reflex_cache_invalidate(reflex_vm_state_t *vm, uint32_t addr)
 {
     reflex_cache_t *cache;
@@ -115,6 +121,22 @@ reflex_err_t reflex_cache_invalidate(reflex_vm_state_t *vm, uint32_t addr)
         line->state = REFLEX_CACHE_I;
     }
     return REFLEX_OK;
+}
+
+/* Write back if dirty, then invalidate.
+ *
+ * TINV used to call the discarding invalidate directly, so a VM program that
+ * stored to an address and then invalidated it lost the store outright: the
+ * line sat in M with memory not yet updated, invalidate dropped it, and the
+ * next load re-fetched the *old* value from host RAM. docs/vm/cache.md
+ * describes TINV as forcing "a re-fetch from host RAM", which only makes sense
+ * if what is in host RAM is the program's own most recent write, and the cache
+ * otherwise promises write-back on eviction. Silently losing a committed store
+ * is not a coherency refresh. */
+reflex_err_t reflex_cache_flush_invalidate(reflex_vm_state_t *vm, uint32_t addr)
+{
+    REFLEX_RETURN_ON_ERROR(reflex_cache_flush(vm, addr), "cache", "flush before invalidate failed");
+    return reflex_cache_invalidate(vm, addr);
 }
 
 reflex_err_t reflex_cache_flush_all(reflex_vm_state_t *vm)

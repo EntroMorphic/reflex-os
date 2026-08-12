@@ -60,6 +60,15 @@ reflex_err_t reflex_cache_invalidate(reflex_vm_state_t *vm, uint32_t addr);
 /**
  * @brief Flush the entire cache.
  */
+/**
+ * @brief Write back a dirty line, then invalidate it.
+ *
+ * Use this wherever the intent is "re-read this address from memory".
+ * reflex_cache_invalidate discards without writing back, which is only correct
+ * when the caller has already written newer data to memory itself.
+ */
+reflex_err_t reflex_cache_flush_invalidate(reflex_vm_state_t *vm, uint32_t addr);
+
 reflex_err_t reflex_cache_flush_all(reflex_vm_state_t *vm);
 
 /**
