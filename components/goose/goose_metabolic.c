@@ -54,6 +54,11 @@ static int8_t s_override_heap_val = 0;
 
 static uint32_t s_last_rx_total = 0;
 static uint32_t s_mesh_idle_ticks = 0;
+/* Rolling arc count over one isolation window, plus the previous completed
+ * window, so "connected" is judged over a beacon period rather than a scan. */
+static uint32_t s_mesh_window_arcs = 0;
+static uint32_t s_mesh_window_ticks = 0;
+static uint32_t s_mesh_window_last = 0;
 
 /* --- Circuit breaker state --- */
 
@@ -97,9 +102,35 @@ static int8_t compute_mesh_state(void) {
         s_mesh_idle_ticks = 0;
     }
 
+    /* Judge "connected" over a window, not a single scan.
+     *
+     * The threshold used to be compared against `delta` — arcs seen in one
+     * ~1.1s vital scan — while a quiet mesh only produces a beacon every
+     * ~10.1s. Reading +1 therefore needed ~4.5 arcs/sec against an actual
+     * ~0.1, about 46x short, so `perception.mesh.health` was a ternary cell
+     * that could only ever hold two of its three values and the
+     * "connected: relax discovery" branch in goose_supervisor_pulse never ran.
+     *
+     * Counting arcs across the same window used for isolation makes all three
+     * states reachable and stops the vital flickering between beacons:
+     *
+     *   +1 connected  traffic from at least SPARSE_THRESHOLD arcs this window
+     *    0 sparse     some silence, but not yet isolated
+     *   -1 isolated   nothing heard for two whole beacon periods
+     */
+    s_mesh_window_arcs += delta;
+    if (++s_mesh_window_ticks >= REFLEX_METABOLIC_MESH_ISOLATED_TICKS) {
+        s_mesh_window_last = s_mesh_window_arcs;
+        s_mesh_window_arcs = 0;
+        s_mesh_window_ticks = 0;
+    }
+
     if (s_mesh_idle_ticks >= REFLEX_METABOLIC_MESH_ISOLATED_TICKS) return -1;
-    if (delta < REFLEX_METABOLIC_MESH_SPARSE_THRESHOLD)            return  0;
-    return 1;
+    /* Count the window in progress as well as the last completed one, so a
+     * board that has just heard a beacon reports connected immediately rather
+     * than waiting out the remainder of the window. */
+    if ((s_mesh_window_arcs + s_mesh_window_last) >= REFLEX_METABOLIC_MESH_SPARSE_THRESHOLD) return 1;
+    return 0;
 }
 
 static int8_t compute_circuit_breaker(int8_t temp, int8_t batt, int8_t mesh, int8_t heap) {

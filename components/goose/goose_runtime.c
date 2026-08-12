@@ -307,6 +307,57 @@ static void ensure_mux_init(void) {
 }
 static uint32_t last_eviction_idx = 0;
 
+/* May this cell be reclaimed when the Loom is full?
+ *
+ * Eviction used to be decided purely by type, and it skipped HARDWARE_IN and
+ * HARDWARE_OUT. Every shadow-paged cell carries one of those types, so nothing
+ * paged in was ever reclaimable: the Loom filled to its 256-cell cap (measured:
+ * 114 named cells at boot plus exactly 142 paged) and then refused all further
+ * paging until reset, with the eviction counter still reading zero because the
+ * scan never found a candidate. That capped the live surface at ~142 of 12738
+ * catalog entries per boot.
+ *
+ * Eligibility is now a property of *why* a cell exists, which the coordinate
+ * namespace already encodes:
+ *
+ *   trits[8] ==  0  seeds and the boot-time atlas weave — identity, keep
+ *   trits[8] ==  1  shadow-paged entries — a cache, reclaimable
+ *   trits[8] == -1  peer phantoms — transient ghosts, reclaimable
+ *
+ * Type still vetoes: PINNED, SYSTEM_ONLY and PURPOSE are never reclaimed
+ * whatever namespace they live in, so a sys.* register paged in from the atlas
+ * stays put. Within namespace 0 the original type rule is preserved exactly.
+ *
+ * This is also what finally makes the documented Curiosity -> Learning ->
+ * Forgetting loop real: the prober pages hot registers in, Hebbian learning
+ * decides which matter, and eviction can now actually forget the rest. */
+static bool cell_is_evictable(const goose_cell_t *c) {
+    /* The coordinate namespace IS the retention policy; cell type is not.
+     *
+     * Type describes access control and provenance, and two separate values
+     * leak into it on the paging path: goose_fabric_alloc_cell stamps PINNED
+     * as the default for every system weave, and goose_fabric_set_agency
+     * copies SYSTEM_ONLY straight out of the atlas for `sys.*` registers.
+     * Neither says anything about whether a *cached* copy of a register may be
+     * reclaimed. Letting either veto eviction is what kept paged cells
+     * resident — measured on the bench, vetoing PINNED stalled eviction after
+     * 64 cells, and additionally vetoing SYSTEM_ONLY stalled it after 139 as
+     * those accumulated and clogged the round-robin scan.
+     *
+     * A paged cell is a cache of a hardware register. Re-paging it costs one
+     * binary search. Access control still applies while it is resident. */
+    if (c->coord.trits[8] == 1 || c->coord.trits[8] == -1) return true;
+
+    /* Namespace 0 — seeds and the boot atlas weave. These are identity, and
+     * here the types really were set deliberately, so the original rule
+     * applies unchanged. */
+    if (c->type == GOOSE_CELL_PINNED ||
+        c->type == GOOSE_CELL_SYSTEM_ONLY ||
+        c->type == GOOSE_CELL_PURPOSE) return false;
+    return c->type != GOOSE_CELL_HARDWARE_IN &&
+           c->type != GOOSE_CELL_HARDWARE_OUT;
+}
+
 /* Eviction instrumentation: track total evictions and recent evicted names
  * to detect thrashing (same cell repeatedly evicted and re-paged). */
 static uint32_t s_eviction_count = 0;
@@ -368,16 +419,13 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
         return return_existing ? existing : NULL;
     }
     uint32_t idx = 0;
-    if (fabric_cell_count < REFLEX_FABRIC_MAX_CELLS) { idx = fabric_cell_count++; }
+    bool appended = false;
+    if (fabric_cell_count < REFLEX_FABRIC_MAX_CELLS) { idx = fabric_cell_count++; appended = true; }
     else {
         bool found = false;
         for (int i = 0; i < REFLEX_FABRIC_MAX_CELLS; i++) {
             uint32_t target = (last_eviction_idx + i) % REFLEX_FABRIC_MAX_CELLS;
-            if (fabric_cells[target].type != GOOSE_CELL_PINNED &&
-                fabric_cells[target].type != GOOSE_CELL_SYSTEM_ONLY &&
-                fabric_cells[target].type != GOOSE_CELL_PURPOSE &&
-                fabric_cells[target].type != GOOSE_CELL_HARDWARE_IN &&
-                fabric_cells[target].type != GOOSE_CELL_HARDWARE_OUT) {
+            if (cell_is_evictable(&fabric_cells[target])) {
                 for (uint32_t g = 0; g < goonies_count; g++) {
                     if (goose_coord_equal(goonies_registry[g].coord, fabric_cells[target].coord)) {
                         TELEM_IF(goose_telem_evict(goonies_registry[g].name));
@@ -393,11 +441,27 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
         }
         if (!found) { reflex_critical_exit(&fabric_mux); goose_loom_unlock(); return NULL; }
     }
+    /* Register the name before publishing the cell.
+     *
+     * goonies_register returns NO_MEM once the registry reaches
+     * REFLEX_FABRIC_MAX_CELLS, and discarding that return (as this used to)
+     * left a cell occupying a coordinate with no registry entry: unreachable
+     * by name, and blocking that coordinate for the name that should own it.
+     * Measured before the fix — a second `bonsai bloat` pass over the same 300
+     * names resolved fewer than the first rather than reusing its work.
+     *
+     * In the eviction branch the victim's registry entry has already been
+     * removed, so a slot is guaranteed free and this cannot fail there. */
+    if (name && goonies_register(name, coord, is_system_weaving) != REFLEX_OK) {
+        if (appended) fabric_cell_count--;  /* nothing published yet — give the slot back */
+        reflex_critical_exit(&fabric_mux);
+        goose_loom_unlock();
+        return NULL;
+    }
     goose_cell_t *c = &fabric_cells[idx];
     memset(c, 0, sizeof(goose_cell_t)); c->coord = coord;
     c->type = is_system_weaving ? GOOSE_CELL_PINNED : GOOSE_CELL_VIRTUAL;
     lattice_index[goose_lattice_hash(coord)] = (int16_t)idx;
-    if (name) { goonies_register(name, coord, is_system_weaving); }
     fabric_version++;
     TELEM_IF(goose_telem_alloc(name, c->type));
     reflex_critical_exit(&fabric_mux);

@@ -141,8 +141,20 @@
 #define REFLEX_METABOLIC_MESH_ISOLATED_TICKS \
     (((REFLEX_SUPERVISOR_DISCOVER_DIV + 1) * 2) / (REFLEX_SUPERVISOR_METABOLIC_DIV + 1))
 #endif
+/* Arcs required within the isolation window (plus the previous completed
+ * window) before the mesh reads +1 connected.
+ *
+ * This is compared against a windowed count, not a single vital scan. It was 5
+ * per ~1.1s scan, which needed ~4.5 arcs/sec while a quiet pair produces ~0.1 —
+ * so +1 was unreachable and the vital was ternary in name only.
+ *
+ * The window spans ~2 discovery beacons and the check also counts the previous
+ * window, so a healthy peer contributes ~4 arcs over the observed span. A
+ * threshold of 2 therefore means "heard from someone at least twice in roughly
+ * the last 40s", which stays true across one missed beacon but goes false when
+ * a peer actually stops talking. */
 #ifndef REFLEX_METABOLIC_MESH_SPARSE_THRESHOLD
-#define REFLEX_METABOLIC_MESH_SPARSE_THRESHOLD 5
+#define REFLEX_METABOLIC_MESH_SPARSE_THRESHOLD 2
 #endif
 #ifndef REFLEX_METABOLIC_RECOVERY_TICKS
 #define REFLEX_METABOLIC_RECOVERY_TICKS  30  /* 30s at 1Hz metabolic sync */
