@@ -349,10 +349,6 @@ reflex_err_t goose_atmosphere_init(void) {
     swarm_mux_init = true;
     load_aura_key();
     memset(replay_cache, 0, sizeof(replay_cache));
-    reflex_radio_init();
-    reflex_radio_register_recv(atmosphere_recv_cb);
-    uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    reflex_radio_add_peer(broadcast_mac);
 
     /* Materialise the swarm posture cell.
      *
@@ -365,7 +361,11 @@ reflex_err_t goose_atmosphere_init(void) {
      *
      * Seeded here rather than lazily in the handler so the cell exists before
      * the first arc arrives, and so `goonies find sys.swarm.posture` reports
-     * a neutral 0 on a quiet mesh instead of failing to resolve. */
+     * a neutral 0 on a quiet mesh instead of failing to resolve.
+     *
+     * Deliberately before reflex_radio_register_recv: seeding afterwards left
+     * a window in which an inbound POSTURE arc could be handled while the cell
+     * still did not exist, silently dropping that consensus update. */
     goose_cell_t *posture = goose_fabric_ensure_cell("sys.swarm.posture",
                                                      goose_make_coord(0, 0, 4), true);
     if (posture) {
@@ -374,6 +374,11 @@ reflex_err_t goose_atmosphere_init(void) {
     } else {
         REFLEX_LOGW(TAG, "sys.swarm.posture not seeded; postural consensus will not publish");
     }
+
+    reflex_radio_init();
+    reflex_radio_register_recv(atmosphere_recv_cb);
+    uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    reflex_radio_add_peer(broadcast_mac);
 
     goose_atmosphere_emit_discover();
     return REFLEX_OK;

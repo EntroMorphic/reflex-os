@@ -88,8 +88,30 @@ goose_cell_t* goonies_resolve_cell(const char *name) {
     if (goonies_resolve(name, &coord) == REFLEX_OK) { return goose_fabric_get_cell_by_coord(coord); }
     if (strncmp(name, GOOSE_NS_PEER, GOOSE_NS_PEER_LEN) == 0) {
         goose_atmosphere_query(name);
+        /* Peer phantoms live in their own coordinate namespace.
+         *
+         * These used to be goose_make_coord(5, 0, ghost_counter++), which
+         * shares a space with the boot-time atlas weave at
+         * goose_make_coord(i + 5, r, 0). The very first phantom therefore
+         * landed on (5,0,0) — already held by atlas node i=0, register r=0 —
+         * so goose_fabric_alloc_cell returned NULL and the first peer.* name
+         * resolved on any boot was silently lost. Verified on hardware:
+         * peer.alpha.led failed while peer.beta.led and peer.gamma.led,
+         * landing on (5,0,1) and (5,0,2), resolved fine.
+         *
+         * Third namespace, same technique as goose_make_shadow_coord: seeds
+         * leave trits[8] at 0, shadow entries set it to 1, peer phantoms set
+         * it to -1. Disjoint by construction rather than by hoping the index
+         * ranges never meet. The index is also encoded across two trits now,
+         * so it no longer wraps through int8_t after 128 phantoms and start
+         * colliding with earlier ones. */
         static int ghost_counter = 0;
-        reflex_tryte9_t g_coord = goose_make_coord(5, 0, (int8_t)ghost_counter++);
+        reflex_tryte9_t g_coord = {{0}};
+        g_coord.trits[0] = 5;
+        g_coord.trits[6] = (reflex_trit_t)(ghost_counter & 0xFF);
+        g_coord.trits[7] = (reflex_trit_t)((ghost_counter >> 8) & 0xFF);
+        g_coord.trits[8] = -1;
+        ghost_counter++;
         goose_cell_t *phantom = goose_fabric_alloc_cell(name, g_coord, false);
         if (phantom) {
             const char *after_peer = name + GOOSE_NS_PEER_LEN;
