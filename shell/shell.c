@@ -26,7 +26,9 @@
 #include "reflex_config.h"
 #include "reflex_event.h"
 #include "reflex_service.h"
-#include "reflex_wifi.h"
+#if !CONFIG_REFLEX_RADIO_802154
+#include "reflex_wifi.h"   /* Wi-Fi builds only; 802.15.4 mode omits net/ entirely */
+#endif
 #include "reflex_button.h"
 #include "reflex_led.h"
 #include "reflex_cache.h"

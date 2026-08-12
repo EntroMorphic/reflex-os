@@ -7,6 +7,7 @@
  */
 
 #include "reflex_hal.h"
+#include "esp_intr_alloc.h"
 #include <stdio.h>
 
 #include <stdarg.h>
@@ -104,14 +105,18 @@ reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
 reflex_err_t reflex_hal_intr_alloc(int source, int flags,
                                    reflex_intr_handler_t handler, void *arg,
                                    reflex_intr_handle_t *out_handle) {
-    extern int esp_intr_alloc(int, int, void (*)(void*), void*, void**);
+    /* Use the real prototype rather than a local extern. The hand-written
+     * declaration here disagreed with esp_intr_alloc.h on both the return type
+     * and the handle parameter, so the Xtensa build failed outright with
+     * "conflicting types". Same failure mode as the hand-declared
+     * heap_caps_get_free_size in goose_metabolic.c: re-declaring an SDK symbol
+     * locally buys nothing and silently drifts from the header. */
     return (reflex_err_t)esp_intr_alloc(source, flags & REFLEX_INTR_FLAG_IRAM ? 1 : 0,
-                                        handler, arg, (void**)out_handle);
+                                        handler, arg, (intr_handle_t *)out_handle);
 }
 
 reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
-    extern int esp_intr_free(void*);
-    return (reflex_err_t)esp_intr_free(handle);
+    return (reflex_err_t)esp_intr_free((intr_handle_t)handle);
 }
 
 void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {

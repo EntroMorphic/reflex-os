@@ -38,7 +38,7 @@ jobs:
           # Verify all doc links in README resolve to real files
           grep -oP '\[.*?\]\((.*?)\)' README.md | grep -oP '\((.*?)\)' | tr -d '()' | while read link; do
             # Skip URLs and anchors
-            case "$link" in http*|#*) continue ;; esac
+            case "$link" in http*|'#'*) continue ;; esac
             if [ ! -e "$link" ]; then
               echo "BROKEN LINK: $link"
               exit 1
