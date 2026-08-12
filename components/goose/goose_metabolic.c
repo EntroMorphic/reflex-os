@@ -5,7 +5,16 @@
  * Layer 1 (circuit breaker): sys.metabolic cell. Instant degradation, hysteretic recovery.
  * Layer 2 (resource governance): per-vital reads in supervisor sub-passes (external).
  *
- * Vital cells are standard GOOSE_CELL_HARDWARE_IN with ternary state.
+ * Vital cells hold ternary state written by this module; they are not bound to
+ * any MMIO address. They stay GOOSE_CELL_PINNED (the type goose_fabric_alloc_cell
+ * gives a system weave) rather than GOOSE_CELL_HARDWARE_IN: binding them would
+ * mean calling goose_fabric_set_agency with hardware_addr 0, which the Sanctuary
+ * Guard correctly rejects because page 0 is not on its whitelist. Both types are
+ * eviction-exempt, and internal_process_transitions skips a HARDWARE_IN cell with
+ * a zero address anyway, so nothing is lost — but an earlier revision made those
+ * set_agency calls and discarded the failure, so the header claimed HARDWARE_IN
+ * while `goonies find` reported type=5.
+ *
  * Battery defaults to +1 on USB-powered boards (no ADC variance detected).
  */
 
@@ -136,21 +145,18 @@ reflex_err_t goose_metabolic_init(void) {
     reflex_tryte9_t coord_batt = goose_make_coord(-1, 4, 1);
     s_batt_cell = goose_fabric_ensure_cell("perception.power.battery", coord_batt, true);
     if (s_batt_cell) {
-        goose_fabric_set_agency(s_batt_cell, 0, GOOSE_CELL_HARDWARE_IN);
         s_batt_cell->state = 1;  /* default: full (USB-powered) */
     }
 
     reflex_tryte9_t coord_mesh = goose_make_coord(-1, 4, 2);
     s_mesh_cell = goose_fabric_ensure_cell("perception.mesh.health", coord_mesh, true);
     if (s_mesh_cell) {
-        goose_fabric_set_agency(s_mesh_cell, 0, GOOSE_CELL_HARDWARE_IN);
         s_mesh_cell->state = 0;  /* default: unknown/sparse */
     }
 
     reflex_tryte9_t coord_heap = goose_make_coord(-1, 4, -1);
     s_heap_cell = goose_fabric_ensure_cell("perception.heap.pressure", coord_heap, true);
     if (s_heap_cell) {
-        goose_fabric_set_agency(s_heap_cell, 0, GOOSE_CELL_HARDWARE_IN);
         s_heap_cell->state = 1;  /* default: comfortable */
     }
 

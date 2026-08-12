@@ -578,6 +578,32 @@ reflex_tryte9_t goose_make_shadow_coord(int8_t field, int8_t region, int16_t cel
     t.trits[3] = (reflex_trit_t)region;
     t.trits[6] = (reflex_trit_t)(cell & 0xFF);
     t.trits[7] = (reflex_trit_t)((cell >> 8) & 0xFF);
+    /* Shadow namespace marker.
+     *
+     * Without this, a shadow coordinate with cell < 256 is bit-identical to
+     * goose_make_coord(field, region, cell), because that helper leaves
+     * trits[7] and trits[8] zero. Eight atlas entries collided with seeded
+     * cells that way — perception.timg0.t0config.use_xtal sits exactly on
+     * perception.power.battery at (-1,4,1), and three sys.assist_debug fields
+     * land on sys.origin, agency.led.intent and sys.purpose.
+     *
+     * The collision is reachable: a paged-in shadow cell is HARDWARE_IN, so
+     * eviction skips it, and fabric_cells[] survives deep sleep. On the next
+     * warm boot the seeding call would find the coordinate occupied by a
+     * foreign hardware cell — returning NULL before goose_fabric_ensure_cell
+     * existed (vital silently dead), and adopting the foreign cell after it
+     * (vital silently bound to a timer register).
+     *
+     * Marking the shadow namespace keeps the two coordinate spaces disjoint
+     * by construction, which is cheaper to reason about than trying to detect
+     * the collision after the fact — goose_cell_t carries no identity beyond
+     * its coordinate, so an occupied slot cannot be asked who it belongs to.
+     *
+     * Every producer of a shadow coordinate routes through this function
+     * (goose_shadow_resolve, the curiosity prober, and `atlas verify`), so the
+     * marker is applied uniformly and the verify round-trip still matches.
+     * goose_lattice_hash mixes all nine trits, so bucketing is unaffected. */
+    t.trits[8] = 1;
     return t;
 }
 
