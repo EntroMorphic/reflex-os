@@ -313,7 +313,24 @@ static reflex_trit_t reflex_shell_bonsai_rhythm_evolve(void *ctx) {
 
 static void reflex_shell_bonsai_runtime_test(void) {
     printf("GOOSE Phase 7 (Hardened): Initializing Runtime Test...\n");
-    goose_fabric_init();
+    /* Deliberately does NOT call goose_fabric_init().
+     *
+     * It used to. On a running system that is a wipe: init takes its cold-boot
+     * branch (the wakeup cause is UNDEFINED on a normal boot), sets
+     * fabric_cell_count to 0 and clears the registry, so the whole Loom goes.
+     * Measured on hardware: 117 cells down to 4, the atlas weave gone, and
+     * sys.kernel.disposition reading "(unpublished)" because the supervisor's
+     * cell no longer existed.
+     *
+     * The damage outlives the count, too. Every module that caches a
+     * goose_cell_t* — the four metabolic vitals, the supervisor's disposition
+     * cell, the atmosphere posture cell, led_service's route endpoints — was
+     * left pointing into slots that had been zeroed and were free to be
+     * reallocated to unrelated cells. Writes through those pointers land on
+     * whatever moved in.
+     *
+     * This test needs no fresh fabric. It allocates at (10,0,*), which
+     * collides with nothing. */
 
     // 1. Coordinates
     reflex_tryte9_t c_src = goose_make_coord(10, 0, 1);

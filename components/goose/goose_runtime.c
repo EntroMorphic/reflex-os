@@ -248,6 +248,20 @@ reflex_err_t goose_purpose_clear(void) {
 }
 
 reflex_err_t goose_fabric_init(void) {
+    /* Boot-time only, and enforced rather than assumed.
+     *
+     * A second call on a live system wipes the Loom: the cold-boot branch below
+     * zeroes fabric_cell_count and the registry, which strands every cached
+     * goose_cell_t* held elsewhere in the substrate. A shell test used to do
+     * exactly that. Nothing legitimate needs to re-init the fabric while the
+     * system is running, so refuse instead of trusting callers. */
+    static bool s_fabric_initialized = false;
+    if (s_fabric_initialized) {
+        REFLEX_LOGW(TAG, "goose_fabric_init called again; ignoring (fabric is boot-scoped)");
+        return REFLEX_ERR_INVALID_STATE;
+    }
+    s_fabric_initialized = true;
+
     ensure_mux_init();
     lattice_stable = false; goonies_count = 0;
     /* Clear loom_authority unconditionally. On cold boot it starts at 0
