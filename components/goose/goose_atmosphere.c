@@ -17,7 +17,7 @@
 
 /* Aura wire protocol epoch. Bump on incompatible changes so older peers log
  * AURA_VERSION_MISMATCH instead of silently failing the MAC check. */
-#define GOOSE_ARC_VERSION 0x02
+#define GOOSE_ARC_VERSION 0x03
 
 /* Default Aura key used when no NVS-provisioned key exists. Known gap:
  * factory-fresh boards share this key. Operator should provision via
@@ -43,7 +43,7 @@ typedef struct {
     int8_t state;
     uint32_t name_hash;
     uint32_t nonce;
-    uint32_t aura;
+    uint64_t aura;   /* widened at epoch 0x03; see calculate_aura */
 } goose_arc_packet_t;
 #pragma pack(pop)
 
@@ -53,7 +53,7 @@ static uint32_t goose_name_hash(const char *name) { return goose_fnv1a(name); }
  * truncated to 32 bits to fit the existing wire format. Truncation caps
  * collision resistance at the birthday bound (~2^16). Fail-closed on any
  * mbedtls error via a fixed sentinel that reliably fails the receiver check. */
-#define AURA_ERROR_SENTINEL 0xDEADBEEFu
+#define AURA_ERROR_SENTINEL 0xDEADBEEFDEADBEEFull
 
 #pragma pack(push, 1)
 typedef struct {
@@ -66,7 +66,7 @@ typedef struct {
 } aura_input_t;
 #pragma pack(pop)
 
-static uint32_t calculate_aura(uint8_t version, uint8_t op, reflex_tryte9_t coord,
+static uint64_t calculate_aura(uint8_t version, uint8_t op, reflex_tryte9_t coord,
                                uint32_t name_hash, int8_t state, uint32_t nonce) {
     aura_input_t in;
     in.version = version;
@@ -82,8 +82,16 @@ static uint32_t calculate_aura(uint8_t version, uint8_t op, reflex_tryte9_t coor
         REFLEX_LOGE(TAG, "hmac failed, fail-closed");
         return AURA_ERROR_SENTINEL;
     }
-    return ((uint32_t)digest[0]) | ((uint32_t)digest[1] << 8)
-         | ((uint32_t)digest[2] << 16) | ((uint32_t)digest[3] << 24);
+    /* Widened from 32 to 64 bits at protocol epoch 0x03.
+     *
+     * The truncation caps collision resistance at the birthday bound: 32 bits
+     * meant roughly 2^16 forged attempts, which is trivially reachable. 64 bits
+     * moves that to about 2^32. The cost is four bytes on a packet that is far
+     * below the ESP-NOW payload limit, and peers running epoch 0x02 now log
+     * AURA_VERSION_MISMATCH rather than silently failing the MAC check. */
+    uint64_t a = 0;
+    for (int i = 0; i < 8; i++) a |= ((uint64_t)digest[i]) << (8 * i);
+    return a;
 }
 
 reflex_err_t goose_atmosphere_advertise(uint32_t name_hash, goose_cell_t *cell, const uint8_t *dest_mac);
@@ -262,7 +270,7 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
         return;
     }
 
-    uint32_t expected_aura = calculate_aura(arc->version, arc->op, arc->coord,
+    uint64_t expected_aura = calculate_aura(arc->version, arc->op, arc->coord,
                                             arc->name_hash, arc->state, arc->nonce);
     if (arc->aura != expected_aura) {
         mesh_stats.rx_aura_fail++;

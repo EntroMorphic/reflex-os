@@ -53,6 +53,13 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
   - `swarm_sync`: decays `swarm_accumulator` toward zero when no posture traffic
 - Recursive field processing up to depth 3 for `GOOSE_CELL_FIELD_PROXY` and `GOOSE_CELL_NEURON` sub-fields
 
+### G6a — LoomScript Upload (TASM upload path)
+- Source: `loom load <hex>` in `shell/shell.c` -> `goose_weave_loom`
+- Implements `prd-tasm-upload.md`. Until this landed `goose_weave_loom` had **no caller at all** and the linker discarded it, so the parser hardening from the 2026-08-12 audit had been verified by inspection only.
+- Admin-gated: weaving a fragment introduces routes and starts a pulse task from operator-supplied bytes, the same privilege class as `vm loadhex`. The command table gates whole commands, so the subcommand checks the session role directly.
+- `loom fragments` reports the active count. Fragments are reboot-scoped; there is no unweave path.
+- Hardware-validated rejection paths, each exercising a specific guard: bad magic (`0x10A`), header with no body (`0x104`), `cell_count` over cap (`0x104`), route index out of range (explicit Security Violation naming `src=9999 cells=1`), and unresolvable cell name (`0x105`). Board healthy afterward with `atlas verify` still 12738/12738.
+
 ### G6 — LoomScript Binary Loader
 - Source: `goose_library.c`, `include/goose.h` (`loom_header_t`, `goose_weave_loom`)
 - Magic: `LOOM` (0x4D4F4F4C); packed cell/route/transition entries
@@ -254,7 +261,7 @@ Remaining (honest limits, not regressions):
 - ~~Supervisor sub-pass rates ran ~9% slow~~: **fixed 2026-08-12**. All eleven dividers now use `++div >= N`, which fires on exactly the N-th pulse, so the documented rates are literal. Constants derived from the divisors (`REFLEX_METABOLIC_MESH_ISOLATED_TICKS`) dropped their correction terms accordingly. Measured on device: 111 balance events in ~11s = 10.09Hz.
 - ~~Snapshots truncated past 16 routes~~: **fixed 2026-08-12**. Format v2 raises the cap to 32 (matching `MAX_ROUTES_PER_FRAGMENT`, the largest route_count any field the system can build), and the header now records the number of entries actually written rather than the field's declared `route_count`. Truncation is unreachable in practice and logged rather than silent if it ever occurs.
 
-- **Aura wire size**: HMAC-SHA256 truncated to 32 bits for protocol compatibility; collision resistance capped at the birthday bound (~2^16). Future protocol epoch can bump `GOOSE_ARC_VERSION` and expand the Aura field.
+- ~~Aura wire size~~: **widened 2026-08-12**. The Aura is now 64 bits at protocol epoch `GOOSE_ARC_VERSION = 0x03`, moving collision resistance from roughly 2^16 to 2^32. Verified on two boards: unpaired peers still fail closed with `aura_fail` climbing and `version_mismatch=0`.
 - **Aura key storage**: first-boot auto-provisioning generates a unique random 16-byte key via `esp_fill_random()` and persists it to NVS under `goose/aura_key`, so factory-fresh boards do not share a key (commit `afbfddc`). The remaining honest limit is that the key is still extractable from flash or JTAG by anyone with physical access to the board. Derive-from-efuse with secure boot remains a follow-up.
 - **LP heartbeat does not drive the LED**: the onboard LED is on GPIO 15, a HP-only pin; the C6 LP core can only drive LP I/O (GPIO 0-7). The LP heartbeat is therefore a parallel counter + intent-mirror, not an LED driver. Driving the LED from the LP core would require external wiring to an LP I/O pin.
 - **Catalog ≠ silicon**: `atlas verify` confirms 100% of the *SVD-documented* MMIO surface resolves cleanly, but the SVD is Espressif's published schema — not the full silicon. Undocumented registers, eFuse bits outside the SVD field schema, and silicon-revision deltas newer than `tools/esp32c6.svd` are not covered.

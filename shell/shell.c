@@ -849,7 +849,52 @@ static void shell_cmd_bonsai(int argc, char *argv[]) {
     else if (strcmp(argv[1], "bloat") == 0) { reflex_shell_loom_bloat_test(); }
 }
 
+/* Upload a compiled LoomScript fragment as hex and weave it.
+ *
+ * This is the path docs/prd-tasm-upload.md describes, and until now
+ * goose_weave_loom had no caller at all — the linker discarded it, so its
+ * parser was hardened by inspection rather than by ever running. Wiring it up
+ * makes the validation reachable, which is the only way it can be trusted:
+ * that function takes wholly untrusted input, and its bounds, index and NULL
+ * checks are the thing standing between a malformed fragment and the fabric. */
+static void shell_cmd_loom_load(const char *hex) {
+    /* `loom` as a whole is observer-level because listing the Tapestry is a
+     * read. Weaving a fragment is not: it introduces new routes and starts a
+     * pulse task from operator-supplied bytes, which is the same class of
+     * privilege as `vm loadhex`, and SECURITY.md places that at admin. The
+     * command table gates whole commands, so the subcommand is gated here. */
+    if (s_session_role < ROLE_ADMIN) {
+        printf("loom load: requires admin role (current: %s)\n", role_names[s_session_role]);
+        return;
+    }
+    size_t hlen = strlen(hex);
+    if (hlen < 2 || (hlen & 1)) { printf("loom load: even-length hex required\n"); return; }
+    size_t blen = hlen / 2;
+    uint8_t *buf = malloc(blen);
+    if (!buf) { printf("loom load: alloc failed\n"); return; }
+    for (size_t i = 0; i < blen; i++) {
+        char pair[3] = { hex[i * 2], hex[i * 2 + 1], 0 };
+        buf[i] = (uint8_t)strtoul(pair, NULL, 16);
+    }
+    reflex_err_t rc = goose_weave_loom(buf, blen);
+    free(buf);
+    if (rc == REFLEX_OK) {
+        printf("loom load: woven (%u fragment(s) active)\n",
+               (unsigned)goose_loom_fragment_count());
+    } else {
+        printf("loom load: rejected rc=0x%x\n", rc);
+    }
+}
+
 static void shell_cmd_loom(int argc, char *argv[]) {
+    if (argc >= 3 && strcmp(argv[1], "load") == 0) {
+        shell_cmd_loom_load(argv[2]);
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "fragments") == 0) {
+        printf("loom fragments: %u active\n", (unsigned)goose_loom_fragment_count());
+        return;
+    }
     if (argc >= 2 && strcmp(argv[1], "list") == 0) {
         reflex_shell_loom_list();
     }
