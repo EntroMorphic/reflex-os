@@ -16,6 +16,7 @@
  */
 
 #include "reflex_kv.h"
+#include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -51,6 +52,19 @@ typedef struct {
     uint16_t val_len;
     uint8_t type;
 } __attribute__((packed)) kv_entry_header_t;
+
+/* Is an entry header read from flash structurally usable?
+ *
+ * kv_write_entry validates key_len and val_len on the way in, but that says
+ * nothing about what is actually on the medium: a partial write, bit rot, or a
+ * flash image this code did not produce can all present arbitrary values. The
+ * scans below copy key_len bytes into a KV_KEY_MAX+1 stack buffer, so an
+ * unvalidated 254 was a 238-byte stack overflow driven purely by flash
+ * contents. Validating on read is the point of validating on read. */
+static bool kv_entry_header_sane(const kv_entry_header_t *eh) {
+    return eh->key_len >= 1 && eh->key_len <= KV_KEY_MAX && eh->val_len <= KV_VAL_MAX;
+}
+
 
 static uint32_t s_active_sector = 0;
 static uint32_t s_active_seq = 0;
@@ -116,6 +130,9 @@ reflex_err_t reflex_kv_init(void) {
             if (probe == 0xFF) break;
             kv_entry_header_t eh;
             flash_read(sector_addr(s_active_sector) + s_write_offset, &eh, sizeof(eh));
+            /* A corrupt header would otherwise walk the write offset to an
+             * arbitrary place and append over live entries. */
+            if (!kv_entry_header_sane(&eh)) break;
             s_write_offset += sizeof(kv_entry_header_t) + eh.key_len + eh.val_len;
         }
     }
@@ -148,6 +165,7 @@ static reflex_err_t kv_find(uint8_t ns, const char *key, uint32_t *out_offset,
         kv_entry_header_t eh;
         flash_read(base + off, &eh, sizeof(eh));
         if (eh.key_len == 0xFF) break;
+        if (!kv_entry_header_sane(&eh)) break;
         if (eh.ns_hash == ns && eh.key_len == strlen(key)) {
             char k[KV_KEY_MAX + 1];
             flash_read(base + off + sizeof(eh), k, eh.key_len);
@@ -183,6 +201,7 @@ static reflex_err_t kv_compact(void) {
         kv_entry_header_t eh;
         flash_read(old_base + off, &eh, sizeof(eh));
         if (eh.key_len == 0xFF || eh.key_len == 0) break;
+        if (!kv_entry_header_sane(&eh)) break;
 
         char k[KV_KEY_MAX + 1];
         flash_read(old_base + off + sizeof(eh), k, eh.key_len);
@@ -273,10 +292,18 @@ static reflex_err_t kv_read_val(uint32_t offset, kv_entry_header_t *eh,
 reflex_err_t reflex_kv_get_str(reflex_kv_handle_t h, const char *key,
                                char *buf, size_t *len) {
     uint32_t off; kv_entry_header_t eh;
+    if (!buf || !len) return REFLEX_ERR_INVALID_ARG;
+    size_t cap = *len;                 /* kv_read_val overwrites *len with the value size */
     reflex_err_t rc = kv_find(GET_NS(h), key, &off, &eh);
     if (rc != REFLEX_OK) return rc;
     rc = kv_read_val(off, &eh, buf, len);
-    if (rc == REFLEX_OK && *len < eh.val_len + 1) buf[eh.val_len] = '\0';
+    /* reflex_kv_set_str stores strlen+1, so the value already carries its own
+     * terminator. The old line here wrote buf[eh.val_len] whenever
+     * `*len < eh.val_len + 1` — and kv_read_val sets *len to exactly val_len,
+     * making that condition always true. For a caller whose buffer is exactly
+     * the value size that is a one-byte write past the end. Only terminate
+     * when there is genuinely room. */
+    if (rc == REFLEX_OK && eh.val_len < cap) buf[eh.val_len] = '\0';
     return rc;
 }
 
