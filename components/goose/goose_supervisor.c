@@ -436,18 +436,25 @@ reflex_err_t goose_supervisor_learn_sync(void) {
 
 /* --- Tapestry Snapshots (Phase 29) ---
  *
- * Persist learned_orientation and hebbian_counter from supervised routes
- * to NVS under "goose/snap_<fieldname>". One blob per field. Route
- * matching on restore is by name (16-byte fixed-width). The format is:
+ * Persist learned_orientation and hebbian_counter from supervised routes to
+ * NVS, one blob per field, keyed "s_<fnv1a(field->name) as 8 hex digits>" —
+ * the field name is hashed rather than embedded so the key fits NVS's limit.
+ * Route matching on restore is by name (16-byte fixed-width). Format:
  *
- *   [uint16_t route_count]
- *   for each route:
+ *   [uint16_t version]        SNAP_VERSION; load rejects a mismatch
+ *   [uint16_t route_count]    as declared by the field, see truncation note
+ *   for each route (up to 16):
  *     [char name[16]]
  *     [int8_t learned_orientation]
  *     [int16_t hebbian_counter]
  *
- * Max per-field blob: 2 + 16*(16+1+2) = 306 bytes. Well within NVS
- * blob limits.
+ * Max per-field blob: 4 + 16*(16+1+2) = 308 bytes. Well within NVS limits.
+ *
+ * Truncation: at most 16 routes are written, but the header records the
+ * field's full route_count, so a field with more than 16 routes declares more
+ * entries than follow. Load is bounded by the actual blob length rather than
+ * that count, so this is safe to read — but plasticity beyond the 16th route
+ * of such a field is silently not persisted.
  */
 #define SNAP_ROUTE_ENTRY_SIZE (16 + 1 + 2)
 #define SNAP_VERSION 1  /* Increment on format change; load rejects mismatches. */

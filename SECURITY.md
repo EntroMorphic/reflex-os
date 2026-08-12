@@ -2,12 +2,23 @@
 
 Reflex OS implements a "Substrate-First" security model designed to protect the integrity of the **Geometric Loom** against malicious hijacking and physical privilege escalation.
 
+## 0. Boot Integrity (Reflex Boot0)
+
+Reflex OS ships its own second-stage bootloader (`bootloader_components/main/reflex_boot0.c`) in place of the ESP-IDF one. That makes boot integrity our responsibility rather than the SDK's, so it is stated here explicitly.
+
+-   **Image verification:** when the image header sets `hash_appended` (which `esptool` does for our builds), boot0 verifies the appended SHA-256 over the entire image body using the ROM SHA engine *before* any segment is copied into RAM. A mismatch refuses the boot outright; it does not attempt a partial load. An image without an appended hash is loaded with a logged warning.
+-   **Bounded segment loads:** every segment whose destination lies in a RAM window must fit entirely inside that window. Validating only the start address would let a malformed image write past the end of SRAM or the 16 KB LP window, over boot0's own stack and code. Segments are validated in a pass that writes nothing, so a bad image cannot leave RAM half-populated.
+-   **Boot-loop protection:** a magic-tagged counter in `LP_AON_STORE0` is incremented before load and cleared only on a successful jump. After `BOOT_FAIL_MAX` (3) consecutive failures boot0 halts rather than looping.
+
+**Honest limits.** The appended digest is *not signed*. This is corruption detection, not authentication: anyone who can rewrite flash can rewrite the digest alongside it. It closes the "jumped into a half-erased or truncated image" failure mode, which is the one that occurs in practice, but it is not a defence against an attacker with physical write access. Real authentication requires ESP-IDF Secure Boot with an efuse-burned key, which Reflex OS does not currently enable. Boot0 also does not verify the partition table, and rollback protection is not implemented.
+
 ## 1. The Sanctuary Guard (MMIO Isolation)
 The Sanctuary Guard prevents non-system ternary cells from mapping to critical hardware registers. 
 
 -   **Safe Agency:** Cells can only be mapped to specific peripherals (GPIO, LEDC, RMT).
 -   **The Sanctuary:** Access to the PMU (Power Management), EFUSE, MMU, and Interrupt Matrix is restricted to `sys.` zone cells woven by the core OS.
 -   **Enforcement:** `goose_fabric_set_agency` rejects any mapping that attempts to bridge a user-level cell to a Sanctuary address.
+-   **Probing is guarded too:** the Guard covers *reads*, not only agency binding. The curiosity prober in `goose_supervisor_explore` samples raw MMIO from the shadow atlas before any cell is bound, so it consults `goose_fabric_addr_is_sanctuary` at both the probe gate and the confirming re-read. An MMIO read is not side-effect-free — read-to-clear interrupt status registers and peripheral RX FIFOs are disturbed by being sampled — so an unguarded prober would perturb live peripherals it never bound to.
 
 ### Serial shell information surface
 

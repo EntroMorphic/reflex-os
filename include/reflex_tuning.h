@@ -1,7 +1,16 @@
 #ifndef REFLEX_TUNING_H
 #define REFLEX_TUNING_H
 
-/* Supervisor pulse rates (divisors at 10Hz base) */
+/* Supervisor pulse rates (divisors at 10Hz base)
+ *
+ * These are consumed as `if (div++ >= N) { run(); div = 0; }`, which fires on
+ * the (N+1)-th pulse, not the N-th. A divisor of 10 at 10Hz therefore runs at
+ * ~0.909Hz with an 1.1s period, not the 1Hz the comments below name. The rates
+ * are quoted as their design intent; the ~9% shortfall is uniform across every
+ * sub-pass and has no functional consequence, so the timing is left as-is
+ * rather than changing the cadence of every subsystem at once. Anything that
+ * needs a true 1Hz should not assume these are exact.
+ */
 #ifndef REFLEX_SUPERVISOR_WEAVE_DIV
 #define REFLEX_SUPERVISOR_WEAVE_DIV     10   /* Autonomic fabrication: 1Hz */
 #endif
@@ -115,7 +124,10 @@
 #define REFLEX_METABOLIC_HEAP_TIGHT      16384
 #endif
 #ifndef REFLEX_METABOLIC_MESH_ISOLATED_TICKS
-#define REFLEX_METABOLIC_MESH_ISOLATED_TICKS  3  /* 30s at 10s vital update */
+/* Consecutive idle vital-scans before the mesh reads -1 (isolated). The vital
+ * scan runs at REFLEX_SUPERVISOR_METABOLIC_DIV (~1.1s), not the 10s an earlier
+ * comment assumed, so this is ~3.3s of silence — not 30s. */
+#define REFLEX_METABOLIC_MESH_ISOLATED_TICKS  3
 #endif
 #ifndef REFLEX_METABOLIC_MESH_SPARSE_THRESHOLD
 #define REFLEX_METABOLIC_MESH_SPARSE_THRESHOLD 5
