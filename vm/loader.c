@@ -25,7 +25,17 @@ static bool reflex_vm_loader_syscall_valid(int16_t imm)
     return imm >= REFLEX_VM_SYSCALL_LOG && imm <= REFLEX_VM_SYSCALL_DELAY;
 }
 
-static bool reflex_vm_loader_target_in_range(int16_t imm, size_t instruction_count)
+/* Takes the immediate at its real width.
+ *
+ * This used to declare `int16_t imm` while reflex_vm_instruction_t::imm is
+ * int32_t, so every call silently truncated. The decoder produces a 17-bit
+ * signed immediate, and the one value that matters is -65536 (0x10000 with the
+ * sign bit set): its low 16 bits are zero, so it passed this check as target 0
+ * while the interpreter would have used -65536. Execution-time bounds checking
+ * in reflex_vm_jump catches it, so this was a hole in defence-in-depth rather
+ * than a live escape — but the loader's whole purpose is to reject a bad image
+ * up front instead of relying on the layer below. */
+static bool reflex_vm_loader_target_in_range(int32_t imm, size_t instruction_count)
 {
     return imm >= 0 && (size_t)imm < instruction_count;
 }
@@ -226,7 +236,12 @@ reflex_err_t reflex_vm_load_binary(reflex_vm_state_t *vm, const uint8_t *buffer,
     uint16_t data_count;
     memcpy(&data_count, buffer + 14, 2);
 
-    size_t payload_len = (instr_count * 4) + (data_count * 5);
+    /* Sizes must come from the same symbols the readers below use. The data
+     * stride was hardcoded as 5 while the unpack loop uses
+     * REFLEX_PACKED_WORD18_BYTES; they agree today, and a change to the packing
+     * would have desynced this bounds check from the read it protects. */
+    size_t payload_len = ((size_t)instr_count * REFLEX_VM_PACKED_INSTRUCTION_BYTES) +
+                         ((size_t)data_count * REFLEX_PACKED_WORD18_BYTES);
     size_t required_len = 16 + payload_len;
     REFLEX_RETURN_ON_FALSE(len >= required_len, REFLEX_ERR_INVALID_SIZE, "vm_loader", "image payload too small");
 
@@ -240,7 +255,8 @@ reflex_err_t reflex_vm_load_binary(reflex_vm_state_t *vm, const uint8_t *buffer,
     const uint8_t *instr_stream = buffer + 16;
     for (size_t i = 0; i < instr_count; i++) {
         uint32_t packed;
-        memcpy(&packed, instr_stream + (i * 4), 4);
+        memcpy(&packed, instr_stream + (i * REFLEX_VM_PACKED_INSTRUCTION_BYTES),
+               REFLEX_VM_PACKED_INSTRUCTION_BYTES);
         
         instrs[i].opcode = (reflex_vm_opcode_t)(packed & 0x3F);
         instrs[i].dst    = (uint8_t)((packed >> 6) & 0x07);
@@ -256,10 +272,16 @@ reflex_err_t reflex_vm_load_binary(reflex_vm_state_t *vm, const uint8_t *buffer,
     }
 
     if (data_count > 0) {
-        const uint8_t *data_stream = instr_stream + (instr_count * 4);
+        const uint8_t *data_stream = instr_stream + ((size_t)instr_count * REFLEX_VM_PACKED_INSTRUCTION_BYTES);
 
         data_words = calloc(data_count, sizeof(reflex_word18_t));
-        REFLEX_RETURN_ON_FALSE(data_words != NULL, REFLEX_ERR_NO_MEM, "vm_loader", "data alloc failed");
+        /* goto fail, not return: REFLEX_RETURN_ON_FALSE returns directly, which
+         * leaked the instruction buffer allocated above whenever this
+         * allocation was the one that failed. */
+        if (data_words == NULL) {
+            err = REFLEX_ERR_NO_MEM;
+            goto fail;
+        }
 
         for (size_t i = 0; i < data_count; ++i) {
             err = reflex_word18_unpack(data_stream + (i * REFLEX_PACKED_WORD18_BYTES), &data_words[i]);

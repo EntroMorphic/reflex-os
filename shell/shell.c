@@ -36,6 +36,7 @@
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
 #include "goose.h"
+#include "esp_system.h"
 #include "goose_telemetry.h"
 #include "goose_metabolic.h"
 #include "reflex_tuning.h"
@@ -710,11 +711,19 @@ static void shell_cmd_status(int argc, char *argv[]) {
            (unsigned)goose_mmio_sync_peer_count());
     uint32_t hold_count = goose_loom_hold_count();
     uint32_t avg_hold = hold_count > 0 ? (uint32_t)(goose_loom_hold_total_cycles() / hold_count) : 0;
-    printf("loom lock_holds=%lu max_cycles=%lu avg_cycles=%lu evictions=%lu\n",
+    printf("loom lock_holds=%lu max_cycles=%lu avg_cycles=%lu evictions=%lu cells=%lu\n",
            (unsigned long)hold_count,
            (unsigned long)goose_loom_hold_max_cycles(),
            (unsigned long)avg_hold,
-           (unsigned long)goose_fabric_get_eviction_count());
+           (unsigned long)goose_fabric_get_eviction_count(),
+           (unsigned long)goonies_get_count());
+    /* Free heap in bytes. perception.heap.pressure only carries a trit, which
+     * is enough for the circuit breaker but useless for spotting a slow leak —
+     * the thresholds sit at 8K/16K against ~300K free, so a leak is invisible
+     * until it is already critical. Soak runs need the raw number. */
+    printf("heap free=%lu min_free=%lu\n",
+           (unsigned long)esp_get_free_heap_size(),
+           (unsigned long)esp_get_minimum_free_heap_size());
     uint16_t explore_discovered = goose_explore_active();
     uint16_t explore_pain = goose_explore_pain_ticks();
     const char *p = goose_purpose_get_name();

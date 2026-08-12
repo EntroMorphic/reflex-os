@@ -25,6 +25,11 @@ extern "C" {
 /** @brief Number of general-purpose VM registers (r0..r7). */
 #define REFLEX_VM_REGISTER_COUNT 8
 
+/* Wire size of one packed instruction in a v2 binary image: opcode(6) +
+ * dst/src_a/src_b(3 each) + a 17-bit signed immediate = 32 bits. Named so the
+ * loader's bounds arithmetic and its decode loop cannot drift apart. */
+#define REFLEX_VM_PACKED_INSTRUCTION_BYTES 4
+
 /** @brief Trit slot index that TCMP writes and branch ops read. */
 #define REFLEX_VM_COMPARE_TRIT_INDEX 0
 
