@@ -4,6 +4,7 @@
  */
 
 #include "goose.h"
+#include "goose_policy.h"
 #include "reflex_hal.h"
 #include "reflex_kv.h"
 #include "reflex_task.h"
@@ -331,31 +332,24 @@ static uint32_t last_eviction_idx = 0;
  * This is also what finally makes the documented Curiosity -> Learning ->
  * Forgetting loop real: the prober pages hot registers in, Hebbian learning
  * decides which matter, and eviction can now actually forget the rest. */
-static bool cell_is_evictable(const goose_cell_t *c) {
-    /* The coordinate namespace IS the retention policy; cell type is not.
-     *
-     * Type describes access control and provenance, and two separate values
-     * leak into it on the paging path: goose_fabric_alloc_cell stamps PINNED
-     * as the default for every system weave, and goose_fabric_set_agency
-     * copies SYSTEM_ONLY straight out of the atlas for `sys.*` registers.
-     * Neither says anything about whether a *cached* copy of a register may be
-     * reclaimed. Letting either veto eviction is what kept paged cells
-     * resident — measured on the bench, vetoing PINNED stalled eviction after
-     * 64 cells, and additionally vetoing SYSTEM_ONLY stalled it after 139 as
-     * those accumulated and clogged the round-robin scan.
-     *
-     * A paged cell is a cache of a hardware register. Re-paging it costs one
-     * binary search. Access control still applies while it is resident. */
-    if (c->coord.trits[8] == 1 || c->coord.trits[8] == -1) return true;
+/* Bind goose_policy.h's mirrored type values to the real enum. If anyone
+ * reorders goose_cell_type_t, this fails at compile time instead of silently
+ * changing which cells the substrate is willing to reclaim. */
+_Static_assert(GOOSE_CELL_VIRTUAL      == GOOSE_POLICY_TYPE_VIRTUAL,      "policy/type drift");
+_Static_assert(GOOSE_CELL_HARDWARE_IN  == GOOSE_POLICY_TYPE_HARDWARE_IN,  "policy/type drift");
+_Static_assert(GOOSE_CELL_HARDWARE_OUT == GOOSE_POLICY_TYPE_HARDWARE_OUT, "policy/type drift");
+_Static_assert(GOOSE_CELL_INTENT       == GOOSE_POLICY_TYPE_INTENT,       "policy/type drift");
+_Static_assert(GOOSE_CELL_SYSTEM_ONLY  == GOOSE_POLICY_TYPE_SYSTEM_ONLY,  "policy/type drift");
+_Static_assert(GOOSE_CELL_PINNED       == GOOSE_POLICY_TYPE_PINNED,       "policy/type drift");
+_Static_assert(GOOSE_CELL_FIELD_PROXY  == GOOSE_POLICY_TYPE_FIELD_PROXY,  "policy/type drift");
+_Static_assert(GOOSE_CELL_NEURON       == GOOSE_POLICY_TYPE_NEURON,       "policy/type drift");
+_Static_assert(GOOSE_CELL_NEED         == GOOSE_POLICY_TYPE_NEED,         "policy/type drift");
+_Static_assert(GOOSE_CELL_PURPOSE      == GOOSE_POLICY_TYPE_PURPOSE,      "policy/type drift");
 
-    /* Namespace 0 — seeds and the boot atlas weave. These are identity, and
-     * here the types really were set deliberately, so the original rule
-     * applies unchanged. */
-    if (c->type == GOOSE_CELL_PINNED ||
-        c->type == GOOSE_CELL_SYSTEM_ONLY ||
-        c->type == GOOSE_CELL_PURPOSE) return false;
-    return c->type != GOOSE_CELL_HARDWARE_IN &&
-           c->type != GOOSE_CELL_HARDWARE_OUT;
+static bool cell_is_evictable(const goose_cell_t *c) {
+    /* Rule lives in goose_policy.c so the host suite exercises the real
+     * decision rather than a copy of it. */
+    return goose_policy_cell_evictable(c->type, (int)c->coord.trits[8]);
 }
 
 /* Eviction instrumentation: track total evictions and recent evicted names

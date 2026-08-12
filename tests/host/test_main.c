@@ -139,6 +139,8 @@ int main(void) {
     extern int test_scheduler(void);
     extern int test_kv(void);
     extern int test_integration(void);
+    extern int test_policy(void);
+    extern int test_policy_passed(void);
 
     test_ternary();
     test_crypto();
@@ -148,6 +150,8 @@ int main(void) {
     s_failed += test_scheduler();
     s_failed += test_kv();
     s_failed += test_integration();
+    s_failed += test_policy();
+    s_passed += test_policy_passed();
 
     printf("\n%d passed, %d failed\n", s_passed, s_failed);
     return s_failed > 0 ? 1 : 0;

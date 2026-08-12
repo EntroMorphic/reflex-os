@@ -4,6 +4,7 @@
  */
 
 #include "goose.h"
+#include "goose_policy.h"
 #include "reflex_hal.h"
 #include "reflex_kv.h"
 #include "reflex_task.h"
@@ -168,32 +169,10 @@ static void goose_kernel_policy_tick(uint32_t tick) {
 
         /* --- The ternary stance, decided before any integer exists ------ */
 
-        reflex_trit_t disposition;
-        if (purpose_active && in_any_holon && !in_active_holon) {
-            /* A purpose is declared and every holon containing this field sits
-             * outside it. That is a decision to hold the field back.
-             *
-             * The `purpose_active` guard is load-bearing and was missing in the
-             * first cut of this logic. A holon with a non-empty domain
-             * deactivates whenever no purpose is set, so without the guard a
-             * field read WITHHELD on a freshly booted board that had simply
-             * never been told what to do. "Nobody has declared a purpose" is
-             * the definition of undecided, not of suppressed — collapsing the
-             * two is the exact error this ternary stance exists to prevent,
-             * and a single priority integer would have hidden it. */
-            disposition = REFLEX_DISPOSITION_WITHHELD;
-        } else if (pained && !has_domain_route) {
-            /* Under pain the substrate withholds everything it has not been
-             * told serves the purpose. Fields on the purpose domain stay
-             * engaged: pain narrows attention, it does not halt work. */
-            disposition = REFLEX_DISPOSITION_WITHHELD;
-        } else if (purpose_active && has_domain_route) {
-            disposition = REFLEX_DISPOSITION_ENGAGED;
-        } else {
-            /* Not "unimportant" — undecided. No purpose has been declared that
-             * this field serves, and nothing has ruled it out either. */
-            disposition = REFLEX_DISPOSITION_LATENT;
-        }
+        /* Rule lives in goose_policy.c so the host suite exercises the real
+         * decision. The comments explaining each branch live there too. */
+        reflex_trit_t disposition = (reflex_trit_t)goose_policy_disposition(
+            purpose_active, has_domain_route, in_any_holon, in_active_holon, pained);
 
         s_field_disposition[f] = disposition;
         if (disposition > 0) engaged_count++;
@@ -253,10 +232,8 @@ static void goose_kernel_policy_tick(uint32_t tick) {
          * is serving its purpose; if nothing is engaged but something is being
          * held back, the system's stance is withholding; otherwise it has not
          * decided. */
-        reflex_trit_t aggregate;
-        if (engaged_count > 0)       aggregate = REFLEX_DISPOSITION_ENGAGED;
-        else if (withheld_count > 0) aggregate = REFLEX_DISPOSITION_WITHHELD;
-        else                         aggregate = REFLEX_DISPOSITION_LATENT;
+        reflex_trit_t aggregate =
+            (reflex_trit_t)goose_policy_aggregate(engaged_count, withheld_count);
         s_kernel_disposition_cell->state = (int8_t)aggregate;
     }
 
@@ -613,7 +590,7 @@ reflex_err_t goose_snapshot_save(void) {
          * made the header describe a payload that was not there — harmless to
          * read, because load is bounded by the blob length, but a lie that
          * would mislead any other consumer of the format. */
-        size_t n = field->route_count < SNAP_MAX_ROUTES ? field->route_count : SNAP_MAX_ROUTES;
+        size_t n = goose_policy_snap_entry_count(field->route_count, SNAP_MAX_ROUTES);
         if (field->route_count > SNAP_MAX_ROUTES) {
             REFLEX_LOGW(TAG, "snapshot: field %s has %u routes, persisting first %u",
                         field->name, (unsigned)field->route_count, (unsigned)SNAP_MAX_ROUTES);

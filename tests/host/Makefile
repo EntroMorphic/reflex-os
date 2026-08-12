@@ -5,15 +5,17 @@
 
 CC ?= cc
 CFLAGS = -Wall -Wextra -O2 -g -DREFLEX_RTC_DATA_ATTR= -DREFLEX_HOST_BUILD
-INCLUDES = -I../../include -I../../vm/include -I../../kernel -I../stub_headers
+INCLUDES = -I../../include -I../../vm/include -I../../kernel -I../stub_headers -I../../components/goose/include
 
 SRCS = test_main.c \
        test_scheduler.c \
        test_kv.c \
        test_integration.c \
+       test_policy.c \
        mock_hal.c \
        mock_task.c \
        ../../vm/ternary.c \
+       ../../components/goose/goose_policy.c \
        ../../kernel/reflex_sched.c \
        ../../platform/esp32c6/reflex_crypto_esp32c6.c
 
