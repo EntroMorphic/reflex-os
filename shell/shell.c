@@ -775,6 +775,28 @@ static void shell_cmd_led(int argc, char *argv[]) {
     else printf("led <on|off|status>\n");
 }
 
+static void shell_cmd_kernel(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    goose_cell_t *agg = goonies_resolve_cell("sys.kernel.disposition");
+    const char *pname = goose_purpose_get_name();
+    printf("kernel disposition: %s (purpose=%s)\n",
+           agg ? goose_kernel_disposition_name((reflex_trit_t)agg->state) : "(unpublished)",
+           (pname && pname[0]) ? pname : "none");
+
+    size_t n = goose_kernel_field_count();
+    if (n == 0) { printf("  (no supervised fields)\n"); return; }
+    printf("%-18s | %-9s | %s\n", "Field", "Stance", "Trit");
+    printf("-------------------+-----------+-----\n");
+    for (size_t i = 0; i < n; i++) {
+        reflex_trit_t d = goose_kernel_field_disposition(i);
+        const char *fname = goose_kernel_field_name(i);
+        printf("%-18s | %-9s | %2d\n",
+               fname ? fname : "?", goose_kernel_disposition_name(d), (int)d);
+    }
+    printf("engaged=+1 serves the declared purpose; latent=0 undecided; "
+           "withheld=-1 held back\n");
+}
+
 static void shell_cmd_bonsai(int argc, char *argv[]) {
     /* Only the exp* subcommands take a second word. Requiring argc >= 3 here
      * silently disabled every single-word subcommand — sleep, runtime, heal,
@@ -1098,6 +1120,7 @@ static const shell_cmd_t s_commands[] = {
     {"atlas",     shell_cmd_atlas,         ROLE_OBSERVER},
     {"led",       shell_cmd_led,           ROLE_OBSERVER},
     {"bonsai",    shell_cmd_bonsai,        ROLE_OPERATOR},
+    {"kernel",    shell_cmd_kernel,        ROLE_OBSERVER},
     {"loom",      shell_cmd_loom,          ROLE_OBSERVER},
     {"tapestry",  shell_cmd_tapestry,      ROLE_OPERATOR},
     {"services",  shell_cmd_services,      ROLE_OBSERVER},

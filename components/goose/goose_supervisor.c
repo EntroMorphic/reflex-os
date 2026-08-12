@@ -50,6 +50,34 @@ static reflex_holon_t s_holons[MAX_HOLONS];
 static size_t s_holon_count = 0;
 static char s_last_purpose[16] = {0};
 
+/* --- Ternary task disposition -------------------------------------------
+ *
+ * The host scheduler can only say "more urgent" or "less urgent": one integer,
+ * two directions. The substrate's actual stance on a task has three values,
+ * and the third is the load-bearing one:
+ *
+ *   +1  ENGAGED   this field serves the declared purpose — give it headroom
+ *    0  LATENT    no commitment; the substrate has not decided this matters
+ *   -1  WITHHELD  deliberately held back (pain, or every containing holon idle)
+ *
+ * LATENT is not a synonym for unimportant. A field running with no purpose
+ * declared is *undecided*, and that is a different claim from one the
+ * supervisor is actively suppressing. A single priority number cannot hold
+ * both — it collapses "I have not decided" into "low", which is precisely the
+ * collapse this substrate exists to refuse.
+ *
+ * So disposition is computed first, from purpose, holon lifecycle and pain,
+ * and the integer handed to the host RTOS is derived from it. The integer is a
+ * lossy projection of the stance onto a binary substrate, never its source.
+ * That is an honest description of what this OS is today: ternary-native
+ * scheduling policy running on a binary scheduler it does not own. */
+#define REFLEX_DISPOSITION_ENGAGED   ((reflex_trit_t) 1)
+#define REFLEX_DISPOSITION_LATENT    ((reflex_trit_t) 0)
+#define REFLEX_DISPOSITION_WITHHELD  ((reflex_trit_t)-1)
+
+static reflex_trit_t s_field_disposition[MAX_SUPERVISED_FIELDS];
+static goose_cell_t *s_kernel_disposition_cell = NULL;
+
 __attribute__((weak))
 void reflex_kernel_set_policy(reflex_kernel_policy_fn fn) { (void)fn; }
 
@@ -101,16 +129,17 @@ static void goose_kernel_policy_tick(uint32_t tick) {
         }
     }
 
+    int engaged_count = 0, withheld_count = 0;
+
     for (size_t f = 0; f < supervised_field_count; f++) {
         goose_field_t *field = supervised_fields[f];
-        int priority = REFLEX_PULSE_BASE_PRIORITY;
 
-        /* Item 1: Purpose boost — domain-specific. Only boost fields
-         * whose routes touch cells in the active purpose domain.
-         * Domain matching uses dot-boundary: purpose "led" matches
+        /* --- Signals the stance is derived from ------------------------- */
+
+        /* Domain match uses dot boundaries: purpose "led" matches
          * "agency.led.intent" but not "misled" or "ledger". */
+        bool has_domain_route = false;
         if (purpose_active) {
-            bool has_domain_route = false;
             for (size_t r = 0; r < field->route_count && !has_domain_route; r++) {
                 const char *src = goonies_resolve_name_by_coord(field->routes[r].source_coord);
                 const char *snk = goonies_resolve_name_by_coord(field->routes[r].sink_coord);
@@ -119,22 +148,13 @@ static void goose_kernel_policy_tick(uint32_t tick) {
                     has_domain_route = true;
                 }
             }
-            if (has_domain_route) {
-                priority += REFLEX_PULSE_PURPOSE_BOOST;
-            } else {
-                priority += 1;
-            }
         }
 
-        /* Item 2: Hebbian maturity — fields with learned routes are stable */
         int learned_routes = 0;
         for (size_t r = 0; r < field->route_count; r++) {
             if (field->routes[r].learned_orientation != 0) learned_routes++;
         }
-        if (learned_routes > 0) priority += REFLEX_PULSE_HEBBIAN_BOOST;
 
-        /* Item 3: Holon membership — field keeps boost if ANY holon is active.
-         * Only suppress to base if ALL containing holons are inactive. */
         bool in_any_holon = false;
         bool in_active_holon = false;
         for (size_t h = 0; h < s_holon_count; h++) {
@@ -145,15 +165,59 @@ static void goose_kernel_policy_tick(uint32_t tick) {
                 }
             }
         }
-        if (in_any_holon && !in_active_holon) priority = REFLEX_PULSE_BASE_PRIORITY;
 
-        /* Pain dampening */
-        if (pained && priority > REFLEX_PULSE_BASE_PRIORITY) {
-            priority -= REFLEX_PULSE_PAIN_PENALTY;
-            if (priority < REFLEX_PULSE_BASE_PRIORITY) priority = REFLEX_PULSE_BASE_PRIORITY;
+        /* --- The ternary stance, decided before any integer exists ------ */
+
+        reflex_trit_t disposition;
+        if (purpose_active && in_any_holon && !in_active_holon) {
+            /* A purpose is declared and every holon containing this field sits
+             * outside it. That is a decision to hold the field back.
+             *
+             * The `purpose_active` guard is load-bearing and was missing in the
+             * first cut of this logic. A holon with a non-empty domain
+             * deactivates whenever no purpose is set, so without the guard a
+             * field read WITHHELD on a freshly booted board that had simply
+             * never been told what to do. "Nobody has declared a purpose" is
+             * the definition of undecided, not of suppressed — collapsing the
+             * two is the exact error this ternary stance exists to prevent,
+             * and a single priority integer would have hidden it. */
+            disposition = REFLEX_DISPOSITION_WITHHELD;
+        } else if (pained && !has_domain_route) {
+            /* Under pain the substrate withholds everything it has not been
+             * told serves the purpose. Fields on the purpose domain stay
+             * engaged: pain narrows attention, it does not halt work. */
+            disposition = REFLEX_DISPOSITION_WITHHELD;
+        } else if (purpose_active && has_domain_route) {
+            disposition = REFLEX_DISPOSITION_ENGAGED;
+        } else {
+            /* Not "unimportant" — undecided. No purpose has been declared that
+             * this field serves, and nothing has ruled it out either. */
+            disposition = REFLEX_DISPOSITION_LATENT;
         }
 
-        if (priority > REFLEX_PULSE_MAX_PRIORITY) priority = REFLEX_PULSE_MAX_PRIORITY;
+        s_field_disposition[f] = disposition;
+        if (disposition > 0) engaged_count++;
+        else if (disposition < 0) withheld_count++;
+
+        /* --- Projection onto the host scheduler's single integer -------- */
+
+        int priority = REFLEX_PULSE_BASE_PRIORITY;
+        if (disposition == REFLEX_DISPOSITION_ENGAGED) {
+            priority += REFLEX_PULSE_PURPOSE_BOOST;
+        } else if (disposition == REFLEX_DISPOSITION_LATENT && purpose_active) {
+            priority += 1;  /* awake under a purpose, but uncommitted */
+        }
+        /* Hebbian maturity refines a field the substrate is willing to run.
+         * It never lifts one that is being withheld — learning is evidence of
+         * usefulness, not a licence to override a decision to hold back. */
+        if (disposition != REFLEX_DISPOSITION_WITHHELD && learned_routes > 0) {
+            priority += REFLEX_PULSE_HEBBIAN_BOOST;
+        }
+        if (disposition == REFLEX_DISPOSITION_WITHHELD) {
+            priority -= REFLEX_PULSE_PAIN_PENALTY;
+        }
+        if (priority < REFLEX_PULSE_BASE_PRIORITY) priority = REFLEX_PULSE_BASE_PRIORITY;
+        if (priority > REFLEX_PULSE_MAX_PRIORITY)  priority = REFLEX_PULSE_MAX_PRIORITY;
 
         char task_name[16];
         snprintf(task_name, sizeof(task_name), "p_%.13s", field->name);
@@ -166,11 +230,45 @@ static void goose_kernel_policy_tick(uint32_t tick) {
         }
     }
 
-    if (purpose_changed) {
-        printf("[reflex.kernel] policy: purpose=%s fields=%u\n",
-               purpose_active ? s_last_purpose : "(cleared)",
-               (unsigned)supervised_field_count);
+    /* Publish the aggregate stance as substrate state.
+     *
+     * Kept as a cell rather than an internal variable on purpose: a consensus
+     * that is computed but published nowhere is inert, which is exactly how
+     * sys.swarm.posture sat unnoticed. This one is routable and readable. */
+    if (!s_kernel_disposition_cell) {
+        s_kernel_disposition_cell = goonies_resolve_cell("sys.kernel.disposition");
     }
+    if (s_kernel_disposition_cell) {
+        reflex_trit_t aggregate;
+        if (engaged_count > 0)                              aggregate = REFLEX_DISPOSITION_ENGAGED;
+        else if (withheld_count > 0 && withheld_count == (int)supervised_field_count)
+                                                            aggregate = REFLEX_DISPOSITION_WITHHELD;
+        else                                                aggregate = REFLEX_DISPOSITION_LATENT;
+        s_kernel_disposition_cell->state = (int8_t)aggregate;
+    }
+
+    if (purpose_changed) {
+        printf("[reflex.kernel] policy: purpose=%s fields=%u engaged=%d latent=%d withheld=%d\n",
+               purpose_active ? s_last_purpose : "(cleared)",
+               (unsigned)supervised_field_count,
+               engaged_count,
+               (int)supervised_field_count - engaged_count - withheld_count,
+               withheld_count);
+    }
+}
+
+size_t goose_kernel_field_count(void) { return supervised_field_count; }
+
+reflex_trit_t goose_kernel_field_disposition(size_t idx) {
+    return (idx < supervised_field_count) ? s_field_disposition[idx] : REFLEX_DISPOSITION_LATENT;
+}
+
+const char *goose_kernel_field_name(size_t idx) {
+    return (idx < supervised_field_count) ? supervised_fields[idx]->name : NULL;
+}
+
+const char *goose_kernel_disposition_name(reflex_trit_t d) {
+    return (d > 0) ? "engaged" : (d < 0) ? "withheld" : "latent";
 }
 
 reflex_err_t reflex_holon_create(const char *name, const char *domain) {
@@ -204,6 +302,15 @@ reflex_err_t goose_supervisor_init(void) {
     reflex_holon_create("autonomy", "");
     reflex_holon_create("comm", "mesh");
     reflex_holon_create("agency", "led");
+
+    /* Seed the aggregate stance cell so it reads a neutral 0 from boot rather
+     * than failing to resolve until the first policy tick. */
+    s_kernel_disposition_cell = goose_fabric_ensure_cell("sys.kernel.disposition",
+                                                         goose_make_coord(0, 0, 5), true);
+    if (s_kernel_disposition_cell) {
+        s_kernel_disposition_cell->type = GOOSE_CELL_SYSTEM_ONLY;
+        s_kernel_disposition_cell->state = REFLEX_DISPOSITION_LATENT;
+    }
     return REFLEX_OK;
 }
 

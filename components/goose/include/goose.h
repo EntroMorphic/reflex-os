@@ -271,6 +271,21 @@ goose_cell_t* goose_fabric_ensure_cell(const char *name, reflex_tryte9_t coord, 
 uint32_t goose_fabric_get_version(void);
 
 /**
+ * @brief Ternary scheduling disposition of each supervised field.
+ *
+ * The substrate decides a per-field stance — engaged (+1), latent (0) or
+ * withheld (-1) — and derives the host scheduler's integer priority from it.
+ * Latent means undecided, which is deliberately distinct from withheld; a
+ * single priority number cannot express that difference.
+ *
+ * The aggregate is published as substrate state at `sys.kernel.disposition`.
+ */
+size_t goose_kernel_field_count(void);
+reflex_trit_t goose_kernel_field_disposition(size_t idx);
+const char *goose_kernel_field_name(size_t idx);
+const char *goose_kernel_disposition_name(reflex_trit_t d);
+
+/**
  * @brief Sanctuary Guard predicate. True means the address is protected and
  *        must not be bound or read by non-system code.
  *

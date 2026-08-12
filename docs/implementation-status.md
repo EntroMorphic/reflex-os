@@ -59,6 +59,19 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - Example fragments: `examples/button_blink.loom`, `examples/self_heal.loom`
 - Compiler: `tools/loomc.py`
 
+### G11 — Ternary Task Disposition (kernel policy layer)
+- Source: `goose_kernel_policy_tick` in `goose_supervisor.c`; `kernel` shell command
+- The substrate decides a **ternary stance** per supervised field before any integer priority exists:
+  - `+1 engaged` — the field serves the declared purpose; give it headroom
+  - ` 0 latent` — no commitment; the substrate has not decided this matters
+  - `-1 withheld` — deliberately held back (pain, or a declared purpose that every containing holon sits outside)
+- Priority handed to the host RTOS is **derived from** the stance, never the source of truth. The integer is a lossy projection of a ternary decision onto a binary scheduler the OS does not own — an honest description of what Reflex OS is today.
+- `latent` is the load-bearing value. A field running with no purpose declared is *undecided*, which is a different claim from one being suppressed; a single priority number collapses the two.
+- Aggregate published as routable substrate state at `sys.kernel.disposition` (0,0,5), not merely an internal variable.
+- Observable via `kernel`: per-field stance plus the aggregate.
+- Hardware-validated: no purpose → all latent; `purpose set led` → led_agency engaged; `purpose set mesh` → led_agency withheld via agency-holon deactivation; `purpose clear` → latent again.
+- Note: this made the holon lifecycle real. `reflex_holon_add_field` had been called exactly once (for `autonomy`, whose empty domain makes it permanently active), so the `agency` and `comm` holons had no members and could never deactivate anything. `led_service` now joins `agency`.
+
 ### G9 — Metabolic Regulation (Phase 31)
 - Source: `goose_metabolic.c`, `include/goose_metabolic.h`
 - Two-layer self-governance: circuit breaker (aggregate, instant degradation, hysteretic recovery) + resource governance (per-vital, per-sub-pass).

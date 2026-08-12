@@ -60,6 +60,18 @@ static void reflex_led_task(void *arg)
     // Register field for global regulation (10Hz)
     goose_supervisor_register_field(&led_agency_field);
 
+    /* Join the "agency" holon (domain "led") so the holon lifecycle actually
+     * gates something. goose_supervisor_init creates agency and comm holons,
+     * but until now nothing ever joined them — reflex_holon_add_field was
+     * called exactly once, for "autonomy", whose empty domain makes it
+     * permanently active. That left the holon machinery unable to deactivate
+     * anything, and with it the WITHHELD scheduling disposition unreachable.
+     *
+     * With this membership, declaring a purpose outside the led domain
+     * deactivates the agency holon and the LED field is withheld — which is
+     * the behaviour the holon design describes. */
+    reflex_holon_add_field("agency", &led_agency_field);
+
     // Start regional high-speed pulse (100Hz)
     goose_field_start_pulse(&led_agency_field);
 
