@@ -239,11 +239,24 @@ static void goose_kernel_policy_tick(uint32_t tick) {
         s_kernel_disposition_cell = goonies_resolve_cell("sys.kernel.disposition");
     }
     if (s_kernel_disposition_cell) {
+        /* Precedence, not unanimity.
+         *
+         * This first required *every* field to be withheld, which made the
+         * aggregate's -1 unreachable in practice: sys.autonomy belongs to the
+         * `autonomy` holon, whose empty domain keeps it permanently active, so
+         * only an autonomously-raised pain signal could ever withhold it. The
+         * result was an aggregate that reported "latent" while a field was
+         * demonstrably being held back — losing exactly the information the
+         * cell exists to carry.
+         *
+         * Reading it as precedence instead: if anything is engaged the system
+         * is serving its purpose; if nothing is engaged but something is being
+         * held back, the system's stance is withholding; otherwise it has not
+         * decided. */
         reflex_trit_t aggregate;
-        if (engaged_count > 0)                              aggregate = REFLEX_DISPOSITION_ENGAGED;
-        else if (withheld_count > 0 && withheld_count == (int)supervised_field_count)
-                                                            aggregate = REFLEX_DISPOSITION_WITHHELD;
-        else                                                aggregate = REFLEX_DISPOSITION_LATENT;
+        if (engaged_count > 0)       aggregate = REFLEX_DISPOSITION_ENGAGED;
+        else if (withheld_count > 0) aggregate = REFLEX_DISPOSITION_WITHHELD;
+        else                         aggregate = REFLEX_DISPOSITION_LATENT;
         s_kernel_disposition_cell->state = (int8_t)aggregate;
     }
 
