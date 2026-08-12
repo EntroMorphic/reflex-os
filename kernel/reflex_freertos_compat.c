@@ -43,17 +43,8 @@ _Static_assert(PORT_OFFSET_PX_STACK == 0x30,
 _Static_assert(PORT_OFFSET_PX_END_OF_STACK == 0x44,
     "TCB pxEndOfStack offset changed — update TCB_PX_END_OF_STACK in reflex_portasm.S");
 
-#include "soc/systimer_reg.h"
-#define SYSTIMER_BASE       DR_REG_SYSTIMER_BASE
-#define SYSTIMER_CONF       (SYSTIMER_BASE + 0x00)
-#define SYSTIMER_TGT1_CONF  (SYSTIMER_BASE + 0x38)
-#define SYSTIMER_COMP1_LOAD (SYSTIMER_BASE + 0x54)
-#define SYSTIMER_INT_ENA    (SYSTIMER_BASE + 0x64)
-#define SYSTIMER_INT_CLR    (SYSTIMER_BASE + 0x6C)
-#define REG32(a) (*(volatile uint32_t *)(a))
-#define TICK_PERIOD (40000000 / 1000)
-#define SYSTIMER_TARGET1_INTR_SOURCE 58  /* register offset 0xe8/4 in interrupt matrix */
 #define MS_TO_TICKS(ms) ((ms) / (1000 / 100))
+#define KERNEL_POLICY_PERIOD_MS 1000
 
 extern BaseType_t __real_xPortStartScheduler(void);
 extern BaseType_t xTaskCreatePinnedToCore(TaskFunction_t fn, const char *name,
@@ -67,21 +58,28 @@ void reflex_kernel_set_policy(reflex_kernel_policy_fn fn) {
     s_policy_fn = fn;
 }
 
-static void __attribute__((section(".iram1")))
-reflex_tick_isr(void *arg) {
-    (void)arg;
-    s_kernel_tick++;
-    REG32(SYSTIMER_INT_CLR) = (1 << 1);
-}
-
-static void setup_kernel_tick(void) {
-    REG32(SYSTIMER_CONF) |= (1 << 0);
-    REG32(SYSTIMER_TGT1_CONF) = (1 << 30) | TICK_PERIOD;
-    REG32(SYSTIMER_COMP1_LOAD) = 1;
-    REG32(SYSTIMER_CONF) |= (1 << 25);
-    REG32(SYSTIMER_INT_CLR) = (1 << 1);
-    REG32(SYSTIMER_INT_ENA) |= (1 << 1);
-}
+/* There was a hardware tick here — a SYSTIMER TARGET1 alarm and an ISR that
+ * incremented s_kernel_tick — and it is gone deliberately.
+ *
+ * It never worked. SYSTIMER_BASE was hardcoded to 0x60004000, which is I2C0 on
+ * this chip, so setup_kernel_tick() spent its life writing alarm configuration
+ * into I2C registers and the ISR never fired. Correcting that base (7789b79)
+ * pointed the same writes at the real systimer for the first time — and they
+ * are wrong there in a way that matters: the code sets bits 0 and 25 of
+ * SYSTIMER_CONF, but TARGET1_WORK_EN is bit 23. SYSTIMER_CONF also carries the
+ * enable bits for alarm 0, which ESP-IDF uses as the FreeRTOS OS tick
+ * (SYSTIMER_ALARM_OS_TICK_CORE0 == 0). Read-modify-writing unknown bits into
+ * the register that gates the OS tick, from code that had never executed, is
+ * not a risk worth carrying.
+ *
+ * And it bought nothing. s_kernel_tick is passed to the policy function, which
+ * discards it — goose_kernel_policy_tick opens with `(void)tick`. The policy
+ * cadence comes from the vTaskDelay below, never from the alarm.
+ *
+ * So the counter is now advanced by the supervisor loop that actually uses it.
+ * Same observable behaviour, no shared-peripheral risk. If a real hardware tick
+ * is wanted later, take the alarm index and the bit positions from
+ * soc/systimer_reg.h rather than literals, and pick an alarm IDF is not using. */
 
 static void reflex_kernel_supervisor(void *arg) {
     (void)arg;
@@ -89,8 +87,9 @@ static void reflex_kernel_supervisor(void *arg) {
     printf("[reflex.kernel] supervisor: policy=%s\n",
            s_policy_fn ? "registered" : "none");
     while (1) {
+        s_kernel_tick++;
         if (s_policy_fn) s_policy_fn(s_kernel_tick);
-        vTaskDelay(MS_TO_TICKS(1000));
+        vTaskDelay(MS_TO_TICKS(KERNEL_POLICY_PERIOD_MS));
     }
 }
 
@@ -101,15 +100,13 @@ BaseType_t __wrap_xPortStartScheduler(void) {
     esp_rom_printf("  ╚══════════════════════════════════════╝\n");
     esp_rom_printf("\n");
 
-    setup_kernel_tick();
-    reflex_intr_handle_t isr_handle;
-    reflex_hal_intr_alloc(SYSTIMER_TARGET1_INTR_SOURCE, REFLEX_INTR_FLAG_IRAM,
-                          reflex_tick_isr, NULL, &isr_handle);
-
     xTaskCreatePinnedToCore(reflex_kernel_supervisor, "reflex-kern",
                             4096, NULL, configMAX_PRIORITIES - 1, NULL, 0);
 
-    esp_rom_printf("[reflex.kernel] tick=1000Hz supervisor=active\n");
+    /* Was "tick=1000Hz", which was never true: the alarm wrote to I2C0 and
+     * fired at 0Hz. The policy cadence is what this line should report. */
+    esp_rom_printf("[reflex.kernel] policy=%dms supervisor=active\n",
+                   KERNEL_POLICY_PERIOD_MS);
 
     return __real_xPortStartScheduler();
 }
