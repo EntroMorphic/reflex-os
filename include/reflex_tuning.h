@@ -139,9 +139,20 @@
  * Derived so it tracks the dividers if either is retuned: tolerate two whole
  * beacon periods of silence before calling the mesh isolated. The +1
  * corrections this used to carry are gone now that the dividers fire on
- * exactly their N-th pulse. */
-#define REFLEX_METABOLIC_MESH_ISOLATED_TICKS \
+ * exactly their N-th pulse.
+ *
+ * Floored at 2. The division is integer, so a future retune where the vital
+ * scan is slower than half the beacon period (say METABOLIC_DIV 250 against
+ * DISCOVER_DIV 100) would evaluate to 0 — and `idle_ticks >= 0` is always
+ * true, which would report the mesh permanently isolated while resetting the
+ * arc window on every tick. A floor of 2 is the smallest value for which the
+ * window and its predecessor are distinct, which the connected check relies
+ * on. Deriving a constant from other constants is only safe if the derivation
+ * cannot degenerate. */
+#define REFLEX_METABOLIC_MESH_ISOLATED_TICKS_RAW \
     ((REFLEX_SUPERVISOR_DISCOVER_DIV * 2) / REFLEX_SUPERVISOR_METABOLIC_DIV)
+#define REFLEX_METABOLIC_MESH_ISOLATED_TICKS \
+    (REFLEX_METABOLIC_MESH_ISOLATED_TICKS_RAW < 2 ? 2 : REFLEX_METABOLIC_MESH_ISOLATED_TICKS_RAW)
 #endif
 /* Arcs required within the isolation window (plus the previous completed
  * window) before the mesh reads +1 connected.

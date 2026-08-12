@@ -507,7 +507,7 @@ static void shell_format_coord(reflex_tryte9_t c, char *out, size_t len) {
 
 static void reflex_shell_loom_list(void) {
     printf("--- GOOSE Manifold: The Loom ---\n");
-    printf("%-20s | %-17s | %-5s | %-8s\n", "Name", "Coordinate", "State", "Type");
+    printf("%-28s | %-17s | %-5s | %-8s\n", "Name", "Coordinate", "State", "Type");
     printf("--------------------------------------------------------------\n");
     
     uint32_t count = goonies_get_count();
@@ -518,7 +518,10 @@ static void reflex_shell_loom_list(void) {
         if (c) {
             char cbuf[32];
             shell_format_coord(coord, cbuf, sizeof(cbuf));
-            printf("%-20s | %-17s | %5d | %d\n",
+            /* Precision, not just width: registry names are char[40] and a
+             * bare %-20s let long ones overflow and break every following
+             * column. `goonies find` still reports the full name. */
+            printf("%-28.28s | %-17s | %5d | %d\n",
                    name, cbuf, c->state, c->type);
         }
     }
