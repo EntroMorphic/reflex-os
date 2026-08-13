@@ -708,7 +708,7 @@ static void shell_cmd_help(int argc, char *argv[]) {
     printf("fabric:  goonies <ls|find|read name>, atlas verify, temp, heartbeat\n");
     printf("purpose: purpose <set name|get|clear>, kernel (ternary stance)\n");
     printf("learn:   snapshot <save|load|clear>\n");
-    printf("loom:    loom <list|fragments|load <hex>>\n");
+    printf("loom:    loom <list|fragments|evictions|load <hex>>\n");
     printf("mesh:    mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n");
     printf("vm:      vm <info|run name|stop|list|loadhex hex>\n");
     printf("aura:    aura <setkey <32 hex chars>|clear>\n");
@@ -935,9 +935,60 @@ static void shell_cmd_loom_load(const char *hex) {
     }
 }
 
+/* Reader for the eviction ring.
+ *
+ * The ring was written on every eviction since it was introduced and had no
+ * reader anywhere in the tree, so the substrate paid an snprintf under
+ * loom_authority to fill a buffer nothing consumed. This is that reader.
+ *
+ * It reports what the substrate is currently discarding — useful for confirming
+ * that only shadow-paged and peer cells are ever chosen, and that seeds never
+ * are. It deliberately does *not* claim to detect thrashing: eviction is
+ * round-robin, so a re-paged cell lands behind the cursor and cannot be chosen
+ * again for a full lap of the table. See the note in goose_runtime.c.
+ *
+ * The distinctness check is an invariant, not a load signal. Round-robin
+ * guarantees the window holds distinct victims, so a repeat means the cursor
+ * stopped advancing or the evictable set collapsed. It should never fire.
+ *
+ * The scan runs here, on read, so nothing is added to the path under the lock. */
+static void shell_cmd_loom_evictions(void) {
+    char ring[GOOSE_EVICTION_RING_SIZE][GOOSE_NAME_MAX];
+    size_t count = 0;
+    goose_fabric_get_eviction_ring(ring, &count);
+
+    uint32_t total = goose_fabric_get_eviction_count();
+    if (count == 0) {
+        printf("loom evictions: total=%lu (none yet)\n", (unsigned long)total);
+        return;
+    }
+
+    size_t distinct = 0;
+    for (size_t i = 0; i < count; i++) {
+        bool seen = false;
+        for (size_t j = 0; j < i; j++) {
+            if (strncmp(ring[i], ring[j], GOOSE_NAME_MAX) == 0) { seen = true; break; }
+        }
+        if (!seen) distinct++;
+    }
+
+    printf("loom evictions: total=%lu recent=%u distinct=%u%s\n",
+           (unsigned long)total, (unsigned)count, (unsigned)distinct,
+           distinct < count
+               ? "  ANOMALY: round-robin repeated a victim (eviction cursor or evictable set)"
+               : "");
+    for (size_t i = 0; i < count; i++) {
+        printf("  %u: %s\n", (unsigned)(i + 1), ring[i]);
+    }
+}
+
 static void shell_cmd_loom(int argc, char *argv[]) {
     if (argc >= 3 && strcmp(argv[1], "load") == 0) {
         shell_cmd_loom_load(argv[2]);
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "evictions") == 0) {
+        shell_cmd_loom_evictions();
         return;
     }
     if (argc >= 2 && strcmp(argv[1], "fragments") == 0) {

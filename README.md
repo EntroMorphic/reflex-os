@@ -92,6 +92,10 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `goonies read <name>` | Read the live MMIO register value for a named hardware cell. Shows raw hex, masked hex, and ternary state. Works on live cells, shadow entries, and GPIO pins. |
 | `atlas verify` | Walk the entire SVD-documented MMIO shadow catalog (full round-trip + duplicate sweep). Prints progress dots; reports `ok=N/N, duplicates=D, failures=F`. |
 | `temp` | Read the internal die temperature (ternary state: cold/normal/warm) |
+| `loom list` | List live cells with coordinate, namespace, state and type |
+| `loom evictions` | Show the most recent eviction victims and the running total. Under round-robin the window holds distinct names; a repeat is flagged as an anomaly. Does not detect thrashing — see [`docs/implementation-status.md`](docs/implementation-status.md). |
+| `loom fragments` | Count active LoomScript fragments |
+| `loom load <hex>` | Weave a LoomScript fragment from hex (admin) |
 | `purpose set <name>` | Declare the current operating purpose; persists name to NVS. Amplifies Hebbian plasticity and biases `weave_sync` routing toward the named domain. |
 | `purpose get` | Report the active purpose name (or "inactive") |
 | `purpose clear` | Clear the active purpose and erase from NVS |

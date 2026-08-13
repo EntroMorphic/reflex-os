@@ -329,7 +329,23 @@ uint32_t goose_fabric_get_eviction_count(void);
  */
 #define GOOSE_NAME_MAX 96
 
-/** Copy the last N evicted cell names into buf. *count returns actual entries. */
+/**
+ * @brief Number of recent eviction victims retained for thrash diagnosis.
+ *
+ * Exported because goose_fabric_get_eviction_ring writes up to this many rows
+ * into the caller's buffer. It was private to goose_runtime.c while the only
+ * caller hardcoded 8, which would have overrun the caller's stack the moment
+ * the ring grew.
+ */
+#define GOOSE_EVICTION_RING_SIZE 8
+
+/**
+ * @brief Copy the most recent eviction victims into @p buf, oldest first.
+ *
+ * @p buf must have at least GOOSE_EVICTION_RING_SIZE rows. *count returns how
+ * many were written, which is fewer than the ring size until enough evictions
+ * have happened. Read by `loom evictions`.
+ */
 void goose_fabric_get_eviction_ring(char buf[][GOOSE_NAME_MAX], size_t *count);
 
 /**

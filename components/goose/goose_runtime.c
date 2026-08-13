@@ -445,19 +445,33 @@ static bool cell_is_evictable(const goose_cell_t *c) {
     return goose_policy_cell_evictable(c->type, (int)c->coord.trits[8]);
 }
 
-/* Eviction instrumentation: track total evictions and recent evicted names
- * to detect thrashing (same cell repeatedly evicted and re-paged). */
+/* Eviction instrumentation: total evictions, and the names of the most recent
+ * victims. Read by `loom evictions`.
+ *
+ * The original comment here said this detects thrashing — the same cell
+ * repeatedly evicted and re-paged. It cannot, and never could. Eviction is
+ * round-robin: `last_eviction_idx` advances past each victim, and a re-paged
+ * cell lands in the slot just vacated, which is *behind* the cursor. The same
+ * cell therefore cannot be chosen again until the cursor wraps the whole table,
+ * which at saturation is ~139 evictions away — far outside a window of 8. A
+ * genuine thrash signal would have to be a re-eviction *rate* measured over a
+ * long window, which is a different mechanism than this.
+ *
+ * What the window does show honestly is which cells the substrate is currently
+ * discarding, and it holds one real invariant: under round-robin the victims in
+ * the window must all be distinct. A repeat means the eviction cursor stopped
+ * advancing or the evictable set collapsed, so it is a policy-regression canary
+ * rather than a load signal. */
 static uint32_t s_eviction_count = 0;
-#define EVICTION_RING_SIZE 8
-static char s_eviction_ring[EVICTION_RING_SIZE][GOOSE_NAME_MAX];
+static char s_eviction_ring[GOOSE_EVICTION_RING_SIZE][GOOSE_NAME_MAX];
 static uint32_t s_eviction_ring_idx = 0;
 
 uint32_t goose_fabric_get_eviction_count(void) { return s_eviction_count; }
 
 void goose_fabric_get_eviction_ring(char buf[][GOOSE_NAME_MAX], size_t *count) {
-    *count = s_eviction_count < EVICTION_RING_SIZE ? s_eviction_count : EVICTION_RING_SIZE;
+    *count = s_eviction_count < GOOSE_EVICTION_RING_SIZE ? s_eviction_count : GOOSE_EVICTION_RING_SIZE;
     for (size_t i = 0; i < *count; i++) {
-        size_t idx = (s_eviction_ring_idx + EVICTION_RING_SIZE - *count + i) % EVICTION_RING_SIZE;
+        size_t idx = (s_eviction_ring_idx + GOOSE_EVICTION_RING_SIZE - *count + i) % GOOSE_EVICTION_RING_SIZE;
         memcpy(buf[i], s_eviction_ring[idx], GOOSE_NAME_MAX);
     }
 }
@@ -524,7 +538,7 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
                 int16_t g = goose_registry_find_coord(&goonies, fabric_cells[target].coord);
                 if (g != GOOSE_REGISTRY_EMPTY) {
                     TELEM_IF(goose_telem_evict(goonies_entries[g].name));
-                    snprintf(s_eviction_ring[s_eviction_ring_idx % EVICTION_RING_SIZE],
+                    snprintf(s_eviction_ring[s_eviction_ring_idx % GOOSE_EVICTION_RING_SIZE],
                              GOOSE_NAME_MAX, "%s", goonies_entries[g].name);
                     s_eviction_ring_idx++;
                     s_eviction_count++;
