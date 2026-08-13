@@ -131,6 +131,29 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `auth` | Show current session role |
 | `auth role <role>` | Set session role: `observer`, `agent`, `operator`, `admin`. Commands requiring a higher role are denied. Default: admin (backward compatible). |
 
+### Command outcomes
+
+Every command emits a machine-readable result marker on its own line after the
+human-readable output:
+
+```
+#R:+1,ok        the command did the thing
+#R:0,usage      nothing was attempted (usage printed, empty result, no-op)
+#R:-1,denied    refused by the role gate
+#R:-1,invalid   operator input rejected by a parser
+#R:-1,guard     refused by a policy guard (sanctuary, `sys.*`)
+#R:-1,notfound  the named target does not exist
+#R:-1,failed    attempted and did not succeed
+```
+
+The trit answers one question — did the intended state change occur? It is
+strictly more informative than an exit code: an agent running under
+`role="agent"` needs to distinguish *refused* from *ran and had nothing to
+report*, and a binary status cannot. The Python SDK consumes the marker and
+exposes it as `node.last_outcome`; `AccessDenied` is raised on
+`#R:-1,denied`. Human-readable messages are unchanged, so a terminal session
+looks the same. See [`docs/lmm-shell-capabilities.md`](docs/lmm-shell-capabilities.md).
+
 ## Loom Viewer (Substrate Visualization)
 
 Real-time visualization of the GOOSE substrate via [Rerun.io](https://rerun.io):

@@ -21,6 +21,7 @@ NON-DESTRUCTIVE BY CONSTRUCTION. It deliberately never:
 Requires pyserial. Exits non-zero if any check fails.
 """
 
+import re
 import sys
 import time
 
@@ -36,6 +37,7 @@ except ImportError:
     ReflexNode = None
 
 PROMPT = "reflex> "
+RESULT_RE = re.compile(r"^#R:([+-]?\d+),(\w+)$")
 
 # A cell the fabric always seeds, used as a benign signal target.
 LIVE_CELL = "agency.led.intent"
@@ -48,6 +50,7 @@ class Board:
         self.port = port
         # Short serial timeout; the deadline is enforced by the read loop.
         self.ser = serial.Serial(port, baud, timeout=0.1)
+        self.last_outcome = None
         time.sleep(0.6)
         self.ser.reset_input_buffer()
 
@@ -76,13 +79,26 @@ class Board:
         return buf.decode("utf-8", "replace")
 
     def raw(self, cmd, timeout=6.0):
-        """Send a command, return the response with the echo stripped."""
+        """Send a command, return the response with echo and `#R:` stripped.
+
+        The ternary outcome marker is consumed into `self.last_outcome` rather
+        than returned, so assertions keep comparing against the human text.
+        """
         text = self._send(cmd, timeout)
         for marker in (cmd + "\r\n", cmd + "\n", cmd):
             if text.startswith(marker):
                 text = text[len(marker):]
                 break
-        return text.replace(PROMPT, "").strip()
+        text = text.replace(PROMPT, "")
+        self.last_outcome = None
+        kept = []
+        for line in text.splitlines():
+            m = RESULT_RE.match(line.strip())
+            if m:
+                self.last_outcome = (int(m.group(1)), m.group(2))
+            else:
+                kept.append(line)
+        return "\n".join(kept).strip()
 
     def wire(self, cmd, timeout=6.0):
         """Send a command, return the raw text as received."""
@@ -285,6 +301,49 @@ def validate(port, r):
         b.raw("config set log_level " + original.split("=")[1].strip())
         r.check("config restored to its original value",
                 original.strip() == b.raw("config get log_level").strip(), original)
+
+    print("--- ternary outcome marker ---")
+    # The marker is the SDK's contract now, so each outcome class is asserted
+    # against a command known to produce it.
+    for cmd, want in (
+        ("status", (1, "ok")),
+        ("temp", (1, "ok")),
+        (f"tapestry signal {LIVE_CELL} 0", (1, "ok")),
+        ("tapestry", (0, "usage")),
+        ("config", (0, "usage")),
+        ("atlas", (0, "usage")),
+        ("led", (0, "usage")),
+        (f"tapestry signal {LIVE_CELL} 99", (-1, "invalid")),
+        ("mesh posture 99 4", (-1, "invalid")),
+        ("aura setkey zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", (-1, "invalid")),
+        ("vm loadhex zzzz", (-1, "invalid")),
+        (f"tapestry signal {SYS_CELL} 1", (-1, "guard")),
+        ("tapestry signal no.such.cell 1", (-1, "notfound")),
+        ("no_such_command_xyz", (-1, "notfound")),
+    ):
+        b.raw(cmd)
+        sign = "+1" if want[0] > 0 else ("-1" if want[0] < 0 else "0")
+        r.check(f"`{cmd}` -> #R:{sign},{want[1]}", b.last_outcome == want, b.last_outcome)
+
+    b.raw("auth role observer")
+    b.raw("reboot")
+    r.check("a role refusal is #R:-1,denied", b.last_outcome == (-1, "denied"), b.last_outcome)
+    b.raw("auth role admin")
+    r.check("every command emits a marker", b.last_outcome is not None, b.last_outcome)
+    b.raw(f"tapestry signal {LIVE_CELL} 0")
+
+    print("--- raised line bound: payloads past the old 122-byte ceiling ---")
+    # 1000 hex chars = 500 bytes, four times what `len < 255` allowed. The
+    # transport buffer had to grow with the line buffer: at the driver's
+    # default 256-byte RX buffer the tail of a long line was silently dropped
+    # and the payload arrived as odd-length hex. An "even-length" complaint
+    # here means characters were lost in transit, not that the test is wrong.
+    for nbytes in (200, 500):
+        got = b.raw("vm loadhex " + ("AB" * nbytes), timeout=25.0)
+        r.check(f"a {nbytes}-byte payload is not truncated in transit",
+                "even-length" not in got and "invalid hex" not in got, got[:80])
+        r.check(f"...and a {nbytes}-byte bad image reports failed",
+                b.last_outcome == (-1, "failed"), b.last_outcome)
 
     print("--- config usage ---")
     r.check("bare config prints usage", "config <get" in b.raw("config"), "")

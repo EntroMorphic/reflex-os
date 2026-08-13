@@ -153,6 +153,8 @@ int main(void) {
     extern int test_shell_policy_passed(void);
     extern int test_shell_parse(void);
     extern int test_shell_parse_passed(void);
+    extern int test_shell_outcome(void);
+    extern int test_shell_outcome_passed(void);
 
     test_ternary();
     test_crypto();
@@ -176,6 +178,8 @@ int main(void) {
     s_passed += test_shell_policy_passed();
     s_failed += test_shell_parse();
     s_passed += test_shell_parse_passed();
+    s_failed += test_shell_outcome();
+    s_passed += test_shell_outcome_passed();
 
     printf("\n%d passed, %d failed\n", s_passed, s_failed);
     return s_failed > 0 ? 1 : 0;

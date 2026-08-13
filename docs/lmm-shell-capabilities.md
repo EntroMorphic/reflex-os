@@ -344,3 +344,34 @@ It does not make the shell a language, and it should not. Composition for this
 machine belongs in TASM and the SDK. What Phase 1 buys is a shell that is
 honest about its outcomes and tolerable to type into — roughly thirty lines,
 against an interface every other capability in this OS is reached through.
+
+---
+
+## Addendum: what implementation found
+
+Phase 1 shipped. Two things the synthesis above got wrong, recorded because the
+gap between the plan and the hardware is the useful part.
+
+**"Raise the line bound — one constant, zero new memory" was wrong.** The
+transport buffer had to grow with it. `USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT()`
+sets `rx_buffer_size = 256`, and the old `len < 255` was almost certainly sized
+to that rather than chosen freely. Raising only the line bound made a 600-
+character `vm loadhex` arrive *short*, which the parser then rejected as
+odd-length hex — a silent truncation in the transport, which is the same
+failure class the audit had just finished removing from the parsers. Caught
+only by sending a real payload to a real board; nothing in the host suite could
+have seen it. The driver's RX buffer is now sized from
+`REFLEX_SHELL_LINE_MAX`, and payloads are verified end-to-end at 200 and 500
+bytes on both targets.
+
+**Marking outcomes exposed handlers that lie.** `vm loadhex` with a malformed
+image printed `vm load failed` and reported `#R:+1,ok`, because the failure
+path had no marker and the default is engaged. That is the predictable cost of
+defaulting to success — the same trade the plan accepted so no handler had to
+change at once — and it means the marker's accuracy is only as good as the
+sweep for failure paths. Three were missed on the first pass and found by
+reading outcomes back off a live board.
+
+The claim to keep honest: every outcome the hardware suite asserts is verified;
+unmarked paths still default to `+1,ok` and may be wrong. That is a known,
+bounded gap, not a finished job.

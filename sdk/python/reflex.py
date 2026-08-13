@@ -17,7 +17,7 @@ import serial.tools.list_ports
 import time
 import re
 import threading
-from typing import Optional, List
+from typing import Optional, List, NamedTuple
 
 
 PROMPT = "reflex> "
@@ -33,6 +33,40 @@ class AccessDenied(PermissionError):
     pass
 
 
+class Outcome(NamedTuple):
+    """The ternary result of a command, read from the shell's `#R:` marker.
+
+    `trit` answers one question: did the intended state change occur?
+
+        +1  engaged   it did
+         0  latent    nothing was attempted (usage, empty result, no-op)
+        -1  withheld  it did not — refused, rejected, or failed
+
+    `reason` qualifies it with a stable token: ok, usage, none, denied,
+    invalid, guard, notfound, failed.
+
+    This exists because the alternative was reconstructing outcomes from
+    English. `AccessDenied` used to fire on ``result.startswith("denied:")``,
+    which made every human-readable string in the firmware an undocumented
+    API — and a binary success flag could not distinguish "I was refused"
+    from "I ran and had nothing to report", which is exactly the distinction
+    an agent running under ``role="agent"`` needs.
+    """
+    trit: int
+    reason: str
+
+    @property
+    def engaged(self) -> bool:
+        return self.trit > 0
+
+    @property
+    def withheld(self) -> bool:
+        return self.trit < 0
+
+
+_RESULT_RE = re.compile(r"^#R:([+-]?\d+),(\w+)$")
+
+
 class ReflexNode:
     """Interface to a single Reflex OS node over serial."""
 
@@ -42,6 +76,8 @@ class ReflexNode:
                  role: Optional[str] = None):
         self.ser = serial.Serial(port, baud, timeout=timeout)
         self._lock = threading.Lock()
+        #: Outcome of the most recent cmd(), or None on firmware without `#R:`.
+        self.last_outcome: Optional[Outcome] = None
         time.sleep(0.3)
         self.ser.read(self.ser.in_waiting)
         if role is not None:
@@ -81,6 +117,7 @@ class ReflexNode:
             # Strip the echo of the command and trailing prompt
             lines = text.split("\n")
             output = []
+            outcome = None
             for line in lines:
                 stripped = line.strip()
                 if stripped == command.strip():
@@ -89,10 +126,26 @@ class ReflexNode:
                     continue
                 if stripped.endswith(PROMPT.strip()):
                     stripped = stripped[: -len(PROMPT.strip())].strip()
+                m = _RESULT_RE.match(stripped)
+                if m:
+                    # The machine-readable outcome. Consumed here rather than
+                    # returned, so callers see the same text as before.
+                    outcome = Outcome(int(m.group(1)), m.group(2))
+                    continue
                 if stripped:
                     output.append(stripped)
             result = "\n".join(output)
-            if result.startswith("denied:"):
+            self.last_outcome = outcome
+            if outcome is not None:
+                # Only a role refusal is an access error. `invalid`, `guard`
+                # and the rest are ordinary results the caller inspects via
+                # `last_outcome`.
+                if outcome.reason == "denied":
+                    raise AccessDenied(result)
+            elif result.startswith("denied:"):
+                # Firmware predating the `#R:` marker. Kept so an older board
+                # still raises, rather than silently returning a refusal
+                # string the caller treats as success.
                 raise AccessDenied(result)
             return result
 

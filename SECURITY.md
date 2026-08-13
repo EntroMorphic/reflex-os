@@ -39,7 +39,7 @@ The shell implements capability-based role restriction. Every command has a mini
 
 The table above is enforced by `shell_required_role()` in `shell/shell_policy.c`, and every row of it — plus every sub-command escalation — is asserted in `tests/host/test_shell_policy.c`. The lookup fails closed: a command with no policy entry requires `admin` rather than defaulting to `observer`, so a command added to the shell without a matching policy entry is locked down rather than exposed.
 
-Sessions default to **admin** (backward compatible). The `auth role <role>` command restricts the session's capability ceiling voluntarily. The Python SDK accepts `role="agent"` in the constructor; commands exceeding the role raise `AccessDenied`.
+Sessions default to **admin** (backward compatible). The `auth role <role>` command restricts the session's capability ceiling voluntarily. The Python SDK accepts `role="agent"` in the constructor; commands exceeding the role raise `AccessDenied`. That exception is keyed on the shell's `#R:-1,denied` result marker rather than on the wording of the refusal message — previously it matched `result.startswith("denied:")`, which made an English string a load-bearing security contract.
 
 This is **operational safety**, not cryptographic security. The serial cable is the trust boundary — physical access bypasses RBA by design. When remote access (WiFi/BLE shell) is added, PIN-based authentication will layer on top of the existing role infrastructure.
 

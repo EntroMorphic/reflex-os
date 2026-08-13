@@ -39,6 +39,11 @@
 #include "reflex_vm_loader.h"
 #include "shell_policy.h"
 #include "shell_parse.h"
+#include "shell_outcome.h"
+
+/* Defined with the session state below, forward-declared here because the
+ * config helpers near the top of this file report outcomes too. */
+static void outcome(shell_reason_t r);
 #include "goose.h"
 #include "esp_system.h"
 #include "goose_telemetry.h"
@@ -142,7 +147,7 @@ static void reflex_shell_config_get(const char *key)
     } else if (strcmp(key, "boot_count") == 0) {
         int32_t count;
         if (reflex_config_get_boot_count(&count) == REFLEX_OK) printf("boot_count=%ld\n", (long)count);
-    } else printf("unknown key: %s\n", key);
+    } else { printf("unknown key: %s\n", key); outcome(SHELL_USAGE); }
 }
 
 static void reflex_shell_config_set(const char *key, const char *value)
@@ -152,7 +157,7 @@ static void reflex_shell_config_set(const char *key, const char *value)
     if (strcmp(key, "device_name") == 0) err = reflex_config_set_device_name(value);
     else if (strcmp(key, "log_level") == 0) {
         if (!shell_parse_int(value, INT32_MIN, INT32_MAX, &v)) {
-            printf("config set %s: expected an integer\n", key); return;
+            printf("config set %s: expected an integer\n", key); outcome(SHELL_INVALID); return;
         }
         err = reflex_config_set_log_level((int32_t)v);
     }
@@ -164,7 +169,7 @@ static void reflex_shell_config_set(const char *key, const char *value)
     }
 
     if (err == REFLEX_OK) printf("config set %s ok\n", key);
-    else printf("config set %s failed\n", key);
+    else { printf("config set %s failed\n", key); outcome(SHELL_FAILED); }
 }
 
 // --- Experiment Logic ---
@@ -403,15 +408,18 @@ static void reflex_shell_tapestry_signal(const char *name, const char *state_str
     int8_t state;
     if (!shell_parse_trit(state_str, &state)) {
         printf("tapestry: state must be -1, 0 or 1\n");
+        outcome(SHELL_INVALID);
         return;
     }
     if (strncmp(name, GOOSE_NS_SYS, GOOSE_NS_SYS_LEN) == 0) {
         printf("tapestry: refusing to signal '%s' — sys.* belongs to the supervisor\n", name);
+        outcome(SHELL_GUARD);
         return;
     }
     goose_cell_t *c = goose_fabric_get_cell(name);
     if (!c) {
         printf("Error: Cell '%s' not found in Tapestry.\n", name);
+        outcome(SHELL_NOTFOUND);
         return;
     }
     c->state = (reflex_trit_t)state;
@@ -724,6 +732,13 @@ typedef void (*shell_handler_t)(int argc, char *argv[]);
  * handlers. See `shell_policy.h`. */
 static uint8_t s_session_role = ROLE_ADMIN;
 
+/* The outcome of the command currently being dispatched. Defaults to
+ * SHELL_OK so a handler that simply does its job needs no change; anything
+ * that refuses, rejects, or does nothing calls `outcome()` on the way out.
+ * Reset per dispatch, reported as `#R:<trit>,<reason>` afterwards. */
+static shell_reason_t s_outcome = SHELL_OK;
+static void outcome(shell_reason_t r) { s_outcome = r; }
+
 typedef struct {
     const char *name;
     shell_handler_t handler;
@@ -873,7 +888,7 @@ static void shell_cmd_goonies_read(const char *name) {
                masked ? 1 : -1);
         return;
     }
-    printf("cannot read: %s (not a hardware register)\n", name);
+    printf("cannot read: %s (not a hardware register)\n", name); outcome(SHELL_NOTFOUND);
 }
 
 static void shell_cmd_goonies(int argc, char *argv[]) {
@@ -884,14 +899,14 @@ static void shell_cmd_goonies(int argc, char *argv[]) {
 
 static void shell_cmd_atlas(int argc, char *argv[]) {
     if (argc >= 2 && strcmp(argv[1], "verify") == 0) reflex_shell_atlas_verify();
-    else printf("atlas <verify>\n");
+    else { printf("atlas <verify>\n"); outcome(SHELL_USAGE); }
 }
 
 static void shell_cmd_led(int argc, char *argv[]) {
     if (argc >= 2 && strcmp(argv[1], "status") == 0) printf("led=%s\n", reflex_led_get()?"on":"off");
     else if (argc >= 2 && strcmp(argv[1], "on") == 0) { reflex_led_set(true); printf("led=on\n"); }
     else if (argc >= 2 && strcmp(argv[1], "off") == 0) { reflex_led_set(false); printf("led=off\n"); }
-    else printf("led <on|off|status>\n");
+    else { printf("led <on|off|status>\n"); outcome(SHELL_USAGE); }
 }
 
 static void shell_cmd_kernel(int argc, char *argv[]) {
@@ -946,13 +961,13 @@ static void shell_cmd_bonsai(int argc, char *argv[]) {
  * checks are the thing standing between a malformed fragment and the fabric. */
 static void shell_cmd_loom_load(const char *hex) {
     size_t hlen = strlen(hex);
-    if (hlen < 2 || (hlen & 1)) { printf("loom load: even-length hex required\n"); return; }
+    if (hlen < 2 || (hlen & 1)) { printf("loom load: even-length hex required\n"); outcome(SHELL_INVALID); return; }
     size_t blen = hlen / 2;
     uint8_t *buf = malloc(blen);
-    if (!buf) { printf("loom load: alloc failed\n"); return; }
+    if (!buf) { printf("loom load: alloc failed\n"); outcome(SHELL_FAILED); return; }
     size_t got = 0;
     if (!shell_parse_hex(hex, buf, blen, &got) || got != blen) {
-        printf("loom load: invalid hex\n"); free(buf); return;
+        printf("loom load: invalid hex\n"); outcome(SHELL_INVALID); free(buf); return;
     }
     reflex_err_t rc = goose_weave_loom(buf, blen);
     free(buf);
@@ -960,7 +975,7 @@ static void shell_cmd_loom_load(const char *hex) {
         printf("loom load: woven (%u fragment(s) active)\n",
                (unsigned)goose_loom_fragment_count());
     } else {
-        printf("loom load: rejected rc=0x%x\n", rc);
+        printf("loom load: rejected rc=0x%x\n", rc); outcome(SHELL_FAILED);
     }
 }
 
@@ -1033,7 +1048,7 @@ static void shell_cmd_tapestry(int argc, char *argv[]) {
     if (argc >= 4 && strcmp(argv[1], "signal") == 0) {
         reflex_shell_tapestry_signal(argv[2], argv[3]);
     } else {
-        printf("tapestry signal <cell> <-1|0|1>\n");
+        printf("tapestry signal <cell> <-1|0|1>\n"); outcome(SHELL_USAGE);
     }
 }
 
@@ -1046,7 +1061,7 @@ static void shell_cmd_services(int argc, char *argv[]) {
 static void shell_cmd_config(int argc, char *argv[]) {
     if (argc >= 3 && strcmp(argv[1], "get") == 0) reflex_shell_config_get(argv[2]);
     else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
-    else printf("config <get <key>|set <key> <value>>\n");
+    else { printf("config <get <key>|set <key> <value>>\n"); outcome(SHELL_USAGE); }
 }
 
 static void shell_cmd_temp(int argc, char *argv[]) {
@@ -1085,7 +1100,7 @@ static void shell_cmd_purpose(int argc, char *argv[]) {
             TELEM_IF(goose_telem_purpose(argv[2]));
             printf("purpose: active, name=\"%s\" (persisted to NVS)\n", goose_purpose_get_name());
         } else {
-            printf("purpose set: failed to allocate cell\n");
+            printf("purpose set: failed to allocate cell\n"); outcome(SHELL_FAILED);
         }
     } else if (argc >= 2 && strcmp(argv[1], "get") == 0) {
         goose_cell_t *p = goonies_resolve_cell("sys.purpose");
@@ -1118,10 +1133,11 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         printf("mac=%02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     } else if (argc >= 3 && strcmp(argv[1], "emit") == 0) {
         goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
-        if (!c) { printf("mesh emit: agency.led.intent not resolved\n"); return; }
+        if (!c) { printf("mesh emit: agency.led.intent not resolved\n"); outcome(SHELL_NOTFOUND); return; }
         int8_t req;
         if (!shell_parse_trit(argv[2], &req)) {
             printf("mesh emit: state must be -1, 0, or 1\n");
+            outcome(SHELL_INVALID);
             return;
         }
         /* Broadcast from a stack-local copy so we don't mutate the
@@ -1146,11 +1162,11 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         int8_t state;
         long weight_in;
         if (!shell_parse_trit(argv[2], &state)) {
-            printf("mesh posture: state must be -1, 0 or 1\n"); return;
+            printf("mesh posture: state must be -1, 0 or 1\n"); outcome(SHELL_INVALID); return;
         }
         if (!shell_parse_int(argv[3], 0, 255, &weight_in)) {
             printf("mesh posture: weight must be 0..255 (clamped to %d)\n",
-                   REFLEX_SWARM_WEIGHT_MAX); return;
+                   REFLEX_SWARM_WEIGHT_MAX); outcome(SHELL_INVALID); return;
         }
         uint8_t weight = (uint8_t)weight_in;
         reflex_err_t rc = goose_atmosphere_emit_posture(state, weight);
@@ -1173,11 +1189,11 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
                (unsigned long)s.rx_replay_drop, (unsigned long)s.rx_self_drop);
         printf("malformed=%lu\n", (unsigned long)s.rx_malformed);
     } else if (argc >= 4 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "add") == 0) {
-        if (argc < 5) { printf("mesh peer add <name> <mac_hex>\n"); return; }
+        if (argc < 5) { printf("mesh peer add <name> <mac_hex>\n"); outcome(SHELL_USAGE); return; }
         const char *pname = argv[3];
         const char *hex = argv[4];
         uint8_t mac[6];
-        if (strlen(hex) != 17) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return; }
+        if (strlen(hex) != 17) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); outcome(SHELL_INVALID); return; }
         bool mac_ok = true;
         for (int i = 0; i < 5; i++) { if (hex[i*3+2] != ':') mac_ok = false; }
         if (!mac_ok) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return; }
@@ -1188,7 +1204,7 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
             char p[3] = {hex[i*3], hex[i*3+1], 0};
             size_t n = 0;
             if (!shell_parse_hex(p, &mac[i], 1, &n) || n != 1) {
-                printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return;
+                printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); outcome(SHELL_INVALID); return;
             }
         }
         reflex_err_t rc = goose_mmio_sync_add_peer(pname, mac);
@@ -1196,7 +1212,7 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
                pname, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], rc);
     } else if (argc >= 3 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "ls") == 0) {
         size_t count = goose_mmio_sync_peer_count();
-        if (count == 0) { printf("no peers\n"); return; }
+        if (count == 0) { printf("no peers\n"); outcome(SHELL_NONE); return; }
         for (size_t i = 0; i < count; i++) {
             const reflex_peer_t *p = goose_mmio_sync_get_peer(i);
             if (!p) continue;
@@ -1224,20 +1240,20 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         }
     } else if (argc >= 2 && strcmp(argv[1], "ping") == 0) {
         goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
-        if (!c) { printf("mesh ping: no agency cell\n"); return; }
+        if (!c) { printf("mesh ping: no agency cell\n"); outcome(SHELL_NOTFOUND); return; }
         goose_cell_t tx = *c;
         tx.state = 1;
         reflex_err_t rc = goose_atmosphere_emit_arc(&tx);
         printf("mesh ping: broadcast rc=0x%x\n", rc);
     } else {
-        printf("mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n");
+        printf("mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n"); outcome(SHELL_USAGE);
     }
 }
 
 static void shell_cmd_aura(int argc, char *argv[]) {
     if (argc >= 3 && strcmp(argv[1], "setkey") == 0) {
         const char *hex = argv[2];
-        if (strlen(hex) != 32) { printf("aura: expect 32 hex chars (16 bytes)\n"); return; }
+        if (strlen(hex) != 32) { printf("aura: expect 32 hex chars (16 bytes)\n"); outcome(SHELL_INVALID); return; }
         /* Nothing downstream validates these 16 bytes — they *are* the mesh
          * HMAC key. The previous strtoul() loop mapped any non-hex character
          * to 0 without signalling, so a typo silently provisioned a key with
@@ -1245,17 +1261,17 @@ static void shell_cmd_aura(int argc, char *argv[]) {
          * guessable shared secret) and still reported success. */
         uint8_t key[16]; size_t klen = 0;
         if (!shell_parse_hex(hex, key, sizeof(key), &klen) || klen != sizeof(key)) {
-            printf("aura: invalid hex — key not provisioned\n"); return;
+            printf("aura: invalid hex — key not provisioned\n"); outcome(SHELL_INVALID); return;
         }
         if (goose_atmosphere_set_key(key) == REFLEX_OK) printf("aura: key provisioned\n");
-        else printf("aura: provisioning failed\n");
+        else { printf("aura: provisioning failed\n"); outcome(SHELL_FAILED); }
     } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
         if (goose_atmosphere_clear_key() == REFLEX_OK)
             printf("aura: key cleared — a fresh per-board key is generated on next boot\n");
         else
-            printf("aura: clear failed\n");
+            { printf("aura: clear failed\n"); outcome(SHELL_FAILED); }
     } else {
-        printf("aura <setkey <32 hex chars>|clear>\n");
+        printf("aura <setkey <32 hex chars>|clear>\n"); outcome(SHELL_USAGE);
     }
 }
 
@@ -1270,7 +1286,7 @@ static void shell_cmd_vm(int argc, char *argv[]) {
         const vm_program_t *prog = vm_program_find(argv[2]);
         if (!prog) { printf("vm run: program '%s' not found\n", argv[2]); return; }
         reflex_err_t rc = reflex_vm_load_binary(&reflex_shell_vm, prog->data, prog->len);
-        if (rc != REFLEX_OK) { printf("vm run: load failed rc=0x%x\n", rc); return; }
+        if (rc != REFLEX_OK) { printf("vm run: load failed rc=0x%x\n", rc); outcome(SHELL_FAILED); return; }
         reflex_shell_vm_loaded = true;
         reflex_vm_use_default_syscalls(&reflex_shell_vm);
         rc = reflex_vm_run(&reflex_shell_vm, 100000);
@@ -1288,15 +1304,15 @@ static void shell_cmd_vm(int argc, char *argv[]) {
         }
     } else if (argc >= 3 && strcmp(argv[1], "loadhex") == 0) {
         size_t hlen = strlen(argv[2]);
-        if (hlen < 2 || (hlen & 1)) { printf("vm loadhex: even hex string required\n"); return; }
+        if (hlen < 2 || (hlen & 1)) { printf("vm loadhex: even hex string required\n"); outcome(SHELL_INVALID); return; }
         size_t blen = hlen / 2;
         uint8_t *b = malloc(blen);
-        if (!b) { printf("vm loadhex: alloc failed\n"); return; }
+        if (!b) { printf("vm loadhex: alloc failed\n"); outcome(SHELL_FAILED); return; }
         size_t got = 0;
         if (!shell_parse_hex(argv[2], b, blen, &got) || got != blen) {
-            printf("vm loadhex: invalid hex\n"); free(b); return;
+            printf("vm loadhex: invalid hex\n"); outcome(SHELL_INVALID); free(b); return;
         }
-        if(reflex_vm_load_binary(&reflex_shell_vm, b, blen)==REFLEX_OK) { reflex_shell_vm_loaded=true; printf("vm loaded\n"); } else printf("vm load failed\n");
+        if(reflex_vm_load_binary(&reflex_shell_vm, b, blen)==REFLEX_OK) { reflex_shell_vm_loaded=true; printf("vm loaded\n"); } else { printf("vm load failed\n"); outcome(SHELL_FAILED); }
         free(b);
     } else {
         printf("vm <info|run name|stop|list|loadhex hex>\n");
@@ -1306,7 +1322,7 @@ static void shell_cmd_vm(int argc, char *argv[]) {
 static void shell_cmd_vitals(int argc, char *argv[]) {
     if (argc >= 4 && strcmp(argv[1], "override") == 0) {
         int8_t state;
-        if (!shell_parse_trit(argv[3], &state)) { printf("state must be -1, 0 or 1\n"); return; }
+        if (!shell_parse_trit(argv[3], &state)) { printf("state must be -1, 0 or 1\n"); outcome(SHELL_INVALID); return; }
 
         /* sys.ai.pain and sys.ai.reward are not metabolic vitals — they are the
          * autonomous evaluation signals. They are injectable here anyway because
@@ -1318,7 +1334,7 @@ static void shell_cmd_vitals(int argc, char *argv[]) {
         if (strcmp(argv[2], "pain") == 0 || strcmp(argv[2], "reward") == 0) {
             const char *cell_name = (argv[2][0] == 'p') ? "sys.ai.pain" : "sys.ai.reward";
             goose_cell_t *c = goonies_resolve_cell(cell_name);
-            if (!c) { printf("override: %s not resolvable\n", cell_name); return; }
+            if (!c) { printf("override: %s not resolvable\n", cell_name); outcome(SHELL_NOTFOUND); return; }
             c->state = state;
             printf("override: %s=%d\n", cell_name, (int)state);
             return;
@@ -1327,7 +1343,7 @@ static void shell_cmd_vitals(int argc, char *argv[]) {
         if (goose_metabolic_override(argv[2], state) == REFLEX_OK) {
             printf("override: %s=%d\n", argv[2], (int)state);
         } else {
-            printf("unknown vital: %s (use temp, battery, mesh, heap, pain, reward)\n", argv[2]);
+            printf("unknown vital: %s (use temp, battery, mesh, heap, pain, reward)\n", argv[2]); outcome(SHELL_INVALID);
         }
     } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
         goose_metabolic_clear_overrides();
@@ -1401,11 +1417,13 @@ static const shell_cmd_t s_commands[] = {
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
+    outcome(SHELL_OK);
     for (const shell_cmd_t *cmd = s_commands; cmd->name; cmd++) {
         if (strcmp(argv[0], cmd->name) == 0) {
             uint8_t required = shell_required_role(cmd->name, argc, argv);
             if (s_session_role < required) {
                 printf("denied: requires %s\n", shell_role_names[required]);
+                outcome(SHELL_DENIED);
                 return;
             }
             cmd->handler(argc, argv);
@@ -1413,12 +1431,22 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
         }
     }
     printf("unknown command: %s\n", argv[0]);
+    outcome(SHELL_NOTFOUND);
 }
 
 void reflex_shell_run(void) {
     char line[REFLEX_SHELL_LINE_MAX]; size_t len = 0;
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
-    if (!usb_serial_jtag_is_driver_installed()) { usb_serial_jtag_driver_config_t c = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT(); usb_serial_jtag_driver_install(&c); }
+    if (!usb_serial_jtag_is_driver_installed()) {
+        usb_serial_jtag_driver_config_t c = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+        /* The default RX buffer is 256 bytes, which is what the old `len < 255`
+         * input bound was really sized to. Raising the line limit without this
+         * silently *drops* characters mid-line: a 600-character `vm loadhex`
+         * arrived short and was rejected as odd-length hex. Size the transport
+         * to the line buffer so a full line cannot overrun it. */
+        c.rx_buffer_size = REFLEX_SHELL_LINE_MAX * 2;
+        usb_serial_jtag_driver_install(&c);
+    }
     usb_serial_jtag_vfs_use_driver(); usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF); usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
 #endif
     printf("reflex> "); fflush(stdout);
@@ -1442,7 +1470,30 @@ void reflex_shell_run(void) {
             line[len] = 0; char *argv[8]; int argc = 0;
             char *t = strtok(line, " "); while(t && argc < 8) { argv[argc++] = t; t = strtok(NULL, " "); }
             reflex_shell_dispatch(argc, argv);
+            /* The machine-readable outcome, on its own line after the human
+             * output. Additive: no existing message changes, so the Loom
+             * Viewer and any prose-matching consumer keep working while the
+             * SDK moves onto the marker. Suppressed for a bare newline, which
+             * is not a command and should stay silent for someone at a
+             * terminal. */
+            if (argc > 0) {
+                char rbuf[32];
+                shell_outcome_format(rbuf, sizeof(rbuf), s_outcome);
+                printf("%s\n", rbuf);
+            }
             len = 0; printf("\nreflex> "); fflush(stdout);
-        } else if (ch != '\r' && len < 255) { line[len++] = ch; putchar(ch); fflush(stdout); }
+        } else if (ch == 0x08 || ch == 0x7F) {
+            /* Backspace / DEL. Without this the byte was appended to the line
+             * and echoed, so `statuX<DEL>s` dispatched as `statuX\x7fs` and a
+             * typo cost the whole line — on the primary interface to this OS,
+             * including while typing a 32-character Aura key by hand. */
+            if (len > 0) { len--; printf("\b \b"); fflush(stdout); }
+        } else if (ch != '\r' && len < REFLEX_SHELL_LINE_MAX - 1) {
+            /* Bound is the buffer, not an arbitrary 255. That constant capped
+             * `loom load` and `vm loadhex` — the only two ways to extend a
+             * running board — at 122 bytes of payload, against memory already
+             * allocated. */
+            line[len++] = ch; putchar(ch); fflush(stdout);
+        }
     }
 }
