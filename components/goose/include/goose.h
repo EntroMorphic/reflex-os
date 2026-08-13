@@ -319,8 +319,18 @@ uint32_t goose_loom_hold_count(void);
 /** Total number of cell evictions since boot. */
 uint32_t goose_fabric_get_eviction_count(void);
 
+/**
+ * @brief Longest cell name the substrate stores, including the terminator.
+ *
+ * The shadow atlas contains names up to 88 characters. See
+ * GOOSE_REGISTRY_NAME_MAX in goose_registry.h for why truncation here is a
+ * correctness bug rather than a cosmetic one; that constant is bound to this
+ * one by a _Static_assert in goose_runtime.c.
+ */
+#define GOOSE_NAME_MAX 96
+
 /** Copy the last N evicted cell names into buf. *count returns actual entries. */
-void goose_fabric_get_eviction_ring(char buf[][40], size_t *count);
+void goose_fabric_get_eviction_ring(char buf[][GOOSE_NAME_MAX], size_t *count);
 
 /**
  * @brief Securely map a cell to physical agency (Sanctuary Guarded).

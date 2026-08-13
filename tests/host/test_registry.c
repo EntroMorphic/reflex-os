@@ -138,6 +138,67 @@ static void test_basic(void)
         CHECK("B survives removal of A", goose_registry_find_name(&g_reg, partner) != GOOSE_REGISTRY_EMPTY);
     }
 
+    /* --- Name length ------------------------------------------------------
+     *
+     * The store used to be 40 bytes against atlas names up to 88, and it
+     * truncated silently while lookups hashed the full name. The two keys never
+     * agreed, so a long name missed the index forever and every resolve
+     * appended another entry for the same cell — confirmed on hardware, five
+     * resolves grew the registry by five. These cases pin all three properties
+     * that failure needed: long names fit, over-long names are refused rather
+     * than truncated, and names sharing a long prefix stay distinct. */
+    reset();
+    char longest[GOOSE_REGISTRY_NAME_MAX];
+    memset(longest, 'n', sizeof(longest) - 1);
+    longest[sizeof(longest) - 1] = '\0';           /* exactly NAME_MAX-1 chars */
+    CHECK("longest storable name is accepted",
+          goose_registry_add(&g_reg, longest, coord_of(700)) == 0);
+    CHECK("longest storable name resolves", goose_registry_find_name(&g_reg, longest) == 0);
+    CHECK("longest storable name round-trips intact",
+          strcmp(g_entries[0].name, longest) == 0);
+
+    char toolong[GOOSE_REGISTRY_NAME_MAX + 8];
+    memset(toolong, 'n', sizeof(toolong) - 1);
+    toolong[sizeof(toolong) - 1] = '\0';
+    size_t before = g_reg.count;
+    CHECK("over-long name is refused, not truncated",
+          goose_registry_add(&g_reg, toolong, coord_of(701)) == GOOSE_REGISTRY_EMPTY);
+    CHECK("refused name did not consume an entry", g_reg.count == before);
+
+    /* The leak, directly: re-registering a known long name must find it, not
+     * append a second entry for the same cell. */
+    reset();
+    const char *atlas_long = "agency.gpio.func100_in_sel_cfg.in_inv_sel";  /* 41 chars */
+    CHECK("41-char atlas name fits now", strlen(atlas_long) < GOOSE_REGISTRY_NAME_MAX);
+    goose_registry_add(&g_reg, atlas_long, coord_of(710));
+    int16_t again = goose_registry_find_name(&g_reg, atlas_long);
+    CHECK("long atlas name is findable after add", again == 0);
+    for (int i = 0; i < 5; i++) {
+        if (goose_registry_find_name(&g_reg, atlas_long) == GOOSE_REGISTRY_EMPTY) {
+            goose_registry_add(&g_reg, atlas_long, coord_of(710 + i));
+        }
+    }
+    CHECK("re-resolving a long name does not grow the registry", g_reg.count == 1);
+
+    /* Aliasing: 584 groups of atlas names share their first 39 characters, so
+     * matching on a truncated key would return the wrong hardware register.
+     * These two differ only after character 39. */
+    reset();
+    const char *a_en  = "agency.gpio_sd.etm_event_ch0_cfg.etm_ch0_event_en";
+    const char *a_sel = "agency.gpio_sd.etm_event_ch0_cfg.etm_ch0_event_sel";
+    CHECK("prefix-sharing pair is genuinely 39-char-identical",
+          strncmp(a_en, a_sel, 39) == 0 && strcmp(a_en, a_sel) != 0);
+    goose_registry_add(&g_reg, a_en, coord_of(720));
+    goose_registry_add(&g_reg, a_sel, coord_of(721));
+    CHECK("prefix-sharing names get distinct entries", g_reg.count == 2);
+    CHECK("prefix-sharing name A resolves to itself",
+          goose_registry_find_name(&g_reg, a_en) == 0);
+    CHECK("prefix-sharing name B resolves to itself",
+          goose_registry_find_name(&g_reg, a_sel) == 1);
+    CHECK("prefix-sharing coords stay distinct",
+          goose_registry_find_coord(&g_reg, coord_of(720)) == 0 &&
+          goose_registry_find_coord(&g_reg, coord_of(721)) == 1);
+
     /* reindex must reproduce the same answers from the entries alone. */
     reset();
     for (int i = 0; i < 64; i++) { name_of(i, nm, sizeof(nm)); goose_registry_add(&g_reg, nm, coord_of(i)); }

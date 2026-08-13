@@ -186,6 +186,10 @@ int16_t goose_registry_add(goose_registry_t *reg, const char *name, reflex_tryte
 {
     if (!reg || !reg->entries || !name) return GOOSE_REGISTRY_EMPTY;
     if (reg->count >= reg->capacity) return GOOSE_REGISTRY_EMPTY;
+    /* Refuse rather than truncate. A truncated entry is stored under a key no
+     * caller can look up, so it is never found and every subsequent attempt
+     * appends another copy. See GOOSE_REGISTRY_NAME_MAX. */
+    if (strlen(name) >= GOOSE_REGISTRY_NAME_MAX) return GOOSE_REGISTRY_EMPTY;
 
     int16_t idx = (int16_t)reg->count;
     snprintf(reg->entries[idx].name, GOOSE_REGISTRY_NAME_MAX, "%s", name);

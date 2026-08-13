@@ -43,8 +43,34 @@
 /** Bucket holds no entry. A probe run stops here. */
 #define GOOSE_REGISTRY_EMPTY ((int16_t)-1)
 
-/** Longest name the registry stores, including the terminator. */
-#define GOOSE_REGISTRY_NAME_MAX 40
+/**
+ * @brief Longest name the registry stores, including the terminator.
+ *
+ * This was 40, and 4280 of the 12738 shadow-atlas names are longer than that —
+ * up to 88 characters. The store truncated silently while lookups hashed the
+ * full name, so the two never agreed: every resolve of a long name missed the
+ * index and appended another entry for the same cell. Measured on hardware,
+ * five resolves of `agency.gpio.func100_in_sel_cfg.in_inv_sel` grew the
+ * registry by five while a short name grew it by one. The registry would fill
+ * with duplicates of a handful of cells and then refuse further allocation.
+ *
+ * That behaviour predates the index — the old linear scan compared the full
+ * name against a truncated entry and missed identically, verified by running
+ * the same test against the previous commit — but it is fixed here because the
+ * name is now a hash key, where a silent truncation is a correctness bug rather
+ * than a cosmetic one.
+ *
+ * Truncating the *lookup* key to match the store would have been cheaper and is
+ * wrong: 584 groups of distinct atlas names share their first 39 characters
+ * (`...etm_ch0_event_en` and `...etm_ch0_event_sel`), so it would alias
+ * unrelated MMIO registers onto one entry and read or write the wrong hardware.
+ *
+ * 96 covers the longest catalog name with headroom. Widening entries is cheap
+ * now precisely because the index landed first: lookups touch one or two
+ * entries instead of walking all 256, so entry size no longer drives the scan
+ * cost it used to.
+ */
+#define GOOSE_REGISTRY_NAME_MAX 96
 
 typedef struct {
     char name[GOOSE_REGISTRY_NAME_MAX];
@@ -87,7 +113,13 @@ int16_t goose_registry_find_coord(const goose_registry_t *reg, reflex_tryte9_t c
 
 /**
  * @brief Append an entry for @p name at @p coord.
- * @return the new entry index, or GOOSE_REGISTRY_EMPTY if full.
+ * @return the new entry index, or GOOSE_REGISTRY_EMPTY if full, or if @p name
+ *         does not fit in GOOSE_REGISTRY_NAME_MAX.
+ *
+ * A name too long to store is refused rather than truncated. Truncating makes
+ * the stored key differ from the key callers look up by, which is silent and
+ * unbounded: the entry can never be found again and every attempt adds another.
+ * Refusing is loud and bounded — the allocation fails and says so.
  *
  * The caller must have established that @p name is absent — this does not
  * check, because every caller has just looked it up.

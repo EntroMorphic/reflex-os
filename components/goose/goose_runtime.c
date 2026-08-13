@@ -42,6 +42,23 @@ static int16_t goonies_by_name[REFLEX_REGISTRY_BUCKETS];
 static int16_t goonies_by_coord[REFLEX_REGISTRY_BUCKETS];
 static goose_registry_t goonies = {0};
 
+/* Both indexes rely on a probe run always meeting an empty bucket, which needs
+ * strictly more buckets than entries. Below that, insert silently fails and
+ * every miss walks the whole table — the exact failure the index exists to
+ * remove, reintroduced by a tuning override. Both constants are `#ifndef`, so
+ * this is reachable by configuration and worth binding at compile time.
+ * Cell indexes are stored as int16_t, which caps capacity independently. */
+_Static_assert(REFLEX_REGISTRY_BUCKETS > REFLEX_FABRIC_MAX_CELLS,
+               "registry buckets must exceed cell capacity");
+_Static_assert(REFLEX_LATTICE_BUCKETS > REFLEX_FABRIC_MAX_CELLS,
+               "lattice buckets must exceed cell capacity");
+_Static_assert(REFLEX_FABRIC_MAX_CELLS <= 32767,
+               "cell index must fit int16_t");
+/* goose.h sizes the eviction-ring API; goose_registry.h sizes the store. A
+ * mismatch would truncate names on the way into the ring again. */
+_Static_assert(GOOSE_NAME_MAX == GOOSE_REGISTRY_NAME_MAX,
+               "eviction ring and registry name widths must agree");
+
 static void goonies_ensure_init(void) {
     if (goonies.entries == NULL) {
         goose_registry_init(&goonies, goonies_entries, REFLEX_FABRIC_MAX_CELLS,
@@ -57,7 +74,15 @@ static REFLEX_RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
 reflex_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
     goonies_ensure_init();
     if (goonies.count >= REFLEX_FABRIC_MAX_CELLS) return REFLEX_ERR_NO_MEM;
-    if (!name || strlen(name) < 3) return REFLEX_ERR_INVALID_ARG;
+    if (!name) return REFLEX_ERR_INVALID_ARG;
+    size_t nlen = strlen(name);
+    /* Refused, not truncated. A truncated name is stored under a key nothing
+     * can look up, so it is never found again and every retry appends another
+     * entry — a silent, unbounded leak of registry slots. The longest name in
+     * the 12738-entry catalog is 88 characters and the store now holds 95, so
+     * this rejects nothing the atlas contains; it exists so a future scraper
+     * that emits something longer fails loudly instead of leaking. */
+    if (nlen < 3 || nlen >= GOOSE_REGISTRY_NAME_MAX) return REFLEX_ERR_INVALID_ARG;
 
     /* Existence is settled first, by index. This used to be a strcmp walk of
      * every entry — 100us measured, on names sharing long prefixes — and it ran
@@ -424,16 +449,16 @@ static bool cell_is_evictable(const goose_cell_t *c) {
  * to detect thrashing (same cell repeatedly evicted and re-paged). */
 static uint32_t s_eviction_count = 0;
 #define EVICTION_RING_SIZE 8
-static char s_eviction_ring[EVICTION_RING_SIZE][40];
+static char s_eviction_ring[EVICTION_RING_SIZE][GOOSE_NAME_MAX];
 static uint32_t s_eviction_ring_idx = 0;
 
 uint32_t goose_fabric_get_eviction_count(void) { return s_eviction_count; }
 
-void goose_fabric_get_eviction_ring(char buf[][40], size_t *count) {
+void goose_fabric_get_eviction_ring(char buf[][GOOSE_NAME_MAX], size_t *count) {
     *count = s_eviction_count < EVICTION_RING_SIZE ? s_eviction_count : EVICTION_RING_SIZE;
     for (size_t i = 0; i < *count; i++) {
         size_t idx = (s_eviction_ring_idx + EVICTION_RING_SIZE - *count + i) % EVICTION_RING_SIZE;
-        memcpy(buf[i], s_eviction_ring[idx], 40);
+        memcpy(buf[i], s_eviction_ring[idx], GOOSE_NAME_MAX);
     }
 }
 
@@ -500,7 +525,7 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
                 if (g != GOOSE_REGISTRY_EMPTY) {
                     TELEM_IF(goose_telem_evict(goonies_entries[g].name));
                     snprintf(s_eviction_ring[s_eviction_ring_idx % EVICTION_RING_SIZE],
-                             40, "%s", goonies_entries[g].name);
+                             GOOSE_NAME_MAX, "%s", goonies_entries[g].name);
                     s_eviction_ring_idx++;
                     s_eviction_count++;
                     goose_registry_remove_coord(&goonies, fabric_cells[target].coord);
