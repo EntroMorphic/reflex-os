@@ -265,6 +265,27 @@ def validate(port, r):
     got = b.raw("mesh stat")
     r.check("mesh stat surfaces the malformed counter", "malformed=" in got, got)
 
+    # Rejection tests alone would pass against a parser that refuses
+    # everything, so each changed command needs its accepting path exercised
+    # too. Only the non-mutating ones belong here: `mesh peer add` would grow a
+    # registry capped at 8 entries, and `aura setkey` would overwrite the mesh
+    # key, so their happy paths are covered by tests/host/test_shell_parse.c
+    # against the decoder itself.
+    for state in ("-1", "0", "1"):
+        got = b.raw(f"mesh emit {state}")
+        r.check(f"mesh emit accepts {state}", "rc=" in got and "must be" not in got, got)
+
+    original = b.raw("config get log_level")
+    got = b.raw("config set log_level 3")
+    r.check("config set accepts a valid integer", "ok" in got, got)
+    r.check("config get reflects the new value", "3" in b.raw("config get log_level"), "")
+    got = b.raw("config set log_level -1")
+    r.check("config set accepts a negative integer", "ok" in got, got)
+    if "=" in original:  # put it back exactly as found
+        b.raw("config set log_level " + original.split("=")[1].strip())
+        r.check("config restored to its original value",
+                original.strip() == b.raw("config get log_level").strip(), original)
+
     print("--- config usage ---")
     r.check("bare config prints usage", "config <get" in b.raw("config"), "")
     r.check("partial config set prints usage", "config <get" in b.raw("config set"), "")

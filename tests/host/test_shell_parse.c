@@ -194,6 +194,27 @@ static void test_hex(void) {
     CHECK("accepts one byte into a one-byte buffer",
           shell_parse_hex("de", buf, 1, &n) && n == 1 && buf[0] == 0xde);
 
+    /* The `mesh peer add` shape: six independent one-byte decodes out of a
+     * colon-separated MAC. Its accepting path cannot be exercised on hardware
+     * without growing a peer registry capped at 8, so it is pinned here. */
+    {
+        const char *mac_txt[6] = {"B4", "3A", "45", "8a", "c7", "d4"};
+        const uint8_t want[6] = {0xb4, 0x3a, 0x45, 0x8a, 0xc7, 0xd4};
+        uint8_t mac[6];
+        int all_ok = 1;
+        for (int i = 0; i < 6; i++) {
+            size_t got = 0;
+            if (!shell_parse_hex(mac_txt[i], &mac[i], 1, &got) || got != 1) all_ok = 0;
+        }
+        CHECK("MAC octets decode (mixed case)", all_ok && memcmp(mac, want, 6) == 0);
+
+        /* One bad octet must fail that octet, which is what makes the shell's
+         * loop reject the whole address. */
+        size_t got = 0;
+        CHECK("a non-hex MAC octet is refused", !shell_parse_hex("zz", &mac[0], 1, &got));
+        CHECK("a one-and-a-half octet is refused", !shell_parse_hex("b", &mac[0], 1, &got));
+    }
+
     /* NULL handling. */
     CHECK("rejects NULL string", !shell_parse_hex(NULL, buf, sizeof(buf), &n));
     CHECK("rejects NULL out", !shell_parse_hex("dead", NULL, sizeof(buf), &n));
