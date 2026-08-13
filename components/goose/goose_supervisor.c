@@ -617,6 +617,7 @@ reflex_err_t goose_snapshot_save(void) {
      * captured in one consistent pass. */
     uint32_t saved_fields = 0;
     uint32_t saved_routes = 0;
+    uint32_t skipped_fields = 0;
 
     for (size_t f = 0; f < supervised_field_count; f++) {
         goose_field_t *field = supervised_fields[f];
@@ -624,7 +625,7 @@ reflex_err_t goose_snapshot_save(void) {
 
         uint8_t buf[SNAP_HEADER_SIZE + SNAP_MAX_ROUTES * SNAP_ROUTE_ENTRY_SIZE];
         size_t pos = 0;
-        if (!goose_loom_try_lock(NULL)) continue;   /* busy — catch this field next time */
+        if (!goose_loom_try_lock(NULL)) { skipped_fields++; continue; }
         uint16_t version = SNAP_VERSION;
         memcpy(&buf[pos], &version, 2); pos += 2;
 
@@ -634,10 +635,7 @@ reflex_err_t goose_snapshot_save(void) {
          * read, because load is bounded by the blob length, but a lie that
          * would mislead any other consumer of the format. */
         size_t n = goose_policy_snap_entry_count(field->route_count, SNAP_MAX_ROUTES);
-        if (field->route_count > SNAP_MAX_ROUTES) {
-            REFLEX_LOGW(TAG, "snapshot: field %s has %u routes, persisting first %u",
-                        field->name, (unsigned)field->route_count, (unsigned)SNAP_MAX_ROUTES);
-        }
+        bool truncated = (field->route_count > SNAP_MAX_ROUTES);
         uint16_t count = (uint16_t)n;
         memcpy(&buf[pos], &count, 2); pos += 2;
 
@@ -650,6 +648,14 @@ reflex_err_t goose_snapshot_save(void) {
         }
 
         goose_loom_unlock();   /* serialised; the flash write must not hold it */
+
+        /* Logged after the unlock: REFLEX_LOGW writes bytes to the console, and
+         * that is exactly the kind of slow call this restructure exists to keep
+         * off the lock. */
+        if (truncated) {
+            REFLEX_LOGW(TAG, "snapshot: field %s has %u routes, persisting first %u",
+                        field->name, (unsigned)field->route_count, (unsigned)SNAP_MAX_ROUTES);
+        }
 
         char key[16];
         snprintf(key, sizeof(key), "s_%08lx", (unsigned long)goose_fnv1a(field->name));
@@ -664,6 +670,15 @@ reflex_err_t goose_snapshot_save(void) {
     reflex_kv_close(h);
     REFLEX_LOGI(TAG, "snapshot saved: %lu fields, %lu routes",
              (unsigned long)saved_fields, (unsigned long)saved_routes);
+    /* Per-field locking means a busy field is skipped rather than the whole
+     * save failing, so its previous blob stays in NVS and the snapshot is a
+     * mixture of fresh and stale. Report that instead of returning OK as if
+     * everything persisted. */
+    if (skipped_fields > 0) {
+        REFLEX_LOGW(TAG, "snapshot: %lu field(s) skipped (loom busy); those blobs are stale",
+                    (unsigned long)skipped_fields);
+        return REFLEX_ERR_TIMEOUT;
+    }
     return REFLEX_OK;
 }
 
@@ -688,8 +703,17 @@ reflex_err_t goose_snapshot_load(void) {
         rc = reflex_kv_get_blob(h, key, buf, &len);
         if (rc != REFLEX_OK || len < SNAP_HEADER_SIZE) continue;
 
-        if (!goose_loom_try_lock(NULL)) continue;   /* busy — retry on the next load */
-
+        /* Parse and validate entirely outside the loom — it is pure buffer
+         * work touching no shared state — and take the lock only around the
+         * application below.
+         *
+         * The first version of this split acquired the lock here, before the
+         * version check, and that check's `continue` then walked out of the
+         * loop still holding loom_authority. Nothing ever released it: every
+         * later try_lock would spin its 300us budget and fail, permanently
+         * degrading the pulse, allocation, learning and snapshots until reboot.
+         * SNAP_VERSION was bumped 1 -> 2 earlier today, so any board carrying a
+         * v1 blob would have triggered it on the first `snapshot load`. */
         uint16_t snap_version;
         memcpy(&snap_version, buf, 2);
         if (snap_version != SNAP_VERSION) {
@@ -701,6 +725,8 @@ reflex_err_t goose_snapshot_load(void) {
         uint16_t snap_count;
         memcpy(&snap_count, &buf[2], 2);
         size_t pos = SNAP_HEADER_SIZE;
+
+        if (!goose_loom_try_lock(NULL)) continue;   /* busy — retry on the next load */
 
         for (uint16_t s = 0; s < snap_count && pos + SNAP_ROUTE_ENTRY_SIZE <= len; s++) {
             char snap_name[16];
