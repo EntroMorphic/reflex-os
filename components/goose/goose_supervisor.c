@@ -618,6 +618,7 @@ reflex_err_t goose_snapshot_save(void) {
     uint32_t saved_fields = 0;
     uint32_t saved_routes = 0;
     uint32_t skipped_fields = 0;
+    uint32_t failed_fields = 0;
 
     for (size_t f = 0; f < supervised_field_count; f++) {
         goose_field_t *field = supervised_fields[f];
@@ -663,6 +664,14 @@ reflex_err_t goose_snapshot_save(void) {
         if (rc == REFLEX_OK) {
             saved_fields++;
             saved_routes += count;
+        } else {
+            /* A failed write was silent: saved_fields simply did not increment
+             * and the function still returned REFLEX_OK. Now that a
+             * lock-skipped field is reported, a field whose blob never reached
+             * flash should be too — the outcome is the same, a stale blob left
+             * in NVS. */
+            REFLEX_LOGW(TAG, "snapshot: field %s write failed rc=0x%x", field->name, rc);
+            failed_fields++;
         }
     }
 
@@ -679,6 +688,7 @@ reflex_err_t goose_snapshot_save(void) {
                     (unsigned long)skipped_fields);
         return REFLEX_ERR_TIMEOUT;
     }
+    if (failed_fields > 0) return REFLEX_FAIL;
     return REFLEX_OK;
 }
 
