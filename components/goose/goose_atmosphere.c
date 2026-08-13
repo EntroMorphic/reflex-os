@@ -277,6 +277,28 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
         return;
     }
 
+    /* Every consumer below treats arc->state as a trit: SYNC and MMIO_SYNC
+     * assign it straight into a cell's `state`, and POSTURE multiplies it by
+     * the wire weight into the swarm accumulator. Nothing validated it.
+     *
+     * That silently voided the bounds SECURITY.md 7 claims. Inertial
+     * Hysteresis and Accumulator Saturation are arithmetic that only holds
+     * while |state| <= 1: with weight capped at 4, a legitimate arc moves the
+     * accumulator by at most 4 and needs several arcs to cross the threshold
+     * of 10. A single arc carrying state=99 moves it by 396, saturates at
+     * ACCUM_MAX, and flips the peer's posture on its own — exactly the
+     * single-node consensus hijack the hysteresis exists to prevent.
+     *
+     * Checked once here rather than per-op so no future op can miss it, and
+     * after the Aura gate so the counter means "a peer holding our key sent a
+     * malformed arc" rather than counting radio noise. */
+    if (arc->state < REFLEX_TRIT_NEG || arc->state > REFLEX_TRIT_POS) {
+        mesh_stats.rx_malformed++;
+        REFLEX_LOGW(TAG, "ARC_MALFORMED state=%d op=%u from " REFLEX_MAC_FMT,
+                    (int)arc->state, (unsigned)arc->op, REFLEX_MAC_ARG(recv_info->src_addr));
+        return;
+    }
+
     uint64_t now = reflex_hal_time_us();
 
     // Replay protection — reject packets seen within the cache window

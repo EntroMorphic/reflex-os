@@ -116,7 +116,7 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `mesh emit <state>` | Broadcast an `ARC_OP_SYNC` packet with the given ternary state (`-1\|0\|1`) without mutating the local cell |
 | `mesh query <name>` | Broadcast an `ARC_OP_QUERY` for `<name>`; peers respond with `ARC_OP_ADVERTISE` if they have the name locally |
 | `mesh posture <state> <weight>` | Broadcast an `ARC_OP_POSTURE` with weight clamped to `SWARM_WEIGHT_MAX=4` |
-| `mesh stat` | Dump the mesh RX counters (sync/query/advertise/posture/mmio_sync, plus version_mismatch, aura_fail, replay_drop, self_drop) |
+| `mesh stat` | Dump the mesh RX counters (sync/query/advertise/posture/mmio_sync, plus version_mismatch, aura_fail, replay_drop, self_drop, malformed). `malformed` counts authenticated arcs dropped for carrying a state outside `-1\|0\|+1` — non-zero means a peer holding the Aura key is emitting bad arcs. |
 | `mesh status` | Mesh summary (peer count, total RX/TX, per-peer status) |
 | `mesh ping` | Broadcast a sync arc to all peers |
 | `mesh peer add <name> <mac>` | Register a named peer for MMIO sync (e.g., `mesh peer add bravo B4:3A:45:8A:C8:24`) |

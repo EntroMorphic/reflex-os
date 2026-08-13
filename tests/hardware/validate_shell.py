@@ -231,6 +231,40 @@ def validate(port, r):
         r.check(f"{label} passes valid hex to the validator",
                 "invalid hex" not in got and got != "", got)
 
+    print("--- mesh: operator input must not be coerced ---")
+    # `mesh posture` state goes on the radio and is multiplied into every
+    # peer's swarm accumulator, so an out-of-range value is a one-packet
+    # consensus flip. These must be refused before anything is transmitted.
+    for bad, why in (("99 4", "out-of-range state"), ("-99 4", "negative out-of-range state"),
+                     ("abc 4", "non-numeric state"), ("2 4", "state just past the trit range")):
+        got = b.raw(f"mesh posture {bad}")
+        r.check(f"mesh posture refuses {why}", "state must be -1, 0 or 1" in got, got)
+    for bad, why in (("1 abc", "non-numeric weight"), ("1 256", "weight past a byte"),
+                     ("1 -1", "negative weight")):
+        got = b.raw(f"mesh posture {bad}")
+        r.check(f"mesh posture refuses {why}", "weight must be" in got, got)
+    got = b.raw("mesh posture 1 4")
+    r.check("mesh posture accepts a valid trit and weight", "mesh posture: state=1" in got, got)
+    b.raw("mesh posture -1 4")
+    b.raw("mesh posture 0 4")
+
+    for bad in ("abc", "99", "2"):
+        got = b.raw(f"mesh emit {bad}")
+        r.check(f"mesh emit refuses {bad!r}", "state must be -1, 0, or 1" in got, got)
+
+    got = b.raw("mesh peer add zzpeer zz:zz:zz:zz:zz:zz")
+    r.check("mesh peer add refuses non-hex MAC", "mac format" in got, got)
+    got = b.raw("mesh peer add zzpeer 00:11:22:33:44:zz")
+    r.check("mesh peer add refuses one bad MAC octet", "mac format" in got, got)
+
+    got = b.raw("config set log_level abc")
+    r.check("config set refuses non-numeric log_level", "expected an integer" in got, got)
+    got = b.raw("config set boot_count xyz")
+    r.check("config set refuses non-numeric boot_count", "expected an integer" in got, got)
+
+    got = b.raw("mesh stat")
+    r.check("mesh stat surfaces the malformed counter", "malformed=" in got, got)
+
     print("--- config usage ---")
     r.check("bare config prints usage", "config <get" in b.raw("config"), "")
     r.check("partial config set prints usage", "config <get" in b.raw("config set"), "")

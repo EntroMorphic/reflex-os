@@ -3,14 +3,29 @@
  */
 #include "shell_parse.h"
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
-bool shell_parse_trit(const char *s, int8_t *out) {
-    if (!s || !out || *s == '\0') return false;
+bool shell_parse_int(const char *s, long min, long max, long *out) {
+    if (!s || !out) return false;
+    errno = 0;
     char *end;
     long v = strtol(s, &end, 10);
-    if (end == s || *end != '\0' || v < -1 || v > 1) return false;
+    /* An empty or all-whitespace string leaves end == s, so it needs no
+     * separate check. */
+    if (end == s || *end != '\0') return false;
+    /* Only load-bearing when a caller passes the full `long` range — a
+     * narrower [min,max] rejects the saturated LONG_MIN/LONG_MAX anyway. */
+    if (errno == ERANGE) return false;
+    if (v < min || v > max) return false;
+    *out = v;
+    return true;
+}
+
+bool shell_parse_trit(const char *s, int8_t *out) {
+    long v;
+    if (!out || !shell_parse_int(s, -1, 1, &v)) return false;
     *out = (int8_t)v;
     return true;
 }

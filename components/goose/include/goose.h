@@ -628,6 +628,10 @@ typedef struct {
     uint32_t tx_mmio_sync;
     uint32_t rx_discover;
     uint32_t tx_discover;
+    /** Authenticated arcs dropped for carrying a state outside {-1,0,+1}. A
+     *  non-zero value means a peer holding the Aura key is emitting malformed
+     *  arcs — a buggy or tampered peer, not radio noise. */
+    uint32_t rx_malformed;
 } goose_mesh_stats_t;
 
 goose_mesh_stats_t goose_atmosphere_get_stats(void);

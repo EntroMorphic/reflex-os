@@ -15,6 +15,7 @@
  * that rejects correctly but decodes wrongly would be just as bad.
  */
 
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -31,6 +32,66 @@ static int s_pass = 0, s_fail = 0;
             s_fail++;                                                                              \
         }                                                                                          \
     } while (0)
+
+/* --- Bounded integers ---
+ * `config set log_level abc` set the level to 0, and `mesh posture 1 abc`
+ * broadcast weight 0, because atoi() reports failure as a valid value. */
+static void test_int(void) {
+    long v;
+
+    v = 999;
+    CHECK("parses 0", shell_parse_int("0", -10, 10, &v) && v == 0);
+    v = 999;
+    CHECK("parses a negative", shell_parse_int("-7", -10, 10, &v) && v == -7);
+    v = 999;
+    CHECK("parses an explicit plus", shell_parse_int("+7", -10, 10, &v) && v == 7);
+    v = 999;
+    CHECK("accepts the lower bound", shell_parse_int("-10", -10, 10, &v) && v == -10);
+    v = 999;
+    CHECK("accepts the upper bound", shell_parse_int("10", -10, 10, &v) && v == 10);
+
+    CHECK("rejects below the lower bound", !shell_parse_int("-11", -10, 10, &v));
+    CHECK("rejects above the upper bound", !shell_parse_int("11", -10, 10, &v));
+
+    /* The defect: non-numeric must not become 0. */
+    CHECK("rejects abc", !shell_parse_int("abc", -10, 10, &v));
+    CHECK("rejects trailing garbage", !shell_parse_int("5x", -10, 10, &v));
+    CHECK("rejects empty", !shell_parse_int("", -10, 10, &v));
+    CHECK("rejects whitespace only", !shell_parse_int("   ", -10, 10, &v));
+    CHECK("rejects NULL", !shell_parse_int(NULL, -10, 10, &v));
+    CHECK("rejects hex form", !shell_parse_int("0x5", -10, 10, &v));
+
+    /* Overflow of `long` itself must not wrap into an accepted range. */
+    CHECK("rejects long overflow", !shell_parse_int("99999999999999999999999", -10, 10, &v));
+    CHECK("rejects long underflow", !shell_parse_int("-99999999999999999999999", -10, 10, &v));
+
+    /* With the full `long` range the bounds check cannot catch saturation, so
+     * this is what makes the ERANGE test load-bearing: strtol returns
+     * LONG_MAX, which is *inside* [LONG_MIN, LONG_MAX]. */
+    CHECK("rejects overflow even at full long range",
+          !shell_parse_int("99999999999999999999999", LONG_MIN, LONG_MAX, &v));
+    CHECK("rejects underflow even at full long range",
+          !shell_parse_int("-99999999999999999999999", LONG_MIN, LONG_MAX, &v));
+    /* Built from LONG_MAX rather than written out, so this does not silently
+     * become an overflow case on a platform with a 32-bit long. */
+    char longmax[32];
+    snprintf(longmax, sizeof(longmax), "%ld", LONG_MAX);
+    v = 999;
+    CHECK("accepts LONG_MAX itself at full range",
+          shell_parse_int(longmax, LONG_MIN, LONG_MAX, &v) && v == LONG_MAX);
+
+    /* The weight range `mesh posture` uses. */
+    v = 999;
+    CHECK("weight 0 accepted", shell_parse_int("0", 0, 255, &v) && v == 0);
+    v = 999;
+    CHECK("weight 255 accepted", shell_parse_int("255", 0, 255, &v) && v == 255);
+    CHECK("weight 256 rejected", !shell_parse_int("256", 0, 255, &v));
+    CHECK("weight -1 rejected", !shell_parse_int("-1", 0, 255, &v));
+
+    v = 4242;
+    (void)shell_parse_int("abc", -10, 10, &v);
+    CHECK("failure leaves out untouched", v == 4242);
+}
 
 /* --- Trits --- */
 static void test_trit(void) {
@@ -156,6 +217,7 @@ static void test_hex(void) {
 
 int test_shell_parse(void) {
     printf("[shellparse] ");
+    test_int();
     test_trit();
     test_hex();
     printf("ok\n");

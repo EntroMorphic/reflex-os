@@ -23,6 +23,20 @@
 #include <stdint.h>
 
 /**
+ * @brief Parse a bounded decimal integer.
+ *
+ * Rejects empty input, trailing garbage, values outside [@p min, @p max] and
+ * anything that overflows `long`.
+ *
+ * @param s   NUL-terminated input.
+ * @param min Lowest accepted value, inclusive.
+ * @param max Highest accepted value, inclusive.
+ * @param out Receives the value on success; untouched on failure.
+ * @return true on success.
+ */
+bool shell_parse_int(const char *s, long min, long max, long *out);
+
+/**
  * @brief Parse an operator-supplied balanced-ternary digit.
  *
  * Rejects trailing garbage, empty input and anything outside {-1, 0, +1}.

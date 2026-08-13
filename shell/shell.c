@@ -148,10 +148,21 @@ static void reflex_shell_config_get(const char *key)
 static void reflex_shell_config_set(const char *key, const char *value)
 {
     reflex_err_t err = REFLEX_FAIL;
+    long v;
     if (strcmp(key, "device_name") == 0) err = reflex_config_set_device_name(value);
-    else if (strcmp(key, "log_level") == 0) err = reflex_config_set_log_level(atoi(value));
-    else if (strcmp(key, "boot_count") == 0) err = reflex_config_set_boot_count(atoi(value));
-    
+    else if (strcmp(key, "log_level") == 0) {
+        if (!shell_parse_int(value, INT32_MIN, INT32_MAX, &v)) {
+            printf("config set %s: expected an integer\n", key); return;
+        }
+        err = reflex_config_set_log_level((int32_t)v);
+    }
+    else if (strcmp(key, "boot_count") == 0) {
+        if (!shell_parse_int(value, INT32_MIN, INT32_MAX, &v)) {
+            printf("config set %s: expected an integer\n", key); return;
+        }
+        err = reflex_config_set_boot_count((int32_t)v);
+    }
+
     if (err == REFLEX_OK) printf("config set %s ok\n", key);
     else printf("config set %s failed\n", key);
 }
@@ -1108,8 +1119,8 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
     } else if (argc >= 3 && strcmp(argv[1], "emit") == 0) {
         goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
         if (!c) { printf("mesh emit: agency.led.intent not resolved\n"); return; }
-        int req = atoi(argv[2]);
-        if (req < -1 || req > 1) {
+        int8_t req;
+        if (!shell_parse_trit(argv[2], &req)) {
             printf("mesh emit: state must be -1, 0, or 1\n");
             return;
         }
@@ -1127,8 +1138,21 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         reflex_err_t rc = goose_atmosphere_query(argv[2]);
         printf("mesh query: name=%s rc=0x%x\n", argv[2], rc);
     } else if (argc >= 4 && strcmp(argv[1], "posture") == 0) {
-        int8_t state = (int8_t)atoi(argv[2]);
-        uint8_t weight = (uint8_t)atoi(argv[3]);
+        /* The state goes onto the radio and is multiplied by the weight into
+         * every peer's swarm accumulator. Unvalidated, `mesh posture 99 4`
+         * moved a peer by 396 against a threshold of 10 — a one-packet
+         * consensus flip, which is precisely what the inertial hysteresis in
+         * SECURITY.md 7 exists to prevent. */
+        int8_t state;
+        long weight_in;
+        if (!shell_parse_trit(argv[2], &state)) {
+            printf("mesh posture: state must be -1, 0 or 1\n"); return;
+        }
+        if (!shell_parse_int(argv[3], 0, 255, &weight_in)) {
+            printf("mesh posture: weight must be 0..255 (clamped to %d)\n",
+                   REFLEX_SWARM_WEIGHT_MAX); return;
+        }
+        uint8_t weight = (uint8_t)weight_in;
         reflex_err_t rc = goose_atmosphere_emit_posture(state, weight);
         printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc);
     } else if (argc >= 2 && strcmp(argv[1], "stat") == 0) {
@@ -1147,6 +1171,7 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         printf("version_mismatch=%lu aura_fail=%lu replay_drop=%lu self_drop=%lu\n",
                (unsigned long)s.rx_version_mismatch, (unsigned long)s.rx_aura_fail,
                (unsigned long)s.rx_replay_drop, (unsigned long)s.rx_self_drop);
+        printf("malformed=%lu\n", (unsigned long)s.rx_malformed);
     } else if (argc >= 4 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "add") == 0) {
         if (argc < 5) { printf("mesh peer add <name> <mac_hex>\n"); return; }
         const char *pname = argv[3];
@@ -1156,9 +1181,15 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         bool mac_ok = true;
         for (int i = 0; i < 5; i++) { if (hex[i*3+2] != ':') mac_ok = false; }
         if (!mac_ok) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return; }
+        /* Format-checked above, but the pairs themselves were decoded with
+         * strtoul, so `zz:zz:zz:zz:zz:zz` passed and registered a peer at
+         * 00:00:00:00:00:00. */
         for (int i = 0; i < 6; i++) {
             char p[3] = {hex[i*3], hex[i*3+1], 0};
-            mac[i] = (uint8_t)strtoul(p, NULL, 16);
+            size_t n = 0;
+            if (!shell_parse_hex(p, &mac[i], 1, &n) || n != 1) {
+                printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return;
+            }
         }
         reflex_err_t rc = goose_mmio_sync_add_peer(pname, mac);
         printf("mesh peer add: %s %02x:%02x:%02x:%02x:%02x:%02x rc=0x%x\n",
