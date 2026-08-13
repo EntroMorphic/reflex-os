@@ -16,7 +16,7 @@ else()
     set(REFLEX_ATLAS_SRC "goose_shadow_atlas_stub.c")
 endif()
 
-idf_component_register(SRCS "goose_runtime.c" "goose_policy.c" "goose_supervisor.c" "goose_library.c" "goose_atlas.c" "goose_atmosphere.c" "goose_mmio_sync.c" "goose_telemetry.c" "goose_metabolic.c" ${REFLEX_ATLAS_SRC}
+idf_component_register(SRCS "goose_runtime.c" "goose_policy.c" "goose_lattice.c" "goose_supervisor.c" "goose_library.c" "goose_atlas.c" "goose_atmosphere.c" "goose_mmio_sync.c" "goose_telemetry.c" "goose_metabolic.c" ${REFLEX_ATLAS_SRC}
                        INCLUDE_DIRS "include" "../../include"
                        REQUIRES ${GOOSE_PLATFORM_REQUIRES}
                        PRIV_REQUIRES drivers log core)

@@ -5,6 +5,7 @@
 
 #include "goose.h"
 #include "goose_policy.h"
+#include "goose_lattice.h"
 #include "reflex_hal.h"
 #include "reflex_kv.h"
 #include "reflex_task.h"
@@ -42,11 +43,8 @@ static uint32_t goonies_count = 0;
 
 static REFLEX_RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
 
-static uint32_t goose_lattice_hash(reflex_tryte9_t coord) {
-    uint32_t hash = 0;
-    for (int i = 0; i < 9; i++) { hash = (hash * 3) + (uint32_t)(coord.trits[i] + 1); }
-    return hash % REFLEX_LATTICE_BUCKETS;
-}
+/* Hashing and probing live in goose_lattice.c, which the host suite exercises
+ * against a brute-force oracle over 20000 evict/insert cycles. */
 
 reflex_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
     if (goonies_count >= REFLEX_FABRIC_MAX_CELLS) return REFLEX_ERR_NO_MEM;
@@ -296,12 +294,17 @@ reflex_err_t goose_fabric_init(void) {
     if (cold_boot) {
         fabric_cell_count = 0;
         fabric_version = 0;
-        for (int i = 0; i < REFLEX_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
+        goose_lattice_clear(lattice_index, REFLEX_LATTICE_BUCKETS);
         fabric_version = 1;
         fabric_magic = GOOSE_FABRIC_MAGIC;
     } else {
-        for (int i = 0; i < REFLEX_LATTICE_BUCKETS; i++) lattice_index[i] = -1;
-        for (uint32_t i = 0; i < fabric_cell_count; i++) { lattice_index[goose_lattice_hash(fabric_cells[i].coord)] = i; }
+        /* Warm boot: cells survive in RTC, the index does not — rebuild it. */
+        goose_lattice_clear(lattice_index, REFLEX_LATTICE_BUCKETS);
+        for (uint32_t i = 0; i < fabric_cell_count; i++) {
+            goose_lattice_insert(lattice_index, REFLEX_LATTICE_BUCKETS,
+                                 fabric_cells, fabric_cell_count,
+                                 fabric_cells[i].coord, (int16_t)i);
+        }
     }
     lattice_stable = true;
 
@@ -326,12 +329,17 @@ reflex_err_t goose_fabric_init(void) {
 }
 
 goose_cell_t* goose_fabric_get_cell_by_coord(reflex_tryte9_t coord) {
-    if (!lattice_stable) return NULL; 
-    uint32_t hash = goose_lattice_hash(coord);
-    int16_t idx = lattice_index[hash];
-    if (idx >= 0 && (uint32_t)idx < fabric_cell_count) { if (goose_coord_equal(fabric_cells[idx].coord, coord)) return &fabric_cells[idx]; }
-    for (size_t i = 0; i < fabric_cell_count; i++) { if (goose_coord_equal(fabric_cells[i].coord, coord)) return &fabric_cells[i]; }
-    return NULL;
+    if (!lattice_stable) return NULL;
+    /* Index only. The linear fallback that used to follow — a scan of up to 256
+     * cells at nine trit comparisons each, ~95us — is gone, because the index
+     * no longer loses entries to collisions. It was not a safety net so much as
+     * a permanent cost: a *miss* had to walk every cell, and allocation misses
+     * by definition, so every alloc paid it. That scan was the dominant term in
+     * the loom's ~600us peak hold. */
+    int16_t idx = goose_lattice_find(lattice_index, REFLEX_LATTICE_BUCKETS,
+                                     fabric_cells, fabric_cell_count, coord);
+    if (idx == GOOSE_LATTICE_EMPTY) return NULL;
+    return &fabric_cells[idx];
 }
 
 goose_cell_t* goose_fabric_get_cell(const char *name) { return goonies_resolve_cell(name); }
@@ -467,6 +475,14 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
                         goonies_registry[g] = goonies_registry[--goonies_count]; break;
                     }
                 }
+                /* Unmap the victim BEFORE its coordinate is overwritten below.
+                 * goose_lattice_remove locates the entry by coordinate, so once
+                 * the memset lands there is nothing left to find and the
+                 * mapping would be stranded — pointing at a slot that now holds
+                 * an unrelated cell. */
+                goose_lattice_remove(lattice_index, REFLEX_LATTICE_BUCKETS,
+                                     fabric_cells, fabric_cell_count,
+                                     fabric_cells[target].coord);
                 idx = target; last_eviction_idx = (target + 1) % REFLEX_FABRIC_MAX_CELLS; found = true; break;
             }
         }
@@ -492,7 +508,8 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
     goose_cell_t *c = &fabric_cells[idx];
     memset(c, 0, sizeof(goose_cell_t)); c->coord = coord;
     c->type = is_system_weaving ? GOOSE_CELL_PINNED : GOOSE_CELL_VIRTUAL;
-    lattice_index[goose_lattice_hash(coord)] = (int16_t)idx;
+    goose_lattice_insert(lattice_index, REFLEX_LATTICE_BUCKETS,
+                         fabric_cells, fabric_cell_count, coord, (int16_t)idx);
     fabric_version++;
     TELEM_IF(goose_telem_alloc(name, c->type));
     reflex_critical_exit(&fabric_mux);
@@ -766,7 +783,9 @@ reflex_tryte9_t goose_make_shadow_coord(int8_t field, int8_t region, int16_t cel
     return t;
 }
 
-bool goose_coord_equal(reflex_tryte9_t a, reflex_tryte9_t b) { for (int i = 0; i < 9; i++) { if (a.trits[i] != b.trits[i]) return false; } return true; }
+/* goose_coord_equal now lives in goose_lattice.c — it is pure coordinate
+ * logic and belongs with the coordinate index, which also lets the host suite
+ * link the index without pulling in the whole runtime. */
 
 #ifdef CONFIG_ULP_COPROC_ENABLED
 static bool lp_heartbeat_running = false;

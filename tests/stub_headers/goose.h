@@ -4,6 +4,7 @@
 
 #include "reflex_types.h"
 #include "reflex_ternary.h"
+#include <stdbool.h>
 
 /* reflex_fabric.h stub */
 #define REFLEX_NODE_VM 7

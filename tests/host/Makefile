@@ -14,6 +14,7 @@ SRCS = test_main.c \
        test_policy.c \
        test_vm_regress.c \
        test_log_format.c \
+       test_lattice.c \
        mock_hal.c \
        mock_task.c \
        ../../vm/ternary.c \
@@ -22,6 +23,7 @@ SRCS = test_main.c \
        ../../vm/loader.c \
        ../../vm/mmu.c \
        ../../platform/reflex_log_format.c \
+       ../../components/goose/goose_lattice.c \
        ../../kernel/reflex_sched.c \
        ../../platform/reflex_crypto.c
 
