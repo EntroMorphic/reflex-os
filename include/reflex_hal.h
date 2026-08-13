@@ -24,6 +24,22 @@ extern "C" {
 #define REFLEX_RTC_DATA_ATTR
 #endif
 
+/**
+ * @brief Format one log line into a caller-supplied buffer.
+ *
+ * Writes "<prefix> (<tag>) <formatted>\n", truncating rather than overflowing.
+ * Pure and platform-independent so the host suite can exercise it — the C6 HAL
+ * previously inlined this and mis-accumulated snprintf's return value, which
+ * let it read past its own buffer and emit adjacent memory over the wire.
+ *
+ * @return bytes placed in @p buf, always <= @p buf_len. Pass this length
+ *         directly to the platform write primitive; the result is not
+ *         NUL-terminated when it exactly fills the buffer.
+ */
+size_t reflex_log_format(char *buf, size_t buf_len,
+                         const char *prefix, const char *tag,
+                         const char *fmt, va_list args);
+
 /* --- Time --- */
 
 /** @return Microseconds since boot (monotonic). */

@@ -371,8 +371,8 @@ void reflex_hal_write_raw(const char *data, int len) {
 void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
     /* Shared across all callers and unguarded, so two tasks logging at once
      * interleave. Kept static deliberately — 256 bytes of stack per call site
-     * is worse on the 2048-byte task stacks in this tree — but the reentrancy
-     * is a real limit, recorded in Known Gaps. */
+     * is worse against the 2048-byte task stacks in this tree — but the
+     * reentrancy is a real limit, recorded in Known Gaps. */
     static char log_buf[256];
     const char *prefix;
     switch (level) {
@@ -382,32 +382,11 @@ void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
         case REFLEX_LOG_LEVEL_DEBUG: prefix = "D"; break;
         default:                     prefix = "I"; break;
     }
-    /* snprintf and vsnprintf return the length they *would* have written, not
-     * the length they did. Accumulating those returns as if they were byte
-     * counts let `off` run past the end of log_buf, with three consequences:
-     *
-     *   - `log_buf + off` pointed past the buffer;
-     *   - `sizeof(log_buf) - off` is size_t arithmetic, so it underflowed to
-     *     roughly 1.8e19 and told vsnprintf it had unlimited room there;
-     *   - usj_write_bytes(log_buf, off) then read past the end and streamed
-     *     whatever followed log_buf in .bss out of the serial port.
-     *
-     * The last one needed nothing exotic to trigger — any log line longer than
-     * about 236 characters did it. Clamp after every write so `off` is always
-     * the number of bytes actually in the buffer. */
-    size_t off = 0;
-    int n = snprintf(log_buf, sizeof(log_buf), "%s (%s) ", prefix, tag);
-    if (n > 0) off = ((size_t)n < sizeof(log_buf)) ? (size_t)n : sizeof(log_buf) - 1;
-
+    /* Formatting lives in core/log.c so it is exercised by the host suite.
+     * This function is now just prefix selection plus the platform write. */
     va_list args;
     va_start(args, fmt);
-    n = vsnprintf(log_buf + off, sizeof(log_buf) - off, fmt, args);
+    size_t off = reflex_log_format(log_buf, sizeof(log_buf), prefix, tag, fmt, args);
     va_end(args);
-    if (n > 0) {
-        size_t remaining = sizeof(log_buf) - off - 1;   /* keep room for '\n' */
-        off += ((size_t)n < remaining) ? (size_t)n : remaining;
-    }
-
-    if (off < sizeof(log_buf)) { log_buf[off++] = '\n'; }
     usj_write_bytes(log_buf, (int)off);
 }

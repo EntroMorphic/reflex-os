@@ -13,6 +13,7 @@ SRCS = test_main.c \
        test_integration.c \
        test_policy.c \
        test_vm_regress.c \
+       test_log_format.c \
        mock_hal.c \
        mock_task.c \
        ../../vm/ternary.c \
@@ -20,6 +21,7 @@ SRCS = test_main.c \
        ../../vm/cache.c \
        ../../vm/loader.c \
        ../../vm/mmu.c \
+       ../../platform/reflex_log_format.c \
        ../../kernel/reflex_sched.c \
        ../../platform/esp32c6/reflex_crypto_esp32c6.c
 

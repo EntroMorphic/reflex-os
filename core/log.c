@@ -14,3 +14,4 @@ void reflex_log_set_level(int level) {
 int reflex_log_get_level(void) {
     return s_reflex_log_level;
 }
+

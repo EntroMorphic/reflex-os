@@ -143,6 +143,8 @@ int main(void) {
     extern int test_policy_passed(void);
     extern int test_vm_regress(void);
     extern int test_vm_regress_passed(void);
+    extern int test_log_format(void);
+    extern int test_log_format_passed(void);
 
     test_ternary();
     test_crypto();
@@ -156,6 +158,8 @@ int main(void) {
     s_passed += test_policy_passed();
     s_failed += test_vm_regress();
     s_passed += test_vm_regress_passed();
+    s_failed += test_log_format();
+    s_passed += test_log_format_passed();
 
     printf("\n%d passed, %d failed\n", s_passed, s_failed);
     return s_failed > 0 ? 1 : 0;

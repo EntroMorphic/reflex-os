@@ -3,7 +3,7 @@ if(NOT "${IDF_TARGET}" STREQUAL "esp32c6")
     return()
 endif()
 
-set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "reflex_crypto_esp32c6.c")
+set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "reflex_crypto_esp32c6.c" "../reflex_log_format.c")
 
 # KV backend selection: raw flash (802.15.4 mode) or NVS (WiFi mode)
 if(CONFIG_REFLEX_RADIO_802154)
