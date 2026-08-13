@@ -96,6 +96,7 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `loom evictions` | Show the most recent eviction victims and the running total. Under round-robin the window holds distinct names; a repeat is flagged as an anomaly. Does not detect thrashing — see [`docs/implementation-status.md`](docs/implementation-status.md). |
 | `loom fragments` | Count active LoomScript fragments |
 | `loom load <hex>` | Weave a LoomScript fragment from hex (admin) |
+| `tapestry signal <cell> <state>` | Write a ternary state directly into a named live cell, for bench-driving a route without waiting on hardware (operator). `sys.*` cells are refused — supervisor state belongs to the OS, the same rule the MMIO sync layer applies to remote writes. |
 | `purpose set <name>` | Declare the current operating purpose; persists name to NVS. Amplifies Hebbian plasticity and biases `weave_sync` routing toward the named domain. |
 | `purpose get` | Report the active purpose name (or "inactive") |
 | `purpose clear` | Clear the active purpose and erase from NVS |
@@ -108,7 +109,9 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `vm list` | List all embedded programs |
 | `vm loadhex <HEX>` | Load a CRC32-verified packed image from hex string |
 | `heartbeat` | Read the LP core's parallel pulse counter |
+| `kernel` | Show the ternary scheduling stance per supervised field (engaged `+1` / latent `0` / withheld `-1`) plus the aggregate published at `sys.kernel.disposition` |
 | `aura setkey <32 hex>` | Provision the HMAC-SHA256 Aura key into NVS |
+| `aura clear` | Erase the Aura key, returning the board to isolation; a fresh per-board key is generated on the next boot |
 | `mesh mac` | Print the local Wi-Fi STA MAC (used to identify boards in a mesh trial) |
 | `mesh emit <state>` | Broadcast an `ARC_OP_SYNC` packet with the given ternary state (`-1\|0\|1`) without mutating the local cell |
 | `mesh query <name>` | Broadcast an `ARC_OP_QUERY` for `<name>`; peers respond with `ARC_OP_ADVERTISE` if they have the name locally |
@@ -123,7 +126,7 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `bonsai <experiment>` | Run one of the in-tree bonsai experiments — see `bonsai/EXPERIMENT-*.md` |
 | `telemetry <on\|off>` | Enable/disable real-time substrate telemetry streaming to the host |
 | `vitals` | Display vital cell states (temp, battery, mesh, heap) and metabolic state |
-| `vitals override <vital> <state>` | Inject synthetic vital state for bench testing (-1, 0, +1) |
+| `vitals override <vital> <state>` | Inject synthetic vital state for bench testing (-1, 0, +1). Vitals: `temp`, `battery`, `mesh`, `heap`, plus the autonomous evaluation signals `pain` and `reward`, which no bench operator can otherwise provoke. |
 | `vitals clear` | Clear all overrides; resume reading real hardware |
 | `auth` | Show current session role |
 | `auth role <role>` | Set session role: `observer`, `agent`, `operator`, `admin`. Commands requiring a higher role are denied. Default: admin (backward compatible). |

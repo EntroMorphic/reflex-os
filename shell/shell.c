@@ -37,6 +37,7 @@
 #include "reflex_ternary.h"
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
+#include "shell_policy.h"
 #include "goose.h"
 #include "esp_system.h"
 #include "goose_telemetry.h"
@@ -377,14 +378,32 @@ static void reflex_shell_bonsai_runtime_test(void) {
     printf("Runtime test complete.\n");
 }
 
-static void reflex_shell_tapestry_signal(const char *name, int state) {
+/* `reflex_trit_t` is a three-value enum, and this is the one shell path that
+ * writes a cell's state from an operator-supplied number, so it validates the
+ * range like `vitals override` does rather than casting whatever arrived.
+ *
+ * `sys.*` is refused for the same reason the MMIO sync layer refuses it
+ * (`goose_mmio_sync.c` — "reject writes to sys.* namespace"): supervisor state
+ * belongs to the OS, and a hand-signalled disposition is indistinguishable
+ * downstream from one the kernel policy layer actually derived. The check runs
+ * before resolution so a refusal does not also confirm whether the cell exists. */
+static void reflex_shell_tapestry_signal(const char *name, const char *state_str) {
+    int8_t state;
+    if (!shell_parse_trit(state_str, &state)) {
+        printf("tapestry: state must be -1, 0 or 1\n");
+        return;
+    }
+    if (strncmp(name, GOOSE_NS_SYS, GOOSE_NS_SYS_LEN) == 0) {
+        printf("tapestry: refusing to signal '%s' — sys.* belongs to the supervisor\n", name);
+        return;
+    }
     goose_cell_t *c = goose_fabric_get_cell(name);
     if (!c) {
         printf("Error: Cell '%s' not found in Tapestry.\n", name);
         return;
     }
     c->state = (reflex_trit_t)state;
-    printf("Signal sent to Tapestry: %s = %d\n", name, state);
+    printf("Signal sent to Tapestry: %s = %d\n", name, (int)state);
 }
 
 static void reflex_shell_bonsai_heal_test(void) {
@@ -686,19 +705,16 @@ typedef void (*shell_handler_t)(int argc, char *argv[]);
 /* Role-Based Access (RBA): capability levels for shell commands.
  * Sessions default to admin (backward compatible). The `auth` command
  * allows voluntary capability restriction — the caller declares what
- * it is, the OS enforces the ceiling. */
-#define ROLE_OBSERVER  0   /* Read-only: status, goonies, temp, telemetry */
-#define ROLE_AGENT     1   /* Observer + purpose, snapshot save/load */
-#define ROLE_OPERATOR  2   /* Agent + led, vm run/stop, mesh emit/ping */
-#define ROLE_ADMIN     3   /* Everything: reboot, aura, config set, vm loadhex */
-
+ * it is, the OS enforces the ceiling.
+ *
+ * The role *table* and the escalation rules live in `shell_policy.c` so the
+ * host suite can test them; this file holds only the session state and the
+ * handlers. See `shell_policy.h`. */
 static uint8_t s_session_role = ROLE_ADMIN;
-static const char *role_names[] = {"observer", "agent", "operator", "admin"};
 
 typedef struct {
     const char *name;
     shell_handler_t handler;
-    uint8_t min_role;
 } shell_cmd_t;
 
 static void shell_cmd_help(int argc, char *argv[]) {
@@ -709,6 +725,7 @@ static void shell_cmd_help(int argc, char *argv[]) {
     printf("purpose: purpose <set name|get|clear>, kernel (ternary stance)\n");
     printf("learn:   snapshot <save|load|clear>\n");
     printf("loom:    loom <list|fragments|evictions|load <hex>>\n");
+    printf("signal:  tapestry signal <cell> <-1|0|1>  (non-sys cells only)\n");
     printf("mesh:    mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n");
     printf("vm:      vm <info|run name|stop|list|loadhex hex>\n");
     printf("aura:    aura <setkey <32 hex chars>|clear>\n");
@@ -1002,7 +1019,9 @@ static void shell_cmd_loom(int argc, char *argv[]) {
 
 static void shell_cmd_tapestry(int argc, char *argv[]) {
     if (argc >= 4 && strcmp(argv[1], "signal") == 0) {
-        reflex_shell_tapestry_signal(argv[2], atoi(argv[3]));
+        reflex_shell_tapestry_signal(argv[2], argv[3]);
+    } else {
+        printf("tapestry signal <cell> <-1|0|1>\n");
     }
 }
 
@@ -1015,6 +1034,7 @@ static void shell_cmd_services(int argc, char *argv[]) {
 static void shell_cmd_config(int argc, char *argv[]) {
     if (argc >= 3 && strcmp(argv[1], "get") == 0) reflex_shell_config_get(argv[2]);
     else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
+    else printf("config <get <key>|set <key> <value>>\n");
 }
 
 static void shell_cmd_temp(int argc, char *argv[]) {
@@ -1246,8 +1266,8 @@ static void shell_cmd_vm(int argc, char *argv[]) {
 
 static void shell_cmd_vitals(int argc, char *argv[]) {
     if (argc >= 4 && strcmp(argv[1], "override") == 0) {
-        int8_t state = (int8_t)atoi(argv[3]);
-        if (state < -1 || state > 1) { printf("state must be -1, 0 or 1\n"); return; }
+        int8_t state;
+        if (!shell_parse_trit(argv[3], &state)) { printf("state must be -1, 0 or 1\n"); return; }
 
         /* sys.ai.pain and sys.ai.reward are not metabolic vitals — they are the
          * autonomous evaluation signals. They are injectable here anyway because
@@ -1295,105 +1315,58 @@ static void shell_cmd_telemetry(int argc, char *argv[]) {
 static void shell_cmd_auth(int argc, char *argv[]) {
     if (argc >= 3 && strcmp(argv[1], "role") == 0) {
         for (int i = 0; i <= ROLE_ADMIN; i++) {
-            if (strcmp(argv[2], role_names[i]) == 0) {
+            if (strcmp(argv[2], shell_role_names[i]) == 0) {
                 s_session_role = (uint8_t)i;
-                printf("role: %s\n", role_names[i]);
-                TELEM_IF(goose_telem_auth(role_names[i]));
+                printf("role: %s\n", shell_role_names[i]);
+                TELEM_IF(goose_telem_auth(shell_role_names[i]));
                 return;
             }
         }
         printf("unknown role: %s (observer|agent|operator|admin)\n", argv[2]);
     } else {
-        printf("role: %s\n", role_names[s_session_role]);
+        printf("role: %s\n", shell_role_names[s_session_role]);
     }
 }
 
 // --- Dispatch Table ---
 
+/* Name to handler only. The role each command requires lives in
+ * `shell_policy.c` — a command missing from that table fails closed to admin
+ * rather than defaulting to observer. */
 static const shell_cmd_t s_commands[] = {
-    /* command       handler                  min_role */
-    {"help",      shell_cmd_help,          ROLE_OBSERVER},
-    {"status",    shell_cmd_status,        ROLE_OBSERVER},
-    {"reboot",    shell_cmd_reboot,        ROLE_ADMIN},
-    {"sleep",     shell_cmd_sleep,         ROLE_ADMIN},
-    {"goonies",   shell_cmd_goonies,       ROLE_OBSERVER},
-    {"atlas",     shell_cmd_atlas,         ROLE_OBSERVER},
-    {"led",       shell_cmd_led,           ROLE_OBSERVER},
-    {"bonsai",    shell_cmd_bonsai,        ROLE_OPERATOR},
-    {"kernel",    shell_cmd_kernel,        ROLE_OBSERVER},
-    {"loom",      shell_cmd_loom,          ROLE_OBSERVER},
-    {"tapestry",  shell_cmd_tapestry,      ROLE_OPERATOR},
-    {"services",  shell_cmd_services,      ROLE_OBSERVER},
-    {"config",    shell_cmd_config,        ROLE_OBSERVER},
-    {"temp",      shell_cmd_temp,          ROLE_OBSERVER},
-    {"snapshot",  shell_cmd_snapshot,      ROLE_OBSERVER},
-    {"purpose",   shell_cmd_purpose,       ROLE_OBSERVER},
-    {"heartbeat", shell_cmd_heartbeat,     ROLE_OBSERVER},
-    {"mesh",      shell_cmd_mesh,          ROLE_OBSERVER},
-    {"aura",      shell_cmd_aura,          ROLE_ADMIN},
-    {"vm",        shell_cmd_vm,            ROLE_OBSERVER},
-    {"telemetry", shell_cmd_telemetry,     ROLE_OBSERVER},
-    {"vitals",    shell_cmd_vitals,        ROLE_OBSERVER},
-    {"auth",      shell_cmd_auth,          ROLE_OBSERVER},
-    {NULL, NULL, 0}
+    {"help",      shell_cmd_help},
+    {"status",    shell_cmd_status},
+    {"reboot",    shell_cmd_reboot},
+    {"sleep",     shell_cmd_sleep},
+    {"goonies",   shell_cmd_goonies},
+    {"atlas",     shell_cmd_atlas},
+    {"led",       shell_cmd_led},
+    {"bonsai",    shell_cmd_bonsai},
+    {"kernel",    shell_cmd_kernel},
+    {"loom",      shell_cmd_loom},
+    {"tapestry",  shell_cmd_tapestry},
+    {"services",  shell_cmd_services},
+    {"config",    shell_cmd_config},
+    {"temp",      shell_cmd_temp},
+    {"snapshot",  shell_cmd_snapshot},
+    {"purpose",   shell_cmd_purpose},
+    {"heartbeat", shell_cmd_heartbeat},
+    {"mesh",      shell_cmd_mesh},
+    {"aura",      shell_cmd_aura},
+    {"vm",        shell_cmd_vm},
+    {"telemetry", shell_cmd_telemetry},
+    {"vitals",    shell_cmd_vitals},
+    {"auth",      shell_cmd_auth},
+    {NULL, NULL}
 };
-
-/* Sub-command role escalation: some commands have sub-commands that
- * require higher privilege than the base command. */
-static uint8_t subcmd_min_role(const char *cmd, int argc, char *argv[]) {
-    if (argc < 2) return ROLE_OBSERVER;
-    const char *sub = argv[1];
-    if (strcmp(cmd, "mesh") == 0) {
-        /* mesh emit/ping/posture/query = operator; peer add = admin; peer ls = observer */
-        if (strcmp(sub, "emit") == 0 || strcmp(sub, "ping") == 0 ||
-            strcmp(sub, "posture") == 0 || strcmp(sub, "query") == 0) return ROLE_OPERATOR;
-        if (strcmp(sub, "peer") == 0 && argc >= 3 && strcmp(argv[2], "add") == 0) return ROLE_ADMIN;
-    } else if (strcmp(cmd, "vm") == 0) {
-        /* vm run/stop = operator; vm loadhex = admin; rest = observer */
-        if (strcmp(sub, "run") == 0 || strcmp(sub, "stop") == 0) return ROLE_OPERATOR;
-        if (strcmp(sub, "loadhex") == 0) return ROLE_ADMIN;
-    } else if (strcmp(cmd, "snapshot") == 0) {
-        /* snapshot save/load = agent; snapshot clear = admin */
-        if (strcmp(sub, "save") == 0 || strcmp(sub, "load") == 0) return ROLE_AGENT;
-        if (strcmp(sub, "clear") == 0) return ROLE_ADMIN;
-    } else if (strcmp(cmd, "purpose") == 0) {
-        /* purpose get = observer; purpose set/clear = agent */
-        if (strcmp(sub, "set") == 0 || strcmp(sub, "clear") == 0) return ROLE_AGENT;
-    } else if (strcmp(cmd, "config") == 0) {
-        /* config get = observer; config set = admin */
-        if (strcmp(sub, "set") == 0) return ROLE_ADMIN;
-    } else if (strcmp(cmd, "vitals") == 0) {
-        /* vitals (display) = observer; vitals override/clear = admin */
-        if (strcmp(sub, "override") == 0 || strcmp(sub, "clear") == 0) return ROLE_ADMIN;
-    } else if (strcmp(cmd, "telemetry") == 0) {
-        /* telemetry (status) = observer; on/off = operator */
-        if (strcmp(sub, "on") == 0 || strcmp(sub, "off") == 0) return ROLE_OPERATOR;
-    } else if (strcmp(cmd, "led") == 0) {
-        /* led on/off = operator; led status = observer (base) */
-        if (strcmp(sub, "on") == 0 || strcmp(sub, "off") == 0) return ROLE_OPERATOR;
-    } else if (strcmp(cmd, "loom") == 0) {
-        /* loom list/fragments = observer; loom load = admin. Weaving a fragment
-         * introduces routes and starts a pulse task from operator-supplied
-         * bytes — the privilege class of `vm loadhex`. */
-        if (strcmp(sub, "load") == 0) return ROLE_ADMIN;
-    } else if (strcmp(cmd, "goonies") == 0) {
-        /* goonies ls/find = observer; read = operator. `read` dereferences a
-         * hardware register, and sampling one is a side effect, so it does not
-         * belong to a role whose whole definition is read-only. */
-        if (strcmp(sub, "read") == 0) return ROLE_OPERATOR;
-    }
-    return ROLE_OBSERVER;
-}
 
 static void reflex_shell_dispatch(int argc, char *argv[]) {
     if (argc == 0) return;
     for (const shell_cmd_t *cmd = s_commands; cmd->name; cmd++) {
         if (strcmp(argv[0], cmd->name) == 0) {
-            uint8_t required = cmd->min_role;
-            uint8_t sub_required = subcmd_min_role(cmd->name, argc, argv);
-            if (sub_required > required) required = sub_required;
+            uint8_t required = shell_required_role(cmd->name, argc, argv);
             if (s_session_role < required) {
-                printf("denied: requires %s\n", role_names[required]);
+                printf("denied: requires %s\n", shell_role_names[required]);
                 return;
             }
             cmd->handler(argc, argv);
@@ -1418,6 +1391,15 @@ void reflex_shell_run(void) {
 #endif
         if (r <= 0) { reflex_task_delay_ms(50); continue; }
         if (ch == '\n') {
+            /* Echo the newline before dispatching. Without it the command's
+             * echo and its response share a line on the wire
+             * ("led ondenied: requires operator"), and any consumer that
+             * strips the echo line-wise sees neither. That is why the Python
+             * SDK never raised `AccessDenied` despite SECURITY.md §2
+             * promising it: `result.startswith("denied:")` was never true,
+             * so a role-restricted caller got a string back and carried on as
+             * though the command had succeeded. */
+            putchar('\n'); fflush(stdout);
             line[len] = 0; char *argv[8]; int argc = 0;
             char *t = strtok(line, " "); while(t && argc < 8) { argv[argc++] = t; t = strtok(NULL, " "); }
             reflex_shell_dispatch(argc, argv);
