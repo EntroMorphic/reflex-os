@@ -147,7 +147,22 @@ const char* goonies_get_name_by_idx(uint32_t idx) { return (idx < goonies_count)
 reflex_tryte9_t goonies_get_coord_by_idx(uint32_t idx) { return (idx < goonies_count) ? goonies_registry[idx].coord : (reflex_tryte9_t){{0}}; }
 
 static void ensure_mux_init(void);
-#define LOOM_LOCK_TIMEOUT_CYCLES 50000
+/* Lock acquisition budget, in microseconds.
+ *
+ * This was 50000 CPU *cycles*, measured with reflex_hal_cpu_cycles(). On the
+ * single-core C6 that is merely indirect; on the dual-core ESP32 it is wrong.
+ * Xtensa CCOUNT is per-core and the two cores are not synchronised, and tasks
+ * are created without affinity, so a task that migrates mid-spin compares a
+ * start value from one core against a current value from the other. The
+ * difference is meaningless, and because the subtraction is unsigned any
+ * backwards step becomes an enormous positive number — an instant spurious
+ * timeout. Reproduced on hardware: two LOOM_CONTENTION_FAULTs under shell load
+ * that the single-core C6 has never produced in an entire soak.
+ *
+ * reflex_hal_time_us() is global and monotonic on both targets (systimer on
+ * C6, esp_timer on ESP32), so the budget is expressed in time. 300us keeps the
+ * previous C6 behaviour: 50000 cycles at 160 MHz is ~312us. */
+#define LOOM_LOCK_TIMEOUT_US 300
 
 /* Sanctuary Guard: deny-by-default whitelist of peripheral pages that
  * non-system code may touch. Returns true for "protected — keep out".
@@ -165,22 +180,30 @@ bool goose_fabric_addr_is_sanctuary(uint32_t addr) {
 }
 
 /* Lock hold duration instrumentation. */
-static uint32_t s_lock_acquire_cycles = 0;
-static uint32_t s_lock_hold_max_cycles = 0;
-static uint64_t s_lock_hold_total_cycles = 0;
+/* Hold-duration instrumentation, in microseconds.
+ *
+ * s_lock_acquire_us is written by the holder and read by the same holder at
+ * unlock, so the lock itself serialises it. It was previously in CPU cycles
+ * from a per-core counter, which made the figures nonsense on dual-core: the
+ * ESP32 reported a 182631-cycle maximum hold (761us at 240 MHz) against a
+ * documented ~40us worst case, because acquire and release had been sampled on
+ * different cores. */
+static uint64_t s_lock_acquire_us = 0;
+static uint32_t s_lock_hold_max_us = 0;
+static uint64_t s_lock_hold_total_us = 0;
 static uint32_t s_lock_hold_count = 0;
 
-uint32_t goose_loom_hold_max_cycles(void)   { return s_lock_hold_max_cycles; }
-uint64_t goose_loom_hold_total_cycles(void)  { return s_lock_hold_total_cycles; }
-uint32_t goose_loom_hold_count(void)         { return s_lock_hold_count; }
+uint32_t goose_loom_hold_max_us(void)   { return s_lock_hold_max_us; }
+uint64_t goose_loom_hold_total_us(void) { return s_lock_hold_total_us; }
+uint32_t goose_loom_hold_count(void)    { return s_lock_hold_count; }
 
 bool goose_loom_try_lock(goose_field_t *field) {
     static uint32_t s_contention_count = 0;
     static uint64_t s_last_log_us = 0;
-    uint32_t start = reflex_hal_cpu_cycles();
+    uint64_t start = reflex_hal_time_us();
     while (__atomic_test_and_set(&loom_authority, __ATOMIC_ACQUIRE)) {
-        if ((reflex_hal_cpu_cycles() - start) > LOOM_LOCK_TIMEOUT_CYCLES) {
-            if (field) field->stats.lock_contention_cycles += LOOM_LOCK_TIMEOUT_CYCLES;
+        if ((reflex_hal_time_us() - start) > LOOM_LOCK_TIMEOUT_US) {
+            if (field) field->stats.lock_contention_us += LOOM_LOCK_TIMEOUT_US;
             s_contention_count++;
             uint64_t now = reflex_hal_time_us();
             if (now - s_last_log_us > REFLEX_REPLAY_WINDOW_US) {
@@ -194,17 +217,17 @@ bool goose_loom_try_lock(goose_field_t *field) {
         }
         reflex_hal_delay_us(1);
     }
-    uint32_t end = reflex_hal_cpu_cycles();
-    if (field) field->stats.lock_contention_cycles += (end - start);
-    s_lock_acquire_cycles = end;  /* record for hold duration measurement */
+    uint64_t end = reflex_hal_time_us();
+    if (field) field->stats.lock_contention_us += (uint32_t)(end - start);
+    s_lock_acquire_us = end;  /* record for hold duration measurement */
     return true;
 }
 
 void goose_loom_unlock(void) {
-    uint32_t held = reflex_hal_cpu_cycles() - s_lock_acquire_cycles;
-    s_lock_hold_total_cycles += held;
+    uint32_t held = (uint32_t)(reflex_hal_time_us() - s_lock_acquire_us);
+    s_lock_hold_total_us += held;
     s_lock_hold_count++;
-    if (held > s_lock_hold_max_cycles) s_lock_hold_max_cycles = held;
+    if (held > s_lock_hold_max_us) s_lock_hold_max_us = held;
     __atomic_clear(&loom_authority, __ATOMIC_RELEASE);
 }
 

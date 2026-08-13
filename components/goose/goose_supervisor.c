@@ -600,11 +600,21 @@ reflex_err_t goose_snapshot_save(void) {
     reflex_err_t rc = reflex_kv_open("goose", false, &h);
     if (rc != REFLEX_OK) return rc;
 
-    /* Hold loom_authority while reading route plasticity so we get a
-     * consistent snapshot — learn_sync writes these fields under the
-     * same lock. If contended, the save is skipped (try again later). */
-    if (!goose_loom_try_lock(NULL)) { reflex_kv_close(h); return REFLEX_ERR_TIMEOUT; }
-
+    /* The loom is taken per field, around the serialisation only — never
+     * across the NVS write.
+     *
+     * This used to hold loom_authority for the whole loop, flash writes
+     * included. reflex_kv_set_blob goes to NVS, which takes milliseconds, while
+     * the lock budget is 300us: every snapshot save starved the 10Hz pulse for
+     * the duration. Measured on the dual-core ESP32, LOOM_CONTENTION_FAULTs
+     * cluster directly around saves (FAULT SNAP FAULT FAULT SNAP), with a peak
+     * hold of 1021us against that 300us budget.
+     *
+     * Serialise under the lock, write outside it — the same discipline
+     * goose_supervisor_learn_sync already uses for telemetry. Atomicity is now
+     * per field rather than across all fields, which is the level that actually
+     * means anything: routes belong to a field and a field's blob is still
+     * captured in one consistent pass. */
     uint32_t saved_fields = 0;
     uint32_t saved_routes = 0;
 
@@ -614,6 +624,7 @@ reflex_err_t goose_snapshot_save(void) {
 
         uint8_t buf[SNAP_HEADER_SIZE + SNAP_MAX_ROUTES * SNAP_ROUTE_ENTRY_SIZE];
         size_t pos = 0;
+        if (!goose_loom_try_lock(NULL)) continue;   /* busy — catch this field next time */
         uint16_t version = SNAP_VERSION;
         memcpy(&buf[pos], &version, 2); pos += 2;
 
@@ -638,6 +649,8 @@ reflex_err_t goose_snapshot_save(void) {
             memcpy(&buf[pos], &hc, 2); pos += 2;
         }
 
+        goose_loom_unlock();   /* serialised; the flash write must not hold it */
+
         char key[16];
         snprintf(key, sizeof(key), "s_%08lx", (unsigned long)goose_fnv1a(field->name));
         rc = reflex_kv_set_blob(h, key, buf, pos);
@@ -647,7 +660,6 @@ reflex_err_t goose_snapshot_save(void) {
         }
     }
 
-    goose_loom_unlock();
     reflex_kv_commit(h);
     reflex_kv_close(h);
     REFLEX_LOGI(TAG, "snapshot saved: %lu fields, %lu routes",
@@ -660,8 +672,8 @@ reflex_err_t goose_snapshot_load(void) {
     reflex_err_t rc = reflex_kv_open("goose", true, &h);
     if (rc != REFLEX_OK) return rc;
 
-    if (!goose_loom_try_lock(NULL)) { reflex_kv_close(h); return REFLEX_ERR_TIMEOUT; }
-
+    /* Same split as save: the NVS read happens outside the loom, and only the
+     * application of the restored values takes it. */
     uint32_t restored_routes = 0;
 
     for (size_t f = 0; f < supervised_field_count; f++) {
@@ -675,6 +687,8 @@ reflex_err_t goose_snapshot_load(void) {
         size_t len = sizeof(buf);
         rc = reflex_kv_get_blob(h, key, buf, &len);
         if (rc != REFLEX_OK || len < SNAP_HEADER_SIZE) continue;
+
+        if (!goose_loom_try_lock(NULL)) continue;   /* busy — retry on the next load */
 
         uint16_t snap_version;
         memcpy(&snap_version, buf, 2);
@@ -704,9 +718,9 @@ reflex_err_t goose_snapshot_load(void) {
                 }
             }
         }
+        goose_loom_unlock();
     }
 
-    goose_loom_unlock();
     reflex_kv_close(h);
     if (restored_routes > 0) {
         REFLEX_LOGI(TAG, "snapshot loaded: %lu routes restored",

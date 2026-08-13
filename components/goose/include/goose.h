@@ -77,7 +77,7 @@ typedef struct {
     uint32_t phase_evolution_cycles;
     uint32_t phase_propagation_cycles;
     uint32_t tlb_miss_count;
-    uint32_t lock_contention_cycles;
+    uint32_t lock_contention_us;
     uint32_t lattice_collision_count;
 } goose_stats_t;
 
@@ -312,8 +312,8 @@ bool goose_fabric_addr_is_sanctuary(uint32_t addr);
 #define GOOSE_AGENCY_MMIO_BASE   0x60000000u
 
 /** Loom lock hold duration instrumentation. */
-uint32_t goose_loom_hold_max_cycles(void);
-uint64_t goose_loom_hold_total_cycles(void);
+uint32_t goose_loom_hold_max_us(void);
+uint64_t goose_loom_hold_total_us(void);
 uint32_t goose_loom_hold_count(void);
 
 /** Total number of cell evictions since boot. */
