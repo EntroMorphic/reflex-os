@@ -169,6 +169,7 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 
 ## Hardware-Validated Behaviors
 
+- **Indexed registry under sustained paging churn**: with both registry indexes in place, three consecutive `bonsai bloat` passes (761 evictions, fabric saturated at 256 cells) hold peak loom time to 791us and average to 25us, against 1640us/93us measured on the same board at the same churn immediately before the change. `atlas verify` 12738/12738, 300/300 resolved per pass, heap flat (186912 free / 184316 min). Mesh unaffected: two paired C6s discover each other, `mesh query` completes a QUERY -> ADVERTISE round trip with `Ghost Solidified`, and `goonies find peer.charlie.led` resolves the phantom with `peer_id=1`.
 - **Physical interaction**: button presses publish messages to the fabric; VM task receives and toggles LED via the supervisor path
 - **Cold boot integrity**: cold-boot path fully exercised, seeds origin cells, Atlas weave completes with 104 nodes projected
 - **Atmospheric arcing**: Geometric Arcing demo runs post-Wi-Fi bring-up; ghost cell (-1, 0, 1) present in goonies listing; HMAC-SHA256 Aura verified on RX with replay cache
@@ -268,7 +269,16 @@ Closed in the 2026-08-12 audit remediation (see [`audit-2026-08-12.md`](audit-20
 
 - **There is no shutdown path.** `reflex_service_stop_all` has no callers and is linker-stripped from `reflex_os.elf`, so every `stop` callback registered by a service — including `reflex_vm_task_service_stop` — is unreachable in a running system. The stop implementations and their recent hardening are defensive only. Worth deciding whether an orderly shutdown is wanted (before deep sleep, say) or whether the `stop` half of the service interface should be removed as dead weight.
 
-- **`goonies_registry` is an unindexed linear structure, and it is now the loom's worst holder.** With the coordinate index fixed, the peak hold after heavy paging churn measures ~2163us, and the cost is the registry rather than the fabric: `goonies_register` scans up to 256 entries with `strcmp` over 40-byte names that share long prefixes (`agency.gpio.func100_in_sel_cfg.in_sel`), the eviction path scans it again by coordinate to find the victim's entry, and `goonies_resolve` scans it by name on every lookup. None of that is indexed. This number is newly *measured*, not newly *caused* — the lattice change strictly removed work from the allocation path (a 95us scan replaced by a probe of at most 10 buckets), so the cost predates it and had simply never been measured in microseconds. Fixing it means giving the registry a name index, which is the same shape of change as the lattice and wants its own pass.
+- ~~`goonies_registry` is an unindexed linear structure, and it is now the loom's worst holder~~: **fixed 2026-08-13**. Both of its scans are now open-addressed indexes with linear probing and backward-shift deletion (`components/goose/goose_registry.c`), the same construction the fabric lattice uses.
+
+  The attribution was measured, not assumed. Per-phase timers under `loom_authority` during `bonsai bloat` put the cost at: registry coordinate scan **688us**, name `strcmp` scan 100us, `goose_shadow_resolve` 149us, evictable-cell scan 116us, `goose_lattice_remove` 88us. The coordinate scan dominated because entries are 76 bytes each — ~19KB — and the walk read only the 36-byte coordinate inside each, missing cache on essentially every step. The earlier guess that flash-cache thrash in `goose_shadow_resolve` was responsible was wrong: that term does not grow during paging.
+
+  `goose_shadow_resolve` is also skipped entirely for system weaves now. Its result only ever gated the protected-name rules, which apply to non-system weavers, so computing it on the paging path was pure cost.
+
+  Measured back-to-back on one C6 at matched churn (761 evictions, three `bonsai bloat` passes): peak loom hold **1640us -> 791us**, average **93us -> 25us**. `atlas verify` stays 12738/12738, paging sustains 300/300, heap flat.
+
+  Note the previously recorded figure of ~2163us was from a differently-conditioned run and did not reproduce; 1640us is the like-for-like baseline re-measured on the same board immediately before the change.
+
 
 Remaining (honest limits, not regressions):
 - **ESP32 self-arc demo does not manifest**: `manifest_demo_arc` needs an atlas cell at (1,1,0) which the C6-derived weave does not place there on ESP32, so "Geometric Arcing active" never logs. ESP-NOW itself initialises and the board transmits discovery beacons.

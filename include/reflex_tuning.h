@@ -60,6 +60,13 @@
 #ifndef REFLEX_LATTICE_BUCKETS
 #define REFLEX_LATTICE_BUCKETS          503
 #endif
+/* Buckets for each of the registry's two indexes (by name, by coordinate).
+ * Must exceed REFLEX_FABRIC_MAX_CELLS so a probe run always meets an empty
+ * bucket; prime, and roughly 2x capacity, to keep runs short. Costs
+ * 2 * 503 * 2 bytes of BSS. */
+#ifndef REFLEX_REGISTRY_BUCKETS
+#define REFLEX_REGISTRY_BUCKETS         503
+#endif
 #define GOOSE_FABRIC_MAX_CELLS REFLEX_FABRIC_MAX_CELLS
 #define GOOSE_LATTICE_BUCKETS  REFLEX_LATTICE_BUCKETS
 

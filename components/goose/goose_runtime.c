@@ -6,6 +6,7 @@
 #include "goose.h"
 #include "goose_policy.h"
 #include "goose_lattice.h"
+#include "goose_registry.h"
 #include "reflex_hal.h"
 #include "reflex_kv.h"
 #include "reflex_task.h"
@@ -33,13 +34,20 @@ static REFLEX_RTC_DATA_ATTR uint32_t fabric_version = 0;
 static REFLEX_RTC_DATA_ATTR volatile bool lattice_stable = false;
 static REFLEX_RTC_DATA_ATTR uint32_t fabric_magic = 0;
 
-typedef struct {
-    char name[40];
-    reflex_tryte9_t coord;
-} goonies_entry_t;
+/* Registry storage. Entries stay compact so goonies_get_name_by_idx and its
+ * callers can keep iterating 0..count-1; the two bucket arrays index them by
+ * name and by coordinate. See goose_registry.h for why both are needed. */
+static goose_registry_entry_t goonies_entries[REFLEX_FABRIC_MAX_CELLS];
+static int16_t goonies_by_name[REFLEX_REGISTRY_BUCKETS];
+static int16_t goonies_by_coord[REFLEX_REGISTRY_BUCKETS];
+static goose_registry_t goonies = {0};
 
-static goonies_entry_t goonies_registry[REFLEX_FABRIC_MAX_CELLS];
-static uint32_t goonies_count = 0;
+static void goonies_ensure_init(void) {
+    if (goonies.entries == NULL) {
+        goose_registry_init(&goonies, goonies_entries, REFLEX_FABRIC_MAX_CELLS,
+                            goonies_by_name, goonies_by_coord, REFLEX_REGISTRY_BUCKETS);
+    }
+}
 
 static REFLEX_RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
 
@@ -47,38 +55,49 @@ static REFLEX_RTC_DATA_ATTR volatile uint32_t loom_authority = 0;
  * against a brute-force oracle over 20000 evict/insert cycles. */
 
 reflex_err_t goonies_register(const char *name, reflex_tryte9_t coord, bool is_system_weaving) {
-    if (goonies_count >= REFLEX_FABRIC_MAX_CELLS) return REFLEX_ERR_NO_MEM;
+    goonies_ensure_init();
+    if (goonies.count >= REFLEX_FABRIC_MAX_CELLS) return REFLEX_ERR_NO_MEM;
     if (!name || strlen(name) < 3) return REFLEX_ERR_INVALID_ARG;
-    uint32_t s_addr, s_mask; reflex_tryte9_t s_coord; goose_cell_type_t s_type;
-    bool in_shadow = (goose_shadow_resolve(name, &s_addr, &s_mask, &s_coord, &s_type) == REFLEX_OK);
-    bool is_protected = (strncmp(name, GOOSE_NS_SYS, GOOSE_NS_SYS_LEN) == 0 || strncmp(name, GOOSE_NS_AGENCY, GOOSE_NS_AGENCY_LEN) == 0 || in_shadow);
-    for (uint32_t i = 0; i < goonies_count; i++) {
-        if (strcmp(goonies_registry[i].name, name) == 0) {
-            if (is_protected && !is_system_weaving) { return REFLEX_ERR_INVALID_STATE; }
-            goonies_registry[i].coord = coord; return REFLEX_OK;
-        }
+
+    /* Existence is settled first, by index. This used to be a strcmp walk of
+     * every entry — 100us measured, on names sharing long prefixes — and it ran
+     * under loom_authority on every allocation. */
+    int16_t idx = goose_registry_find_name(&goonies, name);
+
+    /* goose_shadow_resolve binary-searches 12738 entries in flash, so it is
+     * only worth paying for when the answer can change the outcome: it gates
+     * the protected-name rules, which apply to non-system weavers alone.
+     * A system weave re-registering a known name skips it entirely. */
+    bool in_shadow = false;
+    if (!is_system_weaving) {
+        uint32_t s_addr, s_mask; reflex_tryte9_t s_coord; goose_cell_type_t s_type;
+        in_shadow = (goose_shadow_resolve(name, &s_addr, &s_mask, &s_coord, &s_type) == REFLEX_OK);
+    }
+    bool is_protected = (strncmp(name, GOOSE_NS_SYS, GOOSE_NS_SYS_LEN) == 0 ||
+                         strncmp(name, GOOSE_NS_AGENCY, GOOSE_NS_AGENCY_LEN) == 0 || in_shadow);
+
+    if (idx != GOOSE_REGISTRY_EMPTY) {
+        if (is_protected && !is_system_weaving) { return REFLEX_ERR_INVALID_STATE; }
+        goose_registry_set_coord(&goonies, idx, coord);
+        return REFLEX_OK;
     }
     if ((in_shadow || is_protected) && !is_system_weaving) { return REFLEX_ERR_NOT_SUPPORTED; }
-    snprintf(goonies_registry[goonies_count].name, 40, "%s", name);
-    goonies_registry[goonies_count].coord = coord;
-    goonies_count++;
+    if (goose_registry_add(&goonies, name, coord) == GOOSE_REGISTRY_EMPTY) return REFLEX_ERR_NO_MEM;
     return REFLEX_OK;
 }
 
 reflex_err_t goonies_resolve(const char *name, reflex_tryte9_t *out_coord) {
-    for (uint32_t i = 0; i < goonies_count; i++) {
-        if (strcmp(goonies_registry[i].name, name) == 0) { *out_coord = goonies_registry[i].coord; return REFLEX_OK; }
-    }
-    return REFLEX_ERR_NOT_FOUND;
+    goonies_ensure_init();
+    int16_t idx = goose_registry_find_name(&goonies, name);
+    if (idx == GOOSE_REGISTRY_EMPTY) return REFLEX_ERR_NOT_FOUND;
+    *out_coord = goonies_entries[idx].coord;
+    return REFLEX_OK;
 }
 
 const char *goonies_resolve_name_by_coord(reflex_tryte9_t coord) {
-    for (uint32_t i = 0; i < goonies_count; i++) {
-        if (goose_coord_equal(goonies_registry[i].coord, coord)) {
-            return goonies_registry[i].name;
-        }
-    }
-    return NULL;
+    goonies_ensure_init();
+    int16_t idx = goose_registry_find_coord(&goonies, coord);
+    return (idx == GOOSE_REGISTRY_EMPTY) ? NULL : goonies_entries[idx].name;
 }
 
 goose_cell_t* goonies_resolve_cell(const char *name) {
@@ -140,9 +159,9 @@ goose_cell_t* goonies_resolve_cell(const char *name) {
     return NULL;
 }
 
-uint32_t goonies_get_count(void) { return goonies_count; }
-const char* goonies_get_name_by_idx(uint32_t idx) { return (idx < goonies_count) ? goonies_registry[idx].name : NULL; }
-reflex_tryte9_t goonies_get_coord_by_idx(uint32_t idx) { return (idx < goonies_count) ? goonies_registry[idx].coord : (reflex_tryte9_t){{0}}; }
+uint32_t goonies_get_count(void) { return (uint32_t)goonies.count; }
+const char* goonies_get_name_by_idx(uint32_t idx) { return (idx < goonies.count) ? goonies_entries[idx].name : NULL; }
+reflex_tryte9_t goonies_get_coord_by_idx(uint32_t idx) { return (idx < goonies.count) ? goonies_entries[idx].coord : (reflex_tryte9_t){{0}}; }
 
 static void ensure_mux_init(void);
 /* Lock acquisition budget, in microseconds.
@@ -284,7 +303,11 @@ reflex_err_t goose_fabric_init(void) {
     s_fabric_initialized = true;
 
     ensure_mux_init();
-    lattice_stable = false; goonies_count = 0;
+    /* Re-init clears both indexes with the entries, so the registry always
+     * starts consistent rather than inheriting stale buckets. */
+    lattice_stable = false;
+    goose_registry_init(&goonies, goonies_entries, REFLEX_FABRIC_MAX_CELLS,
+                        goonies_by_name, goonies_by_coord, REFLEX_REGISTRY_BUCKETS);
     /* Clear loom_authority unconditionally. On cold boot it starts at 0
      * anyway; on warm boot (wake from deep sleep), the RTC-retained value
      * could still be 1 from a pre-sleep holder that no longer exists. */
@@ -311,7 +334,7 @@ reflex_err_t goose_fabric_init(void) {
     /* Seed cells: run on both cold and warm boot paths. On cold boot these
      * are fresh allocations; on warm boot the coord is already present in
      * RTC and alloc_cell short-circuits but still re-registers the name
-     * into the (zeroed) goonies_registry via the post-Item-2 fix. */
+     * into the (zeroed) registry via the post-Item-2 fix. */
     goose_fabric_alloc_cell("sys.origin", goose_make_coord(0, 0, 0), true);
     goose_fabric_alloc_cell("agency.led.intent", goose_make_coord(0, 0, 1), true);
 
@@ -444,7 +467,7 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
     if (existing != NULL) {
         reflex_critical_exit(&fabric_mux);
         /* Coord is already occupied. On warm boot (wake from deep sleep),
-         * fabric_cells[] persists in RTC but goonies_registry is regular
+         * fabric_cells[] persists in RTC but the registry is regular
          * BSS and gets zeroed. The atlas re-weave would then leave these
          * cells nameless. Re-register the name while still holding
          * loom_authority so two concurrent short-circuit paths can't
@@ -465,15 +488,22 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
         for (int i = 0; i < REFLEX_FABRIC_MAX_CELLS; i++) {
             uint32_t target = (last_eviction_idx + i) % REFLEX_FABRIC_MAX_CELLS;
             if (cell_is_evictable(&fabric_cells[target])) {
-                for (uint32_t g = 0; g < goonies_count; g++) {
-                    if (goose_coord_equal(goonies_registry[g].coord, fabric_cells[target].coord)) {
-                        TELEM_IF(goose_telem_evict(goonies_registry[g].name));
-                        snprintf(s_eviction_ring[s_eviction_ring_idx % EVICTION_RING_SIZE],
-                                 40, "%s", goonies_registry[g].name);
-                        s_eviction_ring_idx++;
-                        s_eviction_count++;
-                        goonies_registry[g] = goonies_registry[--goonies_count]; break;
-                    }
+                /* Find the victim's registry entry by coordinate.
+                 *
+                 * This was a linear walk of every registry entry, and it was
+                 * the largest single term in the Loom's peak hold: 688us,
+                 * measured on hardware, paid on every allocation once the
+                 * fabric saturates. Entries are 76 bytes and the walk read only
+                 * the 36-byte coordinate inside each, so it missed cache on
+                 * essentially every step. */
+                int16_t g = goose_registry_find_coord(&goonies, fabric_cells[target].coord);
+                if (g != GOOSE_REGISTRY_EMPTY) {
+                    TELEM_IF(goose_telem_evict(goonies_entries[g].name));
+                    snprintf(s_eviction_ring[s_eviction_ring_idx % EVICTION_RING_SIZE],
+                             40, "%s", goonies_entries[g].name);
+                    s_eviction_ring_idx++;
+                    s_eviction_count++;
+                    goose_registry_remove_coord(&goonies, fabric_cells[target].coord);
                 }
                 /* Unmap the victim BEFORE its coordinate is overwritten below.
                  * goose_lattice_remove locates the entry by coordinate, so once
@@ -573,12 +603,12 @@ goose_cell_t* goonies_resolve_by_capability(const char *suffix) {
     if (!suffix) return NULL;
     const char* trusted_zones[] = {GOOSE_NS_AGENCY, "perception.", GOOSE_NS_SYS};
     for (int p = 0; p < 3; p++) {
-        for (uint32_t i = 0; i < goonies_count; i++) {
-            const char *name = goonies_registry[i].name;
+        for (uint32_t i = 0; i < goonies.count; i++) {
+            const char *name = goonies_entries[i].name;
             if (strncmp(name, trusted_zones[p], strlen(trusted_zones[p])) == 0) {
                 size_t nlen = strlen(name); size_t slen = strlen(suffix);
                 if (nlen >= slen && strcmp(name + (nlen - slen), suffix) == 0) {
-                    goose_cell_t *c = goose_fabric_get_cell_by_coord(goonies_registry[i].coord);
+                    goose_cell_t *c = goose_fabric_get_cell_by_coord(goonies_entries[i].coord);
                     if (c && c->type == GOOSE_CELL_NEED) continue;
                     return c;
                 }
@@ -604,13 +634,13 @@ static goose_cell_t* goonies_resolve_by_capability_in_domain(const char *suffix,
     if (!suffix || !domain || !domain[0]) return NULL;
     const char* trusted_zones[] = {GOOSE_NS_AGENCY, "perception.", GOOSE_NS_SYS};
     for (int p = 0; p < 3; p++) {
-        for (uint32_t i = 0; i < goonies_count; i++) {
-            const char *name = goonies_registry[i].name;
+        for (uint32_t i = 0; i < goonies.count; i++) {
+            const char *name = goonies_entries[i].name;
             if (strncmp(name, trusted_zones[p], strlen(trusted_zones[p])) != 0) continue;
             if (!name_contains_domain(name, domain)) continue;
             size_t nlen = strlen(name); size_t slen = strlen(suffix);
             if (nlen >= slen && strcmp(name + (nlen - slen), suffix) == 0) {
-                goose_cell_t *c = goose_fabric_get_cell_by_coord(goonies_registry[i].coord);
+                goose_cell_t *c = goose_fabric_get_cell_by_coord(goonies_entries[i].coord);
                 if (c && c->type == GOOSE_CELL_NEED) continue;
                 return c;
             }
@@ -642,13 +672,7 @@ reflex_err_t goose_supervisor_weave_sync(void) {
 
         /* Reverse-lookup the need's registered name so we can both gate on
          * trust and derive a capability suffix from the need's own identity. */
-        const char *need_name = NULL;
-        for (uint32_t g = 0; g < goonies_count; g++) {
-            if (goose_coord_equal(goonies_registry[g].coord, need->coord)) {
-                need_name = goonies_registry[g].name;
-                break;
-            }
-        }
+        const char *need_name = goonies_resolve_name_by_coord(need->coord);
         if (!need_name) continue;
         bool is_trusted_need = (strncmp(need_name, GOOSE_NS_SYS, GOOSE_NS_SYS_LEN) == 0 ||
                                 strncmp(need_name, GOOSE_NS_AGENCY, GOOSE_NS_AGENCY_LEN) == 0);
@@ -713,8 +737,8 @@ reflex_err_t goose_supervisor_weave_sync(void) {
          * that from the common path entirely.
          *
          * They are also copied now rather than kept as pointers. The originals
-         * point into goonies_registry[], which eviction rewrites in place
-         * (goonies_registry[g] = goonies_registry[--goonies_count]), so a
+         * point into the registry's entry array, which eviction compacts by
+         * swapping the last entry down into the hole, so a
          * pointer read after the unlock could describe a different cell by the
          * time telemetry formatted it. */
         char t_rname[16]; memcpy(t_rname, r->name, 16);
