@@ -38,6 +38,7 @@
 #include "reflex_vm.h"
 #include "reflex_vm_loader.h"
 #include "shell_policy.h"
+#include "shell_parse.h"
 #include "goose.h"
 #include "esp_system.h"
 #include "goose_telemetry.h"
@@ -938,9 +939,9 @@ static void shell_cmd_loom_load(const char *hex) {
     size_t blen = hlen / 2;
     uint8_t *buf = malloc(blen);
     if (!buf) { printf("loom load: alloc failed\n"); return; }
-    for (size_t i = 0; i < blen; i++) {
-        char pair[3] = { hex[i * 2], hex[i * 2 + 1], 0 };
-        buf[i] = (uint8_t)strtoul(pair, NULL, 16);
+    size_t got = 0;
+    if (!shell_parse_hex(hex, buf, blen, &got) || got != blen) {
+        printf("loom load: invalid hex\n"); free(buf); return;
     }
     reflex_err_t rc = goose_weave_loom(buf, blen);
     free(buf);
@@ -1206,10 +1207,14 @@ static void shell_cmd_aura(int argc, char *argv[]) {
     if (argc >= 3 && strcmp(argv[1], "setkey") == 0) {
         const char *hex = argv[2];
         if (strlen(hex) != 32) { printf("aura: expect 32 hex chars (16 bytes)\n"); return; }
-        uint8_t key[16];
-        for (int i = 0; i < 16; i++) {
-            char p[3] = {hex[i*2], hex[i*2+1], 0};
-            key[i] = (uint8_t)strtoul(p, NULL, 16);
+        /* Nothing downstream validates these 16 bytes — they *are* the mesh
+         * HMAC key. The previous strtoul() loop mapped any non-hex character
+         * to 0 without signalling, so a typo silently provisioned a key with
+         * zero bytes in those positions (all-zero in the worst case, a
+         * guessable shared secret) and still reported success. */
+        uint8_t key[16]; size_t klen = 0;
+        if (!shell_parse_hex(hex, key, sizeof(key), &klen) || klen != sizeof(key)) {
+            printf("aura: invalid hex — key not provisioned\n"); return;
         }
         if (goose_atmosphere_set_key(key) == REFLEX_OK) printf("aura: key provisioned\n");
         else printf("aura: provisioning failed\n");
@@ -1256,7 +1261,10 @@ static void shell_cmd_vm(int argc, char *argv[]) {
         size_t blen = hlen / 2;
         uint8_t *b = malloc(blen);
         if (!b) { printf("vm loadhex: alloc failed\n"); return; }
-        for(size_t i=0; i<blen; i++) { char p[3]={argv[2][i*2], argv[2][i*2+1], 0}; b[i]=(uint8_t)strtoul(p,NULL,16); }
+        size_t got = 0;
+        if (!shell_parse_hex(argv[2], b, blen, &got) || got != blen) {
+            printf("vm loadhex: invalid hex\n"); free(b); return;
+        }
         if(reflex_vm_load_binary(&reflex_shell_vm, b, blen)==REFLEX_OK) { reflex_shell_vm_loaded=true; printf("vm loaded\n"); } else printf("vm load failed\n");
         free(b);
     } else {

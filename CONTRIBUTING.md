@@ -29,8 +29,16 @@ idf.py build
 5. Run host tests (no hardware needed):
 
 ```bash
-make test                    # C host tests (26 tests)
-make tasm-test               # TASM compiler tests (9 tests)
+make test                    # C host tests — no hardware needed
+make tasm-test               # TASM compiler tests
+```
+
+With a board attached, the shell can be validated end to end. This is
+non-destructive: it never provisions or clears an Aura key, never reboots, and
+restores the session role, vitals overrides and purpose.
+
+```bash
+make hw-test PORT=/dev/cu.usbmodem1101
 ```
 
 ## Project Conventions

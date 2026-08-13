@@ -5,7 +5,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 RELEASE_NAME := reflex-os-$(VERSION)-esp32c6
 RELEASE_DIR := release/$(RELEASE_NAME)
 
-.PHONY: build flash release clean test tasm-test format format-check config-reset docs atlas
+.PHONY: build flash release clean test tasm-test hw-test format format-check config-reset docs atlas
 
 build:
 	idf.py build
@@ -39,6 +39,13 @@ test:
 
 tasm-test:
 	python3 tests/host/test_tasm.py
+
+# Shell validation against a flashed board. Non-destructive: never provisions
+# or clears an Aura key, never reboots, restores role/vitals/purpose.
+#   make hw-test PORT=/dev/cu.usbmodem1101
+hw-test:
+	@test -n "$(PORT)" || { echo "Usage: make hw-test PORT=/dev/cu.usbmodemXXXX"; exit 1; }
+	python3 tests/hardware/validate_shell.py $(PORT)
 
 atlas:
 	python3 tools/goose_scraper.py tools/esp32c6.svd tools/goose_zones.json components/goose/goose_shadow_atlas.c

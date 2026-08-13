@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+"""Shell validation against real hardware.
+
+The host suite covers the shell's pure logic — role decisions and input
+parsing — but the parts that only exist on a board (the wire format, the
+dispatcher, the guards firing against live cells) had no repeatable check.
+This is that check.
+
+    python3 tests/hardware/validate_shell.py /dev/cu.usbmodem1101 [more ports]
+    make hw-test PORT=/dev/cu.usbmodem1101
+
+NON-DESTRUCTIVE BY CONSTRUCTION. It deliberately never:
+
+  * provisions or clears an Aura key — `aura setkey` would overwrite the mesh
+    secret and `aura clear` regenerates a *random* per-board key rather than
+    restoring the old one, so either would silently un-pair a working bench.
+    Only the *rejection* path is exercised, which by definition writes nothing.
+  * reboots, sleeps, or loads a VM image or Loom fragment that could take.
+  * leaves the session role, vitals overrides or purpose changed.
+
+Requires pyserial. Exits non-zero if any check fails.
+"""
+
+import sys
+import time
+
+try:
+    import serial
+except ImportError:
+    sys.exit("pyserial required: pip install pyserial")
+
+sys.path.insert(0, "sdk/python")
+try:
+    from reflex import ReflexNode, AccessDenied
+except ImportError:
+    ReflexNode = None
+
+PROMPT = "reflex> "
+
+# A cell the fabric always seeds, used as a benign signal target.
+LIVE_CELL = "agency.led.intent"
+# A supervisor cell that `tapestry signal` must refuse.
+SYS_CELL = "sys.kernel.disposition"
+
+
+class Board:
+    def __init__(self, port, baud=115200):
+        self.port = port
+        # Short serial timeout; the deadline is enforced by the read loop.
+        self.ser = serial.Serial(port, baud, timeout=0.1)
+        time.sleep(0.6)
+        self.ser.reset_input_buffer()
+
+    def _send(self, cmd, timeout):
+        """Write a command and read until the prompt returns.
+
+        Reading to the prompt rather than sleeping a fixed interval is not a
+        nicety: `loom list` prints ~118 rows, and any fixed wait short enough
+        to keep the suite quick will truncate it, leaving the remainder in the
+        buffer to be misread as the *next* command's response. Every check
+        after it then compares against the wrong output.
+        """
+        self.ser.reset_input_buffer()
+        self.ser.write((cmd + "\n").encode())
+        # Accumulate bytes and decode once at the end. Decoding each chunk
+        # separately splits any multi-byte character that straddles a read
+        # boundary — the shell's em-dashes arrive as U+FFFD otherwise.
+        buf = b""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            chunk = self.ser.read(self.ser.in_waiting or 1)
+            if chunk:
+                buf += chunk
+                if PROMPT.encode() in buf:
+                    break
+        return buf.decode("utf-8", "replace")
+
+    def raw(self, cmd, timeout=6.0):
+        """Send a command, return the response with the echo stripped."""
+        text = self._send(cmd, timeout)
+        for marker in (cmd + "\r\n", cmd + "\n", cmd):
+            if text.startswith(marker):
+                text = text[len(marker):]
+                break
+        return text.replace(PROMPT, "").strip()
+
+    def wire(self, cmd, timeout=6.0):
+        """Send a command, return the raw text as received."""
+        return self._send(cmd, timeout)
+
+    def cell_state(self, name):
+        for line in self.raw("loom list").splitlines():
+            if line.strip().startswith(name):
+                return line.split("|")[2].strip()
+        return None
+
+    def close(self):
+        self.ser.close()
+
+
+class Results:
+    def __init__(self):
+        self.passed = 0
+        self.failed = 0
+
+    def check(self, desc, cond, got=""):
+        if cond:
+            self.passed += 1
+            print(f"  PASS  {desc}")
+        else:
+            self.failed += 1
+            print(f"  FAIL  {desc}\n          got: {got!r}")
+
+
+# (command, role required) — every denial the policy table promises.
+DENIALS = [
+    ("tapestry signal " + LIVE_CELL + " 1", "operator"),
+    ("goonies read " + LIVE_CELL, "operator"),
+    ("led on", "operator"),
+    ("telemetry on", "operator"),
+    ("mesh emit 1", "operator"),
+    ("mesh ping", "operator"),
+    ("bonsai runtime", "operator"),
+    ("purpose set nav", "agent"),
+    ("snapshot save", "agent"),
+    ("config set a b", "admin"),
+    ("loom load AA", "admin"),
+    ("vitals override temp 1", "admin"),
+    ("reboot", "admin"),
+    ("sleep 1", "admin"),
+    ("aura clear", "admin"),
+    ("aura setkey 000102030405060708090a0b0c0d0e0f", "admin"),
+    ("snapshot clear", "admin"),
+    ("mesh peer add x 00:00:00:00:00:00", "admin"),
+    ("vm loadhex AA", "admin"),
+]
+
+OBSERVER_ALLOWED = [
+    "status", "goonies ls", "goonies find " + LIVE_CELL, "temp", "loom list",
+    "loom evictions", "loom fragments", "kernel", "mesh peer ls", "mesh stat",
+    "mesh status", "vm info", "vm list", "led status", "purpose get",
+    "services", "heartbeat", "vitals", "config get x", "telemetry", "help", "auth",
+]
+
+
+def validate(port, r):
+    print(f"\n########## {port} ##########")
+    b = Board(port)
+    b.raw("auth role admin")
+
+    print("--- wire format: echo and response must not share a line ---")
+    b.raw("auth role observer")
+    w = b.wire("led on")
+    r.check("newline echoed before dispatch", "led on\r\ndenied: requires operator" in w, w)
+    b.raw("auth role admin")
+
+    print("--- role gating: denials ---")
+    b.raw("auth role observer")
+    for cmd, need in DENIALS:
+        got = b.raw(cmd)
+        r.check(f"observer denied `{cmd}` -> {need}", got == f"denied: requires {need}", got)
+
+    print("--- role gating: observer must still work ---")
+    for cmd in OBSERVER_ALLOWED:
+        got = b.raw(cmd)
+        r.check(f"observer allowed `{cmd}`", not got.startswith("denied:"), got[:70])
+
+    print("--- role gating: agent and operator boundaries ---")
+    b.raw("auth role agent")
+    for cmd in ("snapshot save", "snapshot load", "purpose set nav", "purpose clear"):
+        got = b.raw(cmd)
+        r.check(f"agent allowed `{cmd}`", not got.startswith("denied:"), got[:70])
+    for cmd, need in (("snapshot clear", "admin"), ("led on", "operator")):
+        got = b.raw(cmd)
+        r.check(f"agent denied `{cmd}` -> {need}", got == f"denied: requires {need}", got)
+
+    b.raw("auth role operator")
+    for cmd in ("led status", "goonies read " + LIVE_CELL, f"tapestry signal {LIVE_CELL} 0"):
+        got = b.raw(cmd)
+        r.check(f"operator allowed `{cmd}`", not got.startswith("denied:"), got[:70])
+    for cmd, need in (("loom load AA", "admin"), ("aura clear", "admin")):
+        got = b.raw(cmd)
+        r.check(f"operator denied `{cmd}` -> {need}", got == f"denied: requires {need}", got)
+    b.raw("auth role admin")
+
+    print("--- tapestry: usage, trit range, sys guard ---")
+    r.check("bare tapestry prints usage", "tapestry signal" in b.raw("tapestry"), "")
+    r.check("missing state prints usage", "tapestry signal" in b.raw(f"tapestry signal {LIVE_CELL}"), "")
+    for bad in ("99", "-99", "2", "abc", "1abc", "0x1"):
+        got = b.raw(f"tapestry signal {LIVE_CELL} {bad}")
+        r.check(f"tapestry rejects state {bad!r}", "must be -1, 0 or 1" in got, got)
+
+    before = b.cell_state(SYS_CELL)
+    got = b.raw(f"tapestry signal {SYS_CELL} 1")
+    r.check("tapestry refuses a sys.* cell", "refusing to signal" in got, got)
+    r.check(f"sys cell unchanged ({before} -> {b.cell_state(SYS_CELL)})",
+            before == b.cell_state(SYS_CELL), before)
+    got = b.raw("tapestry signal sys.does.not.exist 1")
+    r.check("sys refusal precedes resolution", "refusing to signal" in got and "not found" not in got, got)
+
+    for state in ("1", "-1", "0"):
+        got = b.raw(f"tapestry signal {LIVE_CELL} {state}")
+        r.check(f"tapestry signals a non-sys cell ({state})", "Signal sent" in got, got)
+        r.check(f"cell state is {state}", b.cell_state(LIVE_CELL) == state, b.cell_state(LIVE_CELL))
+    b.raw(f"tapestry signal {LIVE_CELL} 0")
+
+    print("--- hex parsing: non-hex must be refused, not coerced to zero ---")
+    # `aura setkey` is the one with no downstream validation: these 16 bytes are
+    # the mesh HMAC key. Only rejections are exercised, so no key is ever written.
+    for bad, label in (
+        ("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", "all non-hex (the all-zero key)"),
+        ("deadbeefzzzzzzzzdeadbeefzzzzzzzz", "partial non-hex"),
+        ("0x0102030405060708090a0b0c0d0e0f", "0x prefix"),
+    ):
+        got = b.raw(f"aura setkey {bad}")
+        # The success message is "aura: key provisioned"; the refusal is
+        # "aura: key not provisioned", so match the success string exactly.
+        r.check(f"aura setkey refuses {label}",
+                "invalid hex" in got and "aura: key provisioned" not in got, got)
+    got = b.raw("aura setkey deadbeef")
+    r.check("aura setkey refuses wrong length", "expect 32 hex" in got, got)
+
+    for cmd, label in (("loom load", "loom load"), ("vm loadhex", "vm loadhex")):
+        got = b.raw(f"{cmd} zzzz")
+        r.check(f"{label} refuses non-hex", "invalid hex" in got, got)
+        got = b.raw(f"{cmd} abc")
+        r.check(f"{label} refuses odd length", "even" in got.lower(), got)
+        # Valid hex that is not a valid payload must reach the validator, not
+        # die in the parser — this is what distinguishes the two layers.
+        got = b.raw(f"{cmd} AABB")
+        r.check(f"{label} passes valid hex to the validator",
+                "invalid hex" not in got and got != "", got)
+
+    print("--- config usage ---")
+    r.check("bare config prints usage", "config <get" in b.raw("config"), "")
+    r.check("partial config set prints usage", "config <get" in b.raw("config set"), "")
+
+    print("--- help lists every documented command ---")
+    h = b.raw("help")
+    for name in ("tapestry", "kernel", "aura", "vitals", "auth", "loom", "mesh", "vm"):
+        r.check(f"help mentions `{name}`", name in h, "")
+
+    b.close()
+
+    if ReflexNode is not None:
+        print("--- SDK contract: AccessDenied (SECURITY.md 2) ---")
+        n = ReflexNode(port, timeout=3.0)
+        time.sleep(0.4)
+        n.cmd("auth role observer")
+        for cmd, need in (("reboot", "admin"), ("led on", "operator"), ("purpose set x", "agent")):
+            try:
+                out = n.cmd(cmd)
+                r.check(f"AccessDenied for `{cmd}`", False, f"no exception, returned {out!r}")
+            except AccessDenied as e:
+                r.check(f"AccessDenied for `{cmd}` -> {need}", f"requires {need}" in str(e), str(e))
+        n.cmd("auth role admin")
+        st = n.status()
+        r.check("SDK output carries no echo prefix", not st.startswith("status"), st[:60])
+        r.check("temp() parses", isinstance(n.temp(), float), "")
+        n.close()
+
+        g = ReflexNode(port, timeout=3.0, role="agent")
+        try:
+            g.cmd("reboot")
+            r.check("role='agent' constructor blocks reboot", False, "no exception")
+        except AccessDenied as e:
+            r.check("role='agent' constructor blocks reboot", "requires admin" in str(e), str(e))
+        g.cmd("auth role admin")
+        g.close()
+
+    print("--- board health ---")
+    b = Board(port)
+    b.raw("auth role admin")
+    b.raw("vitals clear")
+    b.raw("purpose clear")
+    st = b.raw("status")
+    r.check("board healthy", "reflex-os uptime" in st, st[:70])
+    for line in st.splitlines()[:2]:
+        print(f"       {line}")
+    b.close()
+
+
+def main():
+    ports = sys.argv[1:]
+    if not ports:
+        sys.exit(__doc__)
+    r = Results()
+    for port in ports:
+        validate(port, r)
+    print(f"\n=== {r.passed} passed, {r.failed} failed ===")
+    return 1 if r.failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,6 +1,6 @@
 /**
  * @file test_shell_policy.c
- * @brief Tests for the shell's role gating and operator-input parsing.
+ * @brief Tests for the shell's role gating.
  *
  * The role model in SECURITY.md §2 is enforced by exactly one function, and
  * until this suite existed that function lived in `shell.c` — a file the host
@@ -190,54 +190,12 @@ static void test_table(void) {
     CHECK("role name admin", strcmp(shell_role_names[ROLE_ADMIN], "admin") == 0);
 }
 
-/* --- Trit parsing ---
- * `tapestry signal` wrote atoi() straight into a three-value enum, so
- * `tapestry signal <cell> 99` stored 99. atoi() also maps "abc" to 0, a valid
- * trit, so a typo silently signalled zero. */
-static void test_parse_trit(void) {
-    int8_t v;
-
-    v = 42;
-    CHECK("parses -1", shell_parse_trit("-1", &v) && v == -1);
-    v = 42;
-    CHECK("parses 0", shell_parse_trit("0", &v) && v == 0);
-    v = 42;
-    CHECK("parses 1", shell_parse_trit("1", &v) && v == 1);
-    v = 42;
-    CHECK("parses +1", shell_parse_trit("+1", &v) && v == 1);
-
-    /* The defect: out-of-range values must not reach the enum. */
-    CHECK("rejects 99", !shell_parse_trit("99", &v));
-    CHECK("rejects -99", !shell_parse_trit("-99", &v));
-    CHECK("rejects 2", !shell_parse_trit("2", &v));
-    CHECK("rejects -2", !shell_parse_trit("-2", &v));
-
-    /* The silent-zero defect: non-numeric input must fail, not yield 0. */
-    CHECK("rejects abc", !shell_parse_trit("abc", &v));
-    CHECK("rejects empty", !shell_parse_trit("", &v));
-    CHECK("rejects 1abc", !shell_parse_trit("1abc", &v));
-    CHECK("rejects 0x1", !shell_parse_trit("0x1", &v));
-    CHECK("rejects whitespace only", !shell_parse_trit("  ", &v));
-    CHECK("rejects NULL", !shell_parse_trit(NULL, &v));
-
-    /* Overflow must not wrap into range. */
-    CHECK("rejects 4294967297", !shell_parse_trit("4294967297", &v));
-    CHECK("rejects 99999999999999999999", !shell_parse_trit("99999999999999999999", &v));
-
-    /* A rejected parse must leave the caller's variable alone — the shell
-     * declares `int8_t state;` uninitialised and relies on this. */
-    v = 7;
-    (void)shell_parse_trit("99", &v);
-    CHECK("failure leaves out untouched", v == 7);
-}
-
 int test_shell_policy(void) {
     printf("[shellpol] ");
     test_base_roles();
     test_escalation();
     test_fails_closed();
     test_table();
-    test_parse_trit();
     printf("ok\n");
     return s_fail;
 }

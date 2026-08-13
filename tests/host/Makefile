@@ -17,6 +17,7 @@ SRCS = test_main.c \
        test_lattice.c \
        test_registry.c \
        test_shell_policy.c \
+       test_shell_parse.c \
        mock_hal.c \
        mock_task.c \
        ../../vm/ternary.c \
@@ -28,6 +29,7 @@ SRCS = test_main.c \
        ../../components/goose/goose_lattice.c \
        ../../components/goose/goose_registry.c \
        ../../shell/shell_policy.c \
+       ../../shell/shell_parse.c \
        ../../kernel/reflex_sched.c \
        ../../platform/reflex_crypto.c
 

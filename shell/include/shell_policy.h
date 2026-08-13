@@ -55,17 +55,4 @@ size_t shell_policy_count(void);
 /** @brief Name of policy table entry @p i, or NULL if out of range. */
 const char *shell_policy_name(size_t i);
 
-/**
- * @brief Parse an operator-supplied balanced-ternary digit.
- *
- * `atoi("abc")` returns 0 — itself a valid trit — so a typo would silently
- * signal zero rather than report an error. Rejects trailing garbage, empty
- * input and anything outside {-1, 0, +1}.
- *
- * @param s   NUL-terminated input.
- * @param out Receives the parsed trit on success; untouched on failure.
- * @return true on success.
- */
-bool shell_parse_trit(const char *s, int8_t *out);
-
 #endif /* REFLEX_SHELL_POLICY_H */

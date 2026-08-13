@@ -68,8 +68,11 @@ make test
 
 **Expected output:**
 ```
-26 passed, 0 failed
+284 passed, 0 failed
 ```
+
+The passing count grows as tests are added, so don't worry if it is higher than
+this — `0 failed` is the part that matters.
 
 If this fails, check that you have `gcc` or `clang` installed. On macOS, `xcode-select --install` provides it. On Linux, `sudo apt install build-essential`.
 

@@ -3,7 +3,6 @@
  */
 #include "shell_policy.h"
 
-#include <stdlib.h>
 #include <string.h>
 
 const char *const shell_role_names[ROLE_COUNT] = {"observer", "agent", "operator", "admin"};
@@ -108,13 +107,4 @@ uint8_t shell_required_role(const char *cmd, int argc, char *argv[]) {
     uint8_t required = base_min_role(cmd);
     uint8_t sub_required = subcmd_min_role(cmd, argc, argv);
     return (sub_required > required) ? sub_required : required;
-}
-
-bool shell_parse_trit(const char *s, int8_t *out) {
-    if (!s || !out || *s == '\0') return false;
-    char *end;
-    long v = strtol(s, &end, 10);
-    if (end == s || *end != '\0' || v < -1 || v > 1) return false;
-    *out = (int8_t)v;
-    return true;
 }
