@@ -95,7 +95,12 @@ reflex_err_t reflex_service_stop_all(void)
 {
     REFLEX_RETURN_ON_FALSE(s_reflex_service_manager_ready, REFLEX_ERR_INVALID_STATE, "reflex.svc", "manager not ready");
 
-    /* Every service still gets its chance to stop — continuing past a failure
+    /* Note: nothing currently calls this. It is absent from reflex_os.elf,
+     * because no shutdown path is ever initiated — the fix below is defensive,
+     * for whenever one is. Kept symmetrical with reflex_service_start_all so
+     * the two cannot drift.
+     *
+     * Every service still gets its chance to stop — continuing past a failure
      * is right on a shutdown path — but the outcome is no longer discarded.
      * reflex_vm_task_stop can now report REFLEX_ERR_TIMEOUT when its task will
      * not retire, and swallowing that made a wedged service indistinguishable

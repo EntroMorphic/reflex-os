@@ -163,11 +163,17 @@ reflex_err_t reflex_vm_task_stop(reflex_vm_task_runtime_t *runtime)
 
     /* Bounded wait. This used to spin `while (runtime->handle != NULL)` with no
      * timeout, so anything that stopped the VM task from reaching the top of
-     * its loop hung the caller permanently — and reflex_vm_task_service_stop
-     * feeds reflex_service_stop_all, so that meant system shutdown never
-     * completing. A VM program only has to sit in a DELAY syscall to cause it;
-     * before the negative-delay fix in vm/syscall.c a single instruction could
-     * park the task for about 49 days and take shutdown with it.
+     * its loop hung the caller permanently. A VM program only has to sit in a
+     * DELAY syscall to cause it; before the negative-delay fix in
+     * vm/syscall.c a single instruction could park the task for ~49 days.
+     *
+     * Severity note, corrected after checking rather than assuming: this is
+     * reachable only through reflex_vm_task_service_stop, which is invoked
+     * only by reflex_service_stop_all — and nothing calls that. It is absent
+     * from reflex_os.elf entirely. So the hang was real in the code and not
+     * in any running system, because no shutdown path is ever initiated. An
+     * earlier version of this comment claimed it meant "system shutdown never
+     * completing", which overstated it.
      *
      * Timing out is reported rather than papered over: the task is still alive
      * and still owns its stack, which the caller needs to know. */
