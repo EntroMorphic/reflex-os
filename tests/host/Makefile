@@ -12,10 +12,14 @@ SRCS = test_main.c \
        test_kv.c \
        test_integration.c \
        test_policy.c \
+       test_vm_regress.c \
        mock_hal.c \
        mock_task.c \
        ../../vm/ternary.c \
        ../../components/goose/goose_policy.c \
+       ../../vm/cache.c \
+       ../../vm/loader.c \
+       ../../vm/mmu.c \
        ../../kernel/reflex_sched.c \
        ../../platform/esp32c6/reflex_crypto_esp32c6.c
 
