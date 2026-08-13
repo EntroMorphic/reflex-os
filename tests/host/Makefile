@@ -23,7 +23,7 @@ SRCS = test_main.c \
        ../../vm/mmu.c \
        ../../platform/reflex_log_format.c \
        ../../kernel/reflex_sched.c \
-       ../../platform/esp32c6/reflex_crypto_esp32c6.c
+       ../../platform/reflex_crypto.c
 
 OUT = build/reflex_test
 

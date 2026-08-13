@@ -5,7 +5,8 @@ Declared in `include/reflex_hal.h`, implemented in `platform/esp32c6/reflex_hal_
 ## What Survives
 
 - **NVS** -- all key-value data in "reflex" and "goose" namespaces.
-- **RTC RAM** -- variables marked `REFLEX_RTC_DATA_ATTR` survive on ESP32 targets.
+- **RTC RAM (ESP32-C6 only)** -- variables marked `REFLEX_RTC_DATA_ATTR` survive, because that target maps the attribute to `.rtc.data` in LP RAM. On the **classic ESP32 the attribute is empty and nothing survives**: `fabric_cells[]` alone needs 12288 bytes against 8168 usable bytes of RTC slow memory there, so the fabric is rebuilt from scratch on every wake. That is safe — `fabric_magic` reads as zero, so `goose_fabric_init` takes its cold-boot branch — but it is a rebuild, not a restore.
+- Cell **names** never survive on any target: `goonies_registry[]` is not RTC-attributed, so names are re-registered from the atlas weave on wake.
 - **LP AON registers** -- used to pass sleep magic/duration across reboot.
 
 ## What Is Lost

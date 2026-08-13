@@ -1,9 +1,17 @@
 /**
- * @file reflex_crypto_esp32c6.c
+ * @file reflex_crypto.c
  * @brief Reflex Crypto — standalone SHA-256 + HMAC (no mbedtls).
  *
  * FIPS 180-4 compliant SHA-256 and RFC 2104 HMAC-SHA-256.
  * Replaces the mbedtls dependency with ~150 lines of portable C.
+ *
+ * Shared by every platform backend. This existed as two byte-identical files,
+ * reflex_crypto_esp32c6.c and reflex_crypto_esp32.c, maintained separately —
+ * so a fix or a hardening applied to one would have silently diverged from the
+ * other, and the host suite compiled only the C6 copy, meaning a divergence
+ * would have been caught on neither target. Nothing in it is chip-specific:
+ * it is portable C, and it backs the Aura MAC that authenticates every mesh
+ * packet, which is not a place to keep two copies.
  */
 
 #include "reflex_crypto.h"

@@ -4,7 +4,7 @@ if(NOT "${IDF_TARGET}" STREQUAL "esp32")
 endif()
 
 set(REFLEX_PLATFORM_SRCS "../reflex_log_format.c" "reflex_hal_esp32.c" "reflex_kv_esp32.c"
-                        "reflex_crypto_esp32.c" "reflex_task_esp32.c"
+                        "../reflex_crypto.c" "reflex_task_esp32.c"
                         "reflex_radio_esp32.c")
 
 set(REFLEX_PLATFORM_REQUIRES driver nvs_flash log esp_timer esp_wifi)

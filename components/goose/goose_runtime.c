@@ -685,10 +685,29 @@ reflex_err_t goose_supervisor_weave_sync(void) {
         r->coupling = GOOSE_COUPLING_SOFTWARE;
         __atomic_store_n(&autonomy_field->route_count, new_idx + 1, __ATOMIC_RELEASE);
         goose_apply_route(r);
-        /* Snapshot names inside lock for deferred telemetry. */
-        const char *t_src = goonies_resolve_name_by_coord(r->source_coord);
-        const char *t_snk = goonies_resolve_name_by_coord(r->sink_coord);
+        /* Snapshot names inside the lock for deferred telemetry — but only if
+         * telemetry will actually consume them.
+         *
+         * Each goonies_resolve_name_by_coord is a linear scan of up to 256
+         * registry entries at nine trit comparisons apiece, roughly 95us, and
+         * both ran unconditionally. With telemetry disabled — the default —
+         * that was ~190us of the lock hold spent producing strings that
+         * TELEM_IF then discarded. Gating them on the same condition removes
+         * that from the common path entirely.
+         *
+         * They are also copied now rather than kept as pointers. The originals
+         * point into goonies_registry[], which eviction rewrites in place
+         * (goonies_registry[g] = goonies_registry[--goonies_count]), so a
+         * pointer read after the unlock could describe a different cell by the
+         * time telemetry formatted it. */
         char t_rname[16]; memcpy(t_rname, r->name, 16);
+        char t_src[40] = {0}, t_snk[40] = {0};
+        if (__builtin_expect(goose_telemetry_enabled, 0)) {
+            const char *src_n = goonies_resolve_name_by_coord(r->source_coord);
+            const char *snk_n = goonies_resolve_name_by_coord(r->sink_coord);
+            if (src_n) snprintf(t_src, sizeof(t_src), "%s", src_n);
+            if (snk_n) snprintf(t_snk, sizeof(t_snk), "%s", snk_n);
+        }
         goose_loom_unlock();
         TELEM_IF(goose_telem_weave(t_rname, t_src, t_snk));
     }

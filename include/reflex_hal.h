@@ -17,9 +17,25 @@ extern "C" {
 #endif
 
 /* --- RTC Memory Attribute ---
- * Platform-specific. On ESP32, this places data in RTC SLOW memory
- * that survives deep sleep. On other platforms, falls back to regular
- * static storage. */
+ * Defined per target by the platform CMakeLists, NOT here.
+ *
+ *   ESP32-C6  __attribute__((section(".rtc.data")))  -> LP RAM, survives sleep
+ *   ESP32     (empty)                                -> ordinary DRAM, does NOT
+ *   host      (empty)
+ *
+ * The classic ESP32 is empty because the data does not fit, not as an
+ * oversight. fabric_cells[] alone is 12288 bytes (256 x 48) against 8168 bytes
+ * of usable RTC slow memory on that chip — RTC fast is the same 8 KB and is
+ * PRO-CPU-only besides. Setting it there would fail the link on IDF's
+ * "RTC_SLOW segment data does not fit" assert rather than corrupt anything.
+ *
+ * An earlier version of this comment claimed the opposite ("On ESP32, this
+ * places data in RTC SLOW memory that survives deep sleep"), which was true of
+ * neither ESP32 target.
+ *
+ * Note that even on the C6 this buys less than it appears: goonies_registry[]
+ * holds the cell *names* and is not RTC-attributed on any target, so names are
+ * rebuilt from the atlas on every wake. */
 #ifndef REFLEX_RTC_DATA_ATTR
 #define REFLEX_RTC_DATA_ATTR
 #endif

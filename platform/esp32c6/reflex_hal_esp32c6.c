@@ -355,13 +355,36 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
 #define USJ_BASE      0x6000F000
 #define USJ_EP1_DATA  (USJ_BASE + 0x00)
 #define USJ_EP1_CONF  (USJ_BASE + 0x04)
+/* EP1_CONF bits, per soc/usb_serial_jtag_reg.h. */
+#define USJ_WR_DONE           (1U << 0)   /* W:  flush the IN endpoint      */
+#define USJ_IN_EP_DATA_FREE   (1U << 1)   /* RO: space left in the FIFO     */
+/* Spin budget per byte while waiting for FIFO space.
+ *
+ * The wait used to be unbounded. SERIAL_IN_EP_DATA_FREE only clears when the
+ * 64-byte IN endpoint is full, and it only frees again when a USB host drains
+ * it — so with no host attached, or one that has stopped reading, this looped
+ * forever and took the calling task with it. Every REFLEX_LOG* call and the
+ * 10Hz telemetry stream go through here, so a board running headless could
+ * wedge its supervisor on a log line.
+ *
+ * Console output is best-effort by nature: if nobody is listening, dropping
+ * the line is correct and hanging is not. */
+#define USJ_TX_SPIN_LIMIT     20000u
 
 static void usj_write_bytes(const char *data, int len) {
     for (int i = 0; i < len; i++) {
-        while (!(REG32_HAL(USJ_EP1_CONF) & (1U << 1))) {}
+        uint32_t spins = 0;
+        while (!(REG32_HAL(USJ_EP1_CONF) & USJ_IN_EP_DATA_FREE)) {
+            if (++spins > USJ_TX_SPIN_LIMIT) {
+                /* No reader. Flush whatever made it into the FIFO and drop the
+                 * rest of this line rather than blocking the caller forever. */
+                REG32_HAL(USJ_EP1_CONF) |= USJ_WR_DONE;
+                return;
+            }
+        }
         REG32_HAL(USJ_EP1_DATA) = (uint32_t)(uint8_t)data[i];
     }
-    REG32_HAL(USJ_EP1_CONF) |= (1U << 0);
+    REG32_HAL(USJ_EP1_CONF) |= USJ_WR_DONE;
 }
 
 void reflex_hal_write_raw(const char *data, int len) {
@@ -369,11 +392,20 @@ void reflex_hal_write_raw(const char *data, int len) {
 }
 
 void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
-    /* Shared across all callers and unguarded, so two tasks logging at once
-     * interleave. Kept static deliberately — 256 bytes of stack per call site
-     * is worse against the 2048-byte task stacks in this tree — but the
-     * reentrancy is a real limit, recorded in Known Gaps. */
-    static char log_buf[256];
+    /* On the stack, not static.
+     *
+     * A single shared static buffer meant two tasks logging concurrently
+     * clobbered each other's message: task A formats, task B formats over the
+     * top, task A then writes B's bytes. FreeRTOS preempts, so this is a real
+     * race and not a theoretical one.
+     *
+     * 192 bytes against the smallest task stack in the tree (2048, used by
+     * temp-poll and the bonsai experiments) is under 10%, and the longest line
+     * this firmware actually emits is around 110 characters — the atlas verify
+     * summary. Buying reentrancy for that is a better trade than a lock, which
+     * would have to be held across usj_write_bytes and therefore across a
+     * spin on a USB FIFO. */
+    char log_buf[192];
     const char *prefix;
     switch (level) {
         case REFLEX_LOG_LEVEL_ERROR: prefix = "E"; break;

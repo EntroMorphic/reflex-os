@@ -95,14 +95,33 @@ reflex_err_t reflex_service_stop_all(void)
 {
     REFLEX_RETURN_ON_FALSE(s_reflex_service_manager_ready, REFLEX_ERR_INVALID_STATE, "reflex.svc", "manager not ready");
 
+    /* Every service still gets its chance to stop — continuing past a failure
+     * is right on a shutdown path — but the outcome is no longer discarded.
+     * reflex_vm_task_stop can now report REFLEX_ERR_TIMEOUT when its task will
+     * not retire, and swallowing that made a wedged service indistinguishable
+     * from a clean one. Mirrors reflex_service_start_all. */
+    reflex_err_t first_err = REFLEX_OK;
+    size_t stopped = 0, failed = 0;
+
     for (int i = (int)s_reflex_service_count - 1; i >= 0; --i) {
         const reflex_service_desc_t *svc = s_reflex_services[i];
-        if (svc->stop != NULL) {
-            svc->stop(svc->context);
+        if (svc->stop == NULL) continue;
+
+        reflex_err_t err = svc->stop(svc->context);
+        if (err == REFLEX_OK) {
+            stopped++;
+        } else {
+            REFLEX_LOGE("reflex.svc", "service_stop_failed=%s rc=0x%x", svc->name, err);
+            if (first_err == REFLEX_OK) first_err = err;
+            failed++;
         }
     }
 
-    return REFLEX_OK;
+    if (failed > 0) {
+        REFLEX_LOGW("reflex.svc", "%u service(s) stopped, %u failed",
+                    (unsigned)stopped, (unsigned)failed);
+    }
+    return first_err;
 }
 
 #define WATCHDOG_BACKOFF_INIT_MS  1000
