@@ -372,6 +372,26 @@ change at once — and it means the marker's accuracy is only as good as the
 sweep for failure paths. Three were missed on the first pass and found by
 reading outcomes back off a live board.
 
+**Raising the bound moved the truncation, it did not remove it.** Past the
+line buffer the excess was dropped on the floor and the truncated line
+dispatched as though complete — silent truncation feeding parsers that had
+just been hardened against exactly that, and I moved the bound without
+touching it. An over-long line is now refused outright as `#R:-1,overflow`.
+
+**And the transport truncates before the shell can see it.** On the ESP32 the
+console reads through `getchar()` from a 128-byte hardware FIFO with no ring
+buffer, so a 1213-character line lost enough characters in transit that the
+shell never reached its own bound and dispatched the remainder happily —
+overflow detection that cannot fire is worse than none, because it reads as a
+guarantee. The UART console now installs a driver with an RX ring sized from
+`REFLEX_SHELL_LINE_MAX`, mirroring the USB-JTAG fix on the C6. Both targets now
+refuse at the same boundary, verified at 913 / 1022 / 1213 / 1513 / 2013
+characters.
+
+The pattern worth naming: three separate silent truncations in one feature —
+transport on C6, input loop on both, transport on ESP32 — each invisible to the
+layer above it. Every one was found by sending a real payload to a real board.
+
 The claim to keep honest: every outcome the hardware suite asserts is verified;
 unmarked paths still default to `+1,ok` and may be wrong. That is a known,
 bounded gap, not a finished job.

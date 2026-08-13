@@ -40,6 +40,7 @@ static void test_trits(void) {
     CHECK("guard is withheld", shell_outcome_trit(SHELL_GUARD) == -1);
     CHECK("notfound is withheld", shell_outcome_trit(SHELL_NOTFOUND) == -1);
     CHECK("failed is withheld", shell_outcome_trit(SHELL_FAILED) == -1);
+    CHECK("overflow is withheld", shell_outcome_trit(SHELL_OVERFLOW) == -1);
 
     /* The invariant the whole marker rests on. */
     int only_ok_engaged = 1;
@@ -70,6 +71,7 @@ static void test_names(void) {
     CHECK("name guard", strcmp(shell_outcome_name(SHELL_GUARD), "guard") == 0);
     CHECK("name notfound", strcmp(shell_outcome_name(SHELL_NOTFOUND), "notfound") == 0);
     CHECK("name failed", strcmp(shell_outcome_name(SHELL_FAILED), "failed") == 0);
+    CHECK("name overflow", strcmp(shell_outcome_name(SHELL_OVERFLOW), "overflow") == 0);
     CHECK("out-of-range name", strcmp(shell_outcome_name((shell_reason_t)99), "unknown") == 0);
 
     /* Names must be distinct, or a consumer cannot tell two reasons apart. */
@@ -103,6 +105,8 @@ static void test_format(void) {
     CHECK("format notfound", strcmp(b, "#R:-1,notfound") == 0);
     shell_outcome_format(b, sizeof(b), SHELL_FAILED);
     CHECK("format failed", strcmp(b, "#R:-1,failed") == 0);
+    shell_outcome_format(b, sizeof(b), SHELL_OVERFLOW);
+    CHECK("format overflow", strcmp(b, "#R:-1,overflow") == 0);
 
     /* Latent must be "0", never "+0" — a consumer scanning for a leading '+'
      * would read that as engaged. */

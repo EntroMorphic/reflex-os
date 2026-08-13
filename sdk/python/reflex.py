@@ -43,7 +43,7 @@ class Outcome(NamedTuple):
         -1  withheld  it did not — refused, rejected, or failed
 
     `reason` qualifies it with a stable token: ok, usage, none, denied,
-    invalid, guard, notfound, failed.
+    invalid, guard, notfound, failed, overflow.
 
     This exists because the alternative was reconstructing outcomes from
     English. `AccessDenied` used to fire on ``result.startswith("denied:")``,
@@ -94,60 +94,82 @@ class ReflexNode:
     def __exit__(self, *args):
         self.close()
 
+    def cmd_outcome(self, command: str, timeout: float = 3.0):
+        """Send a command; return ``(text, Outcome)`` from one locked exchange.
+
+        Prefer this over reading :attr:`last_outcome` after :meth:`cmd` when
+        more than one thread shares the node. ``cmd()`` is serialised by the
+        internal lock, but ``last_outcome`` is read *after* that lock is
+        released, so a concurrent call can overwrite it in between. Here both
+        values come back from the same critical section.
+
+        Outcome is None on firmware predating the `#R:` marker.
+        """
+        with self._lock:
+            return self._exchange(command, timeout)
+
     def cmd(self, command: str, timeout: float = 3.0) -> str:
         """Send a shell command and return the response.
 
         Reads until the prompt appears or timeout is reached.
         Thread-safe via internal lock.
+
+        The ternary outcome is also stored on :attr:`last_outcome`, which is
+        convenient single-threaded but racy across threads — use
+        :meth:`cmd_outcome` there.
         """
-        with self._lock:
-            self.ser.read(self.ser.in_waiting)
-            self.ser.write((command + "\n").encode())
-            buf = b""
-            deadline = time.time() + timeout
-            while time.time() < deadline:
-                chunk = self.ser.read(self.ser.in_waiting or 1)
-                if chunk:
-                    buf += chunk
-                    if PROMPT.encode() in buf:
-                        break
-                else:
-                    time.sleep(0.05)
-            text = buf.decode("utf-8", errors="replace")
-            # Strip the echo of the command and trailing prompt
-            lines = text.split("\n")
-            output = []
-            outcome = None
-            for line in lines:
-                stripped = line.strip()
-                if stripped == command.strip():
-                    continue
-                if stripped == PROMPT.strip():
-                    continue
-                if stripped.endswith(PROMPT.strip()):
-                    stripped = stripped[: -len(PROMPT.strip())].strip()
-                m = _RESULT_RE.match(stripped)
-                if m:
-                    # The machine-readable outcome. Consumed here rather than
-                    # returned, so callers see the same text as before.
-                    outcome = Outcome(int(m.group(1)), m.group(2))
-                    continue
-                if stripped:
-                    output.append(stripped)
-            result = "\n".join(output)
-            self.last_outcome = outcome
-            if outcome is not None:
-                # Only a role refusal is an access error. `invalid`, `guard`
-                # and the rest are ordinary results the caller inspects via
-                # `last_outcome`.
-                if outcome.reason == "denied":
-                    raise AccessDenied(result)
-            elif result.startswith("denied:"):
-                # Firmware predating the `#R:` marker. Kept so an older board
-                # still raises, rather than silently returning a refusal
-                # string the caller treats as success.
+        text, _ = self.cmd_outcome(command, timeout=timeout)
+        return text
+
+    def _exchange(self, command: str, timeout: float):
+        """The serial exchange itself. Caller must hold `self._lock`."""
+        self.ser.read(self.ser.in_waiting)
+        self.ser.write((command + "\n").encode())
+        buf = b""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            chunk = self.ser.read(self.ser.in_waiting or 1)
+            if chunk:
+                buf += chunk
+                if PROMPT.encode() in buf:
+                    break
+            else:
+                time.sleep(0.05)
+        text = buf.decode("utf-8", errors="replace")
+        # Strip the echo of the command and trailing prompt
+        lines = text.split("\n")
+        output = []
+        outcome = None
+        for line in lines:
+            stripped = line.strip()
+            if stripped == command.strip():
+                continue
+            if stripped == PROMPT.strip():
+                continue
+            if stripped.endswith(PROMPT.strip()):
+                stripped = stripped[: -len(PROMPT.strip())].strip()
+            m = _RESULT_RE.match(stripped)
+            if m:
+                # The machine-readable outcome. Consumed here rather than
+                # returned, so callers see the same text as before.
+                outcome = Outcome(int(m.group(1)), m.group(2))
+                continue
+            if stripped:
+                output.append(stripped)
+        result = "\n".join(output)
+        self.last_outcome = outcome
+        if outcome is not None:
+            # Only a role refusal is an access error. `invalid`, `guard`
+            # and the rest are ordinary results the caller inspects via
+            # `last_outcome`.
+            if outcome.reason == "denied":
                 raise AccessDenied(result)
-            return result
+        elif result.startswith("denied:"):
+            # Firmware predating the `#R:` marker. Kept so an older board
+            # still raises, rather than silently returning a refusal
+            # string the caller treats as success.
+            raise AccessDenied(result)
+        return result, outcome
 
     def auth(self, role: str) -> str:
         """Set the session role (observer, agent, operator, admin)."""

@@ -22,6 +22,7 @@ static const outcome_entry_t s_outcomes[] = {
     [SHELL_GUARD] = {"guard", -1},
     [SHELL_NOTFOUND] = {"notfound", -1},
     [SHELL_FAILED] = {"failed", -1},
+    [SHELL_OVERFLOW] = {"overflow", -1},
 };
 
 _Static_assert(sizeof(s_outcomes) / sizeof(s_outcomes[0]) == SHELL_REASON_COUNT,

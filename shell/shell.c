@@ -15,6 +15,9 @@
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
+#else
+#include "driver/uart.h"
+#include "driver/uart_vfs.h"
 #endif
 
 #include "reflex_types.h"
@@ -616,7 +619,7 @@ static void reflex_shell_goonies_find(const char *name) {
                name, (unsigned long)addr, (unsigned long)mask, type_str);
         return;
     }
-    printf("GOONIES: Failed to resolve '%s'\n", name);
+    printf("GOONIES: Failed to resolve '%s'\n", name); outcome(SHELL_NOTFOUND);
 }
 
 /* `atlas verify`: walk every entry in the shadow catalog, call
@@ -1435,7 +1438,7 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
 }
 
 void reflex_shell_run(void) {
-    char line[REFLEX_SHELL_LINE_MAX]; size_t len = 0;
+    char line[REFLEX_SHELL_LINE_MAX]; size_t len = 0; bool overflowed = false;
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
     if (!usb_serial_jtag_is_driver_installed()) {
         usb_serial_jtag_driver_config_t c = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
@@ -1448,6 +1451,17 @@ void reflex_shell_run(void) {
         usb_serial_jtag_driver_install(&c);
     }
     usb_serial_jtag_vfs_use_driver(); usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF); usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
+#else
+    /* UART console. Without a driver-managed ring buffer, getchar() reads
+     * straight out of the 128-byte hardware FIFO, and a line longer than the
+     * FIFO loses characters *before* the shell can see them — so the overflow
+     * guard below never trips and a truncated line dispatches as though
+     * complete. Same silent truncation the USB-JTAG RX sizing fixes on the
+     * C6, one layer lower. */
+    if (!uart_is_driver_installed(CONFIG_ESP_CONSOLE_UART_NUM)) {
+        uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, REFLEX_SHELL_LINE_MAX * 2, 0, 0, NULL, 0);
+        uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
+    }
 #endif
     printf("reflex> "); fflush(stdout);
     while (1) {
@@ -1456,6 +1470,7 @@ void reflex_shell_run(void) {
 #else
         int ch = getchar(); int r = (ch != EOF) ? 1 : 0;
 #endif
+
         if (r <= 0) { reflex_task_delay_ms(50); continue; }
         if (ch == '\n') {
             /* Echo the newline before dispatching. Without it the command's
@@ -1468,8 +1483,15 @@ void reflex_shell_run(void) {
              * though the command had succeeded. */
             putchar('\n'); fflush(stdout);
             line[len] = 0; char *argv[8]; int argc = 0;
-            char *t = strtok(line, " "); while(t && argc < 8) { argv[argc++] = t; t = strtok(NULL, " "); }
-            reflex_shell_dispatch(argc, argv);
+            if (overflowed) {
+                printf("input too long (max %d chars); line discarded\n",
+                       REFLEX_SHELL_LINE_MAX - 1);
+                outcome(SHELL_OVERFLOW);
+                argc = 1;   /* so the marker is emitted below */
+            } else {
+                char *t = strtok(line, " "); while(t && argc < 8) { argv[argc++] = t; t = strtok(NULL, " "); }
+                reflex_shell_dispatch(argc, argv);
+            }
             /* The machine-readable outcome, on its own line after the human
              * output. Additive: no existing message changes, so the Loom
              * Viewer and any prose-matching consumer keep working while the
@@ -1481,19 +1503,25 @@ void reflex_shell_run(void) {
                 shell_outcome_format(rbuf, sizeof(rbuf), s_outcome);
                 printf("%s\n", rbuf);
             }
-            len = 0; printf("\nreflex> "); fflush(stdout);
+            len = 0; overflowed = false; printf("\nreflex> "); fflush(stdout);
         } else if (ch == 0x08 || ch == 0x7F) {
             /* Backspace / DEL. Without this the byte was appended to the line
              * and echoed, so `statuX<DEL>s` dispatched as `statuX\x7fs` and a
              * typo cost the whole line — on the primary interface to this OS,
              * including while typing a 32-character Aura key by hand. */
             if (len > 0) { len--; printf("\b \b"); fflush(stdout); }
-        } else if (ch != '\r' && len < REFLEX_SHELL_LINE_MAX - 1) {
+        } else if (ch != '\r') {
             /* Bound is the buffer, not an arbitrary 255. That constant capped
              * `loom load` and `vm loadhex` — the only two ways to extend a
              * running board — at 122 bytes of payload, against memory already
-             * allocated. */
-            line[len++] = ch; putchar(ch); fflush(stdout);
+             * allocated.
+             *
+             * Past the bound the excess used to be dropped on the floor and
+             * the truncated line dispatched as though complete — silent
+             * truncation feeding parsers that had just been hardened against
+             * exactly that. Now the line is marked and refused. */
+            if (len < REFLEX_SHELL_LINE_MAX - 1) { line[len++] = ch; putchar(ch); fflush(stdout); }
+            else { overflowed = true; }
         }
     }
 }

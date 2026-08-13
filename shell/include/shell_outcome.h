@@ -41,6 +41,7 @@ typedef enum {
     SHELL_GUARD,    /**< -1 — refused by a policy guard (sanctuary, `sys.*`). */
     SHELL_NOTFOUND, /**< -1 — the named target does not exist. */
     SHELL_FAILED,   /**< -1 — attempted and did not succeed. */
+    SHELL_OVERFLOW, /**< -1 — the input line exceeded the buffer and was discarded. */
     SHELL_REASON_COUNT
 } shell_reason_t;
 

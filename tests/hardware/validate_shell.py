@@ -345,6 +345,21 @@ def validate(port, r):
         r.check(f"...and a {nbytes}-byte bad image reports failed",
                 b.last_outcome == (-1, "failed"), b.last_outcome)
 
+    print("--- over-long input is refused, not silently truncated ---")
+    # Past the line buffer the excess used to be dropped and the truncated
+    # line dispatched as though complete. For `loom load` that would have fed
+    # a *partial* fragment to a parser hardened against exactly this.
+    for n, want_overflow in ((900, False), (1009, False), (1200, True), (2000, True)):
+        b.raw("goonies find " + ("A" * n), timeout=15.0)
+        got = b.last_outcome
+        if want_overflow:
+            r.check(f"a {13 + n}-char line is refused as overflow",
+                    got == (-1, "overflow"), got)
+        else:
+            r.check(f"a {13 + n}-char line still dispatches",
+                    got is not None and got != (-1, "overflow"), got)
+    r.check("board still responsive after overflow", "uptime" in b.raw("status"), "")
+
     print("--- config usage ---")
     r.check("bare config prints usage", "config <get" in b.raw("config"), "")
     r.check("partial config set prints usage", "config <get" in b.raw("config set"), "")
