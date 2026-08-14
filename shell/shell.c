@@ -47,6 +47,7 @@
 /* Defined with the session state below, forward-declared here because the
  * config helpers near the top of this file report outcomes too. */
 static void outcome(shell_reason_t r);
+static bool extra_args(int argc, int expected);
 #include "goose.h"
 #include "esp_system.h"
 #include "goose_telemetry.h"
@@ -492,6 +493,7 @@ static void reflex_shell_bonsai_gvm_test(void) {
 
     if (reflex_vm_load_image(&gvm, &image) != REFLEX_OK) {
         printf("Error: Failed to load GVM image.\n");
+        outcome(SHELL_FAILED);
         return;
     }
 
@@ -541,7 +543,7 @@ static void reflex_shell_bonsai_weave_test(void) {
     if (goose_weave_fragment(GOOSE_FRAGMENT_GATE, "clash", base1, NULL) != REFLEX_OK) {
         printf("Success: Weaver prevented coordinate collision.\n");
     } else {
-        printf("Error: Weaver failed to detect collision!\n");
+        printf("Error: Weaver failed to detect collision!\n"); outcome(SHELL_FAILED);
     }
 }
 
@@ -689,6 +691,9 @@ static void reflex_shell_atlas_verify(void) {
                (unsigned long)first_failure_idx,
                shadow_map[first_failure_idx].name);
     }
+    /* A verify that found duplicates or failures did not do the thing it was
+     * asked to confirm, whatever it printed. */
+    if (failed > 0 || duplicates > 0) outcome(SHELL_FAILED);
 }
 
 static void reflex_shell_loom_bloat_test(void) {
@@ -741,6 +746,19 @@ static uint8_t s_session_role = ROLE_ADMIN;
  * Reset per dispatch, reported as `#R:<trit>,<reason>` afterwards. */
 static shell_reason_t s_outcome = SHELL_OK;
 static void outcome(shell_reason_t r) { s_outcome = r; }
+
+/* The tokenizer splits on spaces and there is no quoting, so a command handed
+ * more arguments than it consumes has lost operator intent rather than gained
+ * anything: `purpose set my purpose` stored the name "my", discarded the rest,
+ * and reported success. Refusing is the only honest answer until arguments can
+ * contain spaces. @p expected counts argv[0]. */
+static bool extra_args(int argc, int expected) {
+    if (argc <= expected) return false;
+    printf("too many arguments: expected %d, got %d "
+           "(arguments cannot contain spaces)\n", expected - 1, argc - 1);
+    outcome(SHELL_INVALID);
+    return true;
+}
 
 typedef struct {
     const char *name;
@@ -896,8 +914,8 @@ static void shell_cmd_goonies_read(const char *name) {
 
 static void shell_cmd_goonies(int argc, char *argv[]) {
     if (argc >= 2 && strcmp(argv[1], "ls") == 0) reflex_shell_loom_list();
-    else if (argc >= 3 && strcmp(argv[1], "find") == 0) reflex_shell_goonies_find(argv[2]);
-    else if (argc >= 3 && strcmp(argv[1], "read") == 0) shell_cmd_goonies_read(argv[2]);
+    else if (argc >= 3 && strcmp(argv[1], "find") == 0) { if (extra_args(argc, 3)) return; reflex_shell_goonies_find(argv[2]); }
+    else if (argc >= 3 && strcmp(argv[1], "read") == 0) { if (extra_args(argc, 3)) return; shell_cmd_goonies_read(argv[2]); }
 }
 
 static void shell_cmd_atlas(int argc, char *argv[]) {
@@ -1031,6 +1049,7 @@ static void shell_cmd_loom_evictions(void) {
 
 static void shell_cmd_loom(int argc, char *argv[]) {
     if (argc >= 3 && strcmp(argv[1], "load") == 0) {
+        if (extra_args(argc, 3)) return;
         shell_cmd_loom_load(argv[2]);
         return;
     }
@@ -1044,11 +1063,15 @@ static void shell_cmd_loom(int argc, char *argv[]) {
     }
     if (argc >= 2 && strcmp(argv[1], "list") == 0) {
         reflex_shell_loom_list();
+        return;
     }
+    printf("loom <list|fragments|evictions|load <hex>>\n");
+    outcome(SHELL_USAGE);
 }
 
 static void shell_cmd_tapestry(int argc, char *argv[]) {
     if (argc >= 4 && strcmp(argv[1], "signal") == 0) {
+        if (extra_args(argc, 4)) return;
         reflex_shell_tapestry_signal(argv[2], argv[3]);
     } else {
         printf("tapestry signal <cell> <-1|0|1>\n"); outcome(SHELL_USAGE);
@@ -1062,8 +1085,8 @@ static void shell_cmd_services(int argc, char *argv[]) {
 }
 
 static void shell_cmd_config(int argc, char *argv[]) {
-    if (argc >= 3 && strcmp(argv[1], "get") == 0) reflex_shell_config_get(argv[2]);
-    else if (argc >= 4 && strcmp(argv[1], "set") == 0) reflex_shell_config_set(argv[2], argv[3]);
+    if (argc >= 3 && strcmp(argv[1], "get") == 0) { if (extra_args(argc, 3)) return; reflex_shell_config_get(argv[2]); }
+    else if (argc >= 4 && strcmp(argv[1], "set") == 0) { if (extra_args(argc, 4)) return; reflex_shell_config_set(argv[2], argv[3]); }
     else { printf("config <get <key>|set <key> <value>>\n"); outcome(SHELL_USAGE); }
 }
 
@@ -1091,6 +1114,7 @@ static void shell_cmd_snapshot(int argc, char *argv[]) {
 
 static void shell_cmd_purpose(int argc, char *argv[]) {
     if (argc >= 3 && strcmp(argv[1], "set") == 0) {
+        if (extra_args(argc, 3)) return;
         goose_cell_t *p = goonies_resolve_cell("sys.purpose");
         if (!p) {
             reflex_tryte9_t coord = goose_make_coord(0, 0, 2);
@@ -1135,6 +1159,7 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         reflex_hal_mac_read(mac);
         printf("mac=%02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     } else if (argc >= 3 && strcmp(argv[1], "emit") == 0) {
+        if (extra_args(argc, 3)) return;
         goose_cell_t *c = goonies_resolve_cell("agency.led.intent");
         if (!c) { printf("mesh emit: agency.led.intent not resolved\n"); outcome(SHELL_NOTFOUND); return; }
         int8_t req;
@@ -1154,6 +1179,7 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         reflex_err_t rc = goose_atmosphere_emit_arc(&tx);
         printf("mesh emit: state=%d rc=0x%x\n", (int)tx.state, rc);
     } else if (argc >= 3 && strcmp(argv[1], "query") == 0) {
+        if (extra_args(argc, 3)) return;
         reflex_err_t rc = goose_atmosphere_query(argv[2]);
         printf("mesh query: name=%s rc=0x%x\n", argv[2], rc);
     } else if (argc >= 4 && strcmp(argv[1], "posture") == 0) {
@@ -1162,6 +1188,7 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
          * moved a peer by 396 against a threshold of 10 — a one-packet
          * consensus flip, which is precisely what the inertial hysteresis in
          * SECURITY.md 7 exists to prevent. */
+        if (extra_args(argc, 4)) return;
         int8_t state;
         long weight_in;
         if (!shell_parse_trit(argv[2], &state)) {
@@ -1193,6 +1220,7 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         printf("malformed=%lu\n", (unsigned long)s.rx_malformed);
     } else if (argc >= 4 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "add") == 0) {
         if (argc < 5) { printf("mesh peer add <name> <mac_hex>\n"); outcome(SHELL_USAGE); return; }
+        if (extra_args(argc, 5)) return;
         const char *pname = argv[3];
         const char *hex = argv[4];
         uint8_t mac[6];
@@ -1255,6 +1283,7 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
 
 static void shell_cmd_aura(int argc, char *argv[]) {
     if (argc >= 3 && strcmp(argv[1], "setkey") == 0) {
+        if (extra_args(argc, 3)) return;
         const char *hex = argv[2];
         if (strlen(hex) != 32) { printf("aura: expect 32 hex chars (16 bytes)\n"); outcome(SHELL_INVALID); return; }
         /* Nothing downstream validates these 16 bytes — they *are* the mesh
@@ -1286,8 +1315,9 @@ static void shell_cmd_vm(int argc, char *argv[]) {
                (unsigned long)reflex_shell_vm.steps_executed,
                reflex_shell_vm_loaded ? "loaded" : "none");
     } else if (argc >= 3 && strcmp(argv[1], "run") == 0) {
+        if (extra_args(argc, 3)) return;
         const vm_program_t *prog = vm_program_find(argv[2]);
-        if (!prog) { printf("vm run: program '%s' not found\n", argv[2]); return; }
+        if (!prog) { printf("vm run: program '%s' not found\n", argv[2]); outcome(SHELL_NOTFOUND); return; }
         reflex_err_t rc = reflex_vm_load_binary(&reflex_shell_vm, prog->data, prog->len);
         if (rc != REFLEX_OK) { printf("vm run: load failed rc=0x%x\n", rc); outcome(SHELL_FAILED); return; }
         reflex_shell_vm_loaded = true;
@@ -1306,6 +1336,7 @@ static void shell_cmd_vm(int argc, char *argv[]) {
             if (p) printf("  %s (%u bytes)\n", p->name, (unsigned)p->len);
         }
     } else if (argc >= 3 && strcmp(argv[1], "loadhex") == 0) {
+        if (extra_args(argc, 3)) return;
         size_t hlen = strlen(argv[2]);
         if (hlen < 2 || (hlen & 1)) { printf("vm loadhex: even hex string required\n"); outcome(SHELL_INVALID); return; }
         size_t blen = hlen / 2;
@@ -1324,6 +1355,7 @@ static void shell_cmd_vm(int argc, char *argv[]) {
 
 static void shell_cmd_vitals(int argc, char *argv[]) {
     if (argc >= 4 && strcmp(argv[1], "override") == 0) {
+        if (extra_args(argc, 4)) return;
         int8_t state;
         if (!shell_parse_trit(argv[3], &state)) { printf("state must be -1, 0 or 1\n"); outcome(SHELL_INVALID); return; }
 
@@ -1372,6 +1404,7 @@ static void shell_cmd_telemetry(int argc, char *argv[]) {
 
 static void shell_cmd_auth(int argc, char *argv[]) {
     if (argc >= 3 && strcmp(argv[1], "role") == 0) {
+        if (extra_args(argc, 3)) return;
         for (int i = 0; i <= ROLE_ADMIN; i++) {
             if (strcmp(argv[2], shell_role_names[i]) == 0) {
                 s_session_role = (uint8_t)i;
@@ -1482,15 +1515,17 @@ void reflex_shell_run(void) {
              * so a role-restricted caller got a string back and carried on as
              * though the command had succeeded. */
             putchar('\n'); fflush(stdout);
-            line[len] = 0; char *argv[8]; int argc = 0;
+            line[len] = 0;
+            bool dispatched = false;
             if (overflowed) {
                 printf("input too long (max %d chars); line discarded\n",
                        REFLEX_SHELL_LINE_MAX - 1);
                 outcome(SHELL_OVERFLOW);
-                argc = 1;   /* so the marker is emitted below */
+                dispatched = true;
             } else {
+                char *argv[8]; int argc = 0;
                 char *t = strtok(line, " "); while(t && argc < 8) { argv[argc++] = t; t = strtok(NULL, " "); }
-                reflex_shell_dispatch(argc, argv);
+                if (argc > 0) { reflex_shell_dispatch(argc, argv); dispatched = true; }
             }
             /* The machine-readable outcome, on its own line after the human
              * output. Additive: no existing message changes, so the Loom
@@ -1498,7 +1533,7 @@ void reflex_shell_run(void) {
              * SDK moves onto the marker. Suppressed for a bare newline, which
              * is not a command and should stay silent for someone at a
              * terminal. */
-            if (argc > 0) {
+            if (dispatched) {
                 char rbuf[32];
                 shell_outcome_format(rbuf, sizeof(rbuf), s_outcome);
                 printf("%s\n", rbuf);

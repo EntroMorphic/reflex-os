@@ -345,6 +345,36 @@ def validate(port, r):
         r.check(f"...and a {nbytes}-byte bad image reports failed",
                 b.last_outcome == (-1, "failed"), b.last_outcome)
 
+    print("--- extra arguments are refused, not silently dropped ---")
+    # `purpose set my purpose` used to store "my", discard the rest, and report
+    # success — silent truncation plus a false +1,ok. There is no quoting, so
+    # refusing is the only honest answer.
+    for cmd in ("purpose set my purpose", "config set a b c", "goonies find a b",
+                f"tapestry signal {LIVE_CELL} 1 extra", "auth role admin extra",
+                "mesh emit 1 extra", "mesh posture 1 4 extra",
+                "loom load AABB extra", "vitals override temp 1 extra",
+                "aura setkey 000102030405060708090a0b0c0d0e0f extra"):
+        got = b.raw(cmd)
+        r.check(f"`{cmd}` refused",
+                "too many arguments" in got and b.last_outcome == (-1, "invalid"),
+                (got[:60], b.last_outcome))
+    r.check("a refused `purpose set` did not take effect",
+            "inactive" in b.raw("purpose get"), "")
+    b.raw("auth role admin")
+
+    # ...and the arity check must not reject valid invocations.
+    for cmd in ("purpose set nav", "purpose clear", "config get log_level",
+                f"goonies find {LIVE_CELL}", f"tapestry signal {LIVE_CELL} 0",
+                "mesh emit 1", "mesh posture 1 4", "loom fragments"):
+        b.raw(cmd)
+        r.check(f"`{cmd}` still accepted", b.last_outcome == (1, "ok"), b.last_outcome)
+
+    b.raw("vm run definitely_not_a_program")
+    r.check("vm run on an unknown program -> notfound",
+            b.last_outcome == (-1, "notfound"), b.last_outcome)
+    b.raw("")
+    r.check("a bare newline emits no marker", b.last_outcome is None, b.last_outcome)
+
     print("--- over-long input is refused, not silently truncated ---")
     # Past the line buffer the excess used to be dropped and the truncated
     # line dispatched as though complete. For `loom load` that would have fed

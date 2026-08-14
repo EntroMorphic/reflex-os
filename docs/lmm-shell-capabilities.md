@@ -392,6 +392,15 @@ The pattern worth naming: three separate silent truncations in one feature —
 transport on C6, input loop on both, transport on ESP32 — each invisible to the
 layer above it. Every one was found by sending a real payload to a real board.
 
+**Decision 7 did not ship with the rest of Phase 1.** "Make silent truncation
+loud" was listed among the eight key decisions and was the one I missed, while
+reporting Phase 1 as landed. `purpose set my purpose` went on storing `my`,
+discarding the remainder, and reporting `#R:+1,ok` — silent truncation and a
+false success, inside the feature built to eliminate exactly that pair. Sixteen
+operand-taking commands now refuse extra tokens. The lesson is not about the
+shell: a plan is not evidence, and "Phase 1 shipped" should have been a checked
+claim rather than a remembered one.
+
 The claim to keep honest: every outcome the hardware suite asserts is verified;
 unmarked paths still default to `+1,ok` and may be wrong. That is a known,
 bounded gap, not a finished job.
