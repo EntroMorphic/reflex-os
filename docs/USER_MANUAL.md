@@ -198,11 +198,40 @@ temp=28.5C state=0
 |---------|-------------|
 | `goonies ls` | List all registered cell names |
 | `goonies find <name>` | Look up a cell by name (live, shadow, or phantom) |
+| `goonies read <name>` | Read the live MMIO register behind a named cell (operator; sanctuary addresses are refused) |
 | `atlas verify` | Verify shadow atlas integrity (12,738 entries) |
 
 ```
 reflex> goonies find agency.led.intent
 agency.led.intent coord=(0,0,1) state=0 type=5 [live]
+```
+
+### The Loom
+
+The Loom is the live cell table — the subset of the fabric currently resident
+in RAM, as opposed to the 12,738-entry shadow catalog that is only paged in on
+demand.
+
+| Command | Description |
+|---------|-------------|
+| `loom list` | List live cells with coordinate, namespace, state and type |
+| `loom fragments` | Count active LoomScript fragments |
+| `loom evictions` | Recent eviction victims and the running total |
+| `loom load <hex>` | Weave a LoomScript fragment from hex (admin) |
+| `tapestry signal <cell> <state>` | Write a ternary state directly into a live cell, for driving a route on the bench without waiting on hardware (operator) |
+| `kernel` | Per-field ternary scheduling stance — engaged `+1` / latent `0` / withheld `-1` — plus the aggregate at `sys.kernel.disposition` |
+
+`tapestry signal` refuses `sys.*` cells. Supervisor state belongs to the OS,
+and a hand-signalled disposition is indistinguishable downstream from one the
+kernel policy layer actually derived — the same rule the mesh applies to remote
+writes.
+
+```
+reflex> tapestry signal agency.led.intent 1
+Signal sent to Tapestry: agency.led.intent = 1
+
+reflex> tapestry signal sys.kernel.disposition 1
+tapestry: refusing to signal 'sys.kernel.disposition' — sys.* belongs to the supervisor
 ```
 
 ### Mesh
@@ -233,7 +262,8 @@ agency.led.intent coord=(0,0,1) state=0 type=5 [live]
 |---------|-------------|
 | `config get <key>` | Read a config value |
 | `config set <key> <value>` | Write a config value |
-| `aura setkey <hex>` | Set the mesh authentication key (16 bytes hex) |
+| `aura setkey <hex>` | Set the mesh authentication key (32 hex chars = 16 bytes). Non-hex input is refused rather than decoded as zeroes. |
+| `aura clear` | Erase the key and return the board to isolation. A fresh random per-board key is generated on the next boot — this does **not** restore a previously shared key. |
 
 ```
 reflex> config set wifi_ssid MyNetwork
@@ -252,6 +282,15 @@ reflex> reboot
 | `vm loadhex <hex>` | Load a packed binary image from hex string |
 | `tasm.py --upload <port>` | Compile and send a .tasm program without reflashing (host tool) |
 
+> **`vm run` blocks the shell.** The VM executes synchronously in the shell
+> task for up to 100,000 steps. A program that calls the `log` syscall each
+> iteration is rate-limited by the serial write — roughly two lines a second —
+> so `vm run blink` can leave the board unresponsive for something like an
+> hour. `vm stop` does not help, because the shell is *inside* `vm run` and
+> never returns to read it; neither does `reboot`. Recovery is a hardware
+> reset (the RST button, or toggling DTR/RTS) or a reflash. See the Known Gaps
+> section of [`implementation-status.md`](implementation-status.md).
+
 ### Debug
 
 | Command | Description |
@@ -264,6 +303,54 @@ reflex> reboot
 | `bonsai <exp> <start\|status>` | Bonsai hardware experiments (exp1-exp5, runtime) |
 | `auth` | Show current session role (observer, agent, operator, admin) |
 | `auth role <role>` | Set session capability ceiling. Commands requiring a higher role are denied. Default: admin. |
+
+### Input Rules
+
+The shell has a deliberately small grammar, and knowing its edges saves
+confusion:
+
+- **One command per line, up to 1023 characters.** A longer line is refused
+  outright rather than truncated — the excess used to be dropped silently and
+  the remainder executed as though complete.
+- **No quoting.** Arguments cannot contain spaces. `purpose set my photography`
+  is three arguments, not two, and is refused: it used to store `my` and
+  discard the rest without a word.
+- **Backspace and DEL work.** They previously landed in the buffer as literal
+  bytes, so a typo cost the whole line.
+- **Up to eight tokens per command.**
+
+### Command Outcomes
+
+Every command prints a machine-readable result on its own line after its
+human-readable output:
+
+```
+reflex> status
+reflex-os uptime=41.6s purpose=(none) led=off mac=b4:3a:45:8a:c8:24 peers=1
+...
+#R:+1,ok
+```
+
+The trit answers one question — *did the intended state change occur?*
+
+| Marker | Meaning |
+|--------|---------|
+| `#R:+1,ok` | The command did the thing |
+| `#R:0,usage` | Malformed invocation; usage printed, nothing done |
+| `#R:0,none` | Ran, but there was nothing to report or act on |
+| `#R:-1,denied` | Refused by the role gate |
+| `#R:-1,invalid` | Operator input rejected by a parser |
+| `#R:-1,guard` | Refused by a policy guard (sanctuary, `sys.*`) |
+| `#R:-1,notfound` | The named target does not exist |
+| `#R:-1,failed` | Attempted and did not succeed |
+| `#R:-1,overflow` | The input line exceeded the buffer and was discarded |
+
+This is strictly more informative than a success/failure flag, and the
+difference matters most for the case the role system exists to serve: a script
+or agent running under `role="agent"` has to tell *"I was refused"* from
+*"I ran and had nothing to report"*. The Python SDK consumes the marker,
+exposes it as `node.last_outcome`, and raises `AccessDenied` on
+`#R:-1,denied`. You can ignore it entirely at a terminal.
 
 ---
 

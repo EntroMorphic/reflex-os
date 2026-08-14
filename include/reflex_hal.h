@@ -69,6 +69,12 @@ void     reflex_hal_delay_us(uint32_t us);
 reflex_err_t reflex_hal_gpio_init_output(uint32_t pin);
 reflex_err_t reflex_hal_gpio_init_input(uint32_t pin, bool pullup);
 reflex_err_t reflex_hal_gpio_set_level(uint32_t pin, int level);
+/**
+ * @brief Read a GPIO input level.
+ * @return 1 or 0 — and **0 for an out-of-range pin**, which is
+ *         indistinguishable from a genuine low. Validate the pin number
+ *         before calling if the difference matters.
+ */
 int          reflex_hal_gpio_get_level(uint32_t pin);
 reflex_err_t reflex_hal_gpio_connect_out(uint32_t out_pin, uint32_t signal,
                                          bool invert, bool enable);
@@ -79,9 +85,23 @@ void reflex_hal_reboot(void);
 
 #define REFLEX_SLEEP_WAKEUP_UNDEFINED 0
 
+/** @brief Why the last boot happened — used to tell a cold boot from a
+ *  deep-sleep wake, which is what decides whether the fabric is re-seeded. */
 int  reflex_hal_sleep_wakeup_cause(void);
+/**
+ * @brief Enter deep sleep for @p duration_us. **Does not return.**
+ *
+ * On the ESP32-C6 this is a true deep sleep with an LP-timer wakeup. On
+ * targets without one it stores the duration in an always-on register and
+ * reboots, so either way execution does not continue past this call.
+ */
 void reflex_hal_sleep_enter(uint64_t duration_us);
+/** @brief Fill @p buf with hardware entropy. Used for the per-board Aura key
+ *  and for arc nonces, so it must be a real RNG rather than a PRNG seeded at
+ *  a predictable point in boot. */
 void reflex_hal_random_fill(uint8_t *buf, size_t len);
+/** @brief Read the factory MAC. Doubles as this board's mesh identity, so it
+ *  is what self-arc suppression and the peer table compare against. */
 reflex_err_t reflex_hal_mac_read(uint8_t mac[6]);
 
 /* --- Temperature Sensor --- */

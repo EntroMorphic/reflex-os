@@ -1,6 +1,20 @@
 #ifndef REFLEX_TUNING_H
 #define REFLEX_TUNING_H
 
+/**
+ * @file reflex_tuning.h
+ * @brief Every tunable constant the substrate reasons with, in one place.
+ *
+ * These are policy, not implementation detail: pulse divisors, swarm consensus
+ * thresholds, replay window, metabolic limits. They live together so a change
+ * to one can be weighed against the others it interacts with — the swarm
+ * threshold and the per-packet weight cap only make sense read as a pair, and
+ * the metabolic isolation count is derived from the discovery divisor rather
+ * than chosen independently.
+ *
+ * Each is overridable with `-D` so a build can retune without editing source.
+ */
+
 /* Supervisor pulse rates (divisors at 10Hz base)
  *
  * Consumed as `if (++div >= N) { run(); div = 0; }`, which fires on exactly the

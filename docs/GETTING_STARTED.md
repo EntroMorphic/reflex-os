@@ -68,7 +68,7 @@ make test
 
 **Expected output:**
 ```
-284 passed, 0 failed
+350 passed, 0 failed
 ```
 
 The passing count grows as tests are added, so don't worry if it is higher than

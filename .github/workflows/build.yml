@@ -34,17 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check markdown links
-        run: |
-          # Verify all doc links in README resolve to real files
-          grep -oP '\[.*?\]\((.*?)\)' README.md | grep -oP '\((.*?)\)' | tr -d '()' | while read link; do
-            # Skip URLs and anchors
-            case "$link" in http*|'#'*) continue ;; esac
-            if [ ! -e "$link" ]; then
-              echo "BROKEN LINK: $link"
-              exit 1
-            fi
-          done
-          echo "All README links valid."
+        run: python3 tools/check_doc_links.py
 
   build-esp32c6:
     runs-on: ubuntu-latest

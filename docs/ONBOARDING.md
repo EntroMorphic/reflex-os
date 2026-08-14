@@ -13,7 +13,8 @@ cd reflex-os
 
 ```bash
 make test
-# Expected: 26 passed, 0 failed
+# Expected: "<N> passed, 0 failed" — the count grows as tests are added;
+# "0 failed" is the part that matters.
 ```
 
 If this passes, your toolchain is working.

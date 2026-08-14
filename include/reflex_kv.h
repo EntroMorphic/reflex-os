@@ -17,6 +17,23 @@ extern "C" {
 
 typedef void *reflex_kv_handle_t;
 
+/**
+ * Contract for the accessors below, none of which is inferable from the names:
+ *
+ * - **Handles**: `open` yields a handle that must be released with `close`,
+ *   including on the error paths of whatever you do in between. `readonly`
+ *   opens for reading only; a namespace that does not exist is an error rather
+ *   than an implicit create.
+ * - **`len` is in/out** on `get_str` and `get_blob`. Set it to the capacity of
+ *   your buffer before the call; on success it is overwritten with the size of
+ *   the value actually read. `get_str` values carry their own terminator
+ *   because `set_str` stores `strlen + 1`.
+ * - **`commit` is required for portability, and is a no-op on the ESP flash
+ *   backend**, whose `set_*` calls already write through. Do not read the
+ *   ESP behaviour as a guarantee: another backend may buffer.
+ * - **Errors are returned, never asserted.** A missing key is
+ *   `REFLEX_ERR_NOT_FOUND`, not a fatal condition.
+ */
 reflex_err_t reflex_kv_init(void);
 
 reflex_err_t reflex_kv_open(const char *ns, bool readonly,
