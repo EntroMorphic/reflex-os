@@ -16,6 +16,11 @@ NON-DESTRUCTIVE BY CONSTRUCTION. It deliberately never:
     restoring the old one, so either would silently un-pair a working bench.
     Only the *rejection* path is exercised, which by definition writes nothing.
   * reboots, sleeps, or loads a VM image or Loom fragment that could take.
+  * runs a valid VM program. `vm run` executes the VM synchronously in the
+    shell task for up to 100,000 steps, and a program that logs each iteration
+    blocks on the serial write at ~2 lines/sec — the board stops answering for
+    something like an hour and `vm stop` is unreachable, because the shell is
+    inside `vm run`. Only `vm run <unknown-name>` is exercised here.
   * leaves the session role, vitals overrides or purpose changed.
 
 Requires pyserial. Exits non-zero if any check fails.

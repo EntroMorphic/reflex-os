@@ -28,6 +28,30 @@ def _sanitize(value: str) -> str:
     return re.sub(r"[\x00-\x1f\x7f]", "", value)
 
 
+def _token(value: str, field: str) -> str:
+    """Sanitize a single-token argument, rejecting embedded whitespace.
+
+    The shell splits on spaces and has no quoting, so a value containing one
+    is not a single argument. It used to be silently truncated to the prefix
+    (`purpose set my photography` stored "my"); the firmware now refuses it.
+    Catching it here gives the caller an error naming the field, instead of a
+    device round-trip that comes back as "too many arguments".
+    """
+    # Whitespace is checked *before* sanitizing: tab is a control character, so
+    # stripping first would silently join "a\tb" into "ab" — a quiet
+    # transformation of the caller's value, which is the failure this whole
+    # helper exists to prevent.
+    if any(c.isspace() for c in value):
+        raise ValueError(
+            f"{field} must not contain whitespace (got {value!r}); "
+            "the shell has no quoting, so it cannot carry spaces"
+        )
+    value = _sanitize(value)
+    if not value:
+        raise ValueError(f"{field} must not be empty")
+    return value
+
+
 class AccessDenied(PermissionError):
     """Raised when a command is blocked by the session's role."""
     pass
@@ -180,9 +204,7 @@ class ReflexNode:
     # --- Purpose ---
 
     def purpose_set(self, name: str) -> str:
-        name = _sanitize(name)
-        if not name:
-            raise ValueError("purpose name must not be empty")
+        name = _token(name, "purpose name")
         out = self.cmd(f"purpose set {name}")
         if "active" not in out:
             raise RuntimeError(f"purpose set failed: {out}")
@@ -254,11 +276,11 @@ class ReflexNode:
         return self.cmd("goonies ls", timeout=5.0)
 
     def goonies_find(self, name: str) -> str:
-        name = _sanitize(name)
+        name = _token(name, "cell name")
         return self.cmd(f"goonies find {name}")
 
     def goonies_read(self, name: str) -> str:
-        name = _sanitize(name)
+        name = _token(name, "cell name")
         return self.cmd(f"goonies read {name}")
 
     # --- Vitals ---
@@ -267,7 +289,7 @@ class ReflexNode:
         return self.cmd("vitals")
 
     def vitals_override(self, vital: str, state: int) -> str:
-        vital = _sanitize(vital)
+        vital = _token(vital, "vital name")
         if state not in (-1, 0, 1):
             raise ValueError("state must be -1, 0, or 1")
         return self.cmd(f"vitals override {vital} {state}")
@@ -305,8 +327,8 @@ class ReflexNode:
         return m.group(1).strip() if m else None
 
     def config_set(self, key: str, value: str) -> str:
-        key = _sanitize(key)
-        value = _sanitize(value)
+        key = _token(key, "config key")
+        value = _token(value, "config value")
         return self.cmd(f"config set {key} {value}")
 
     # --- Heartbeat ---
