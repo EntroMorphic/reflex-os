@@ -150,20 +150,44 @@ void reflex_hal_reboot(void) {
     software_reset();
 }
 
-/* PMU wakeup cause register */
-#define PMU_WAKEUP_STATUS0_REG  (0x600B0000 + 0x140)
-/* LP AON scratch register (shared with Boot0 for boot-loop detection) */
-#define LP_AON_STORE1_REG       (0x600B1000 + 0x04)
-#define REFLEX_SLEEP_MAGIC      0x534C5000  /* "SLP\0" + duration encoded in low bits */
+/* Wakeup cause and the scratch word shared with Boot0, both from the generated
+ * SoC header rather than hand-written base-plus-offset arithmetic. This file
+ * already carries the scar from getting that arithmetic wrong once: the
+ * systimer base was 0x60004000, which is I2C0, and reflex_hal_time_us returned
+ * 0 forever. These are the same shape of constant, so they come from the SVD
+ * and are proved against ESP-IDF by `make soc-bridge` like the rest. */
+#define REFLEX_SLEEP_MAGIC 0x534C5000 /* "SLP\0" + duration in the low bits */
 
 int reflex_hal_sleep_wakeup_cause(void) {
-    uint32_t cause = REFLEX_REG(PMU_WAKEUP_STATUS0_REG);
+    uint32_t cause = REFLEX_REG(REFLEX_PMU_SLP_WAKEUP_STATUS0_REG);
     if (cause & (1 << 0)) return 4;  /* LP timer → maps to ESP_SLEEP_WAKEUP_TIMER */
     if (cause & (1 << 4)) return 2;  /* GPIO → maps to ESP_SLEEP_WAKEUP_EXT0 */
     if (cause == 0) return 0;         /* Not a sleep wakeup (power-on) */
     return 1;                          /* Unknown wakeup source */
 }
 
+/* The last ESP-IDF API call on the C6 HAL path, and it is staying for now.
+ *
+ * Everything around it is already independent: the wakeup cause is read
+ * straight from PMU.SLP_WAKEUP_STATUS0, reboot goes through the ROM's
+ * software_reset, the RNG is a direct register read, and the constants above
+ * come from the SVD. Only the entry itself is borrowed.
+ *
+ * It is borrowed deliberately rather than by oversight. Configuring the wakeup
+ * source is tractable — LP_TIMER's TAR0_LOW/HIGH and UPDATE at 0x600B0C00 are
+ * fully described in the SVD — but the entry sequence is not just a few
+ * register writes. It powers down domains, flushes and disables cache, parks
+ * the flash, and lands on a wait-for-interrupt with the chip in a state where
+ * a mistake does not report an error: the board simply never wakes, and there
+ * is nothing left running to say why. ESP-IDF's implementation is long and
+ * carries silicon errata this file has no way to rediscover.
+ *
+ * Porting it is real driver work that has to be validated on hardware, so it
+ * is not written blind here. The non-C6 branch below shows the shape of the
+ * alternative already in use: record the duration in LP_AON scratch and reset,
+ * which Boot0 reads back — a sleep-as-reboot that costs boot time but never
+ * strands the board. That is the fallback to reach for if the ESP-IDF entry
+ * has to go before a bench is available to test a real one. */
 void reflex_hal_sleep_enter(uint64_t duration_us) {
 #if CONFIG_IDF_TARGET_ESP32C6
     esp_sleep_enable_timer_wakeup(duration_us);
@@ -171,7 +195,7 @@ void reflex_hal_sleep_enter(uint64_t duration_us) {
 #else
     uint32_t duration_sec = (uint32_t)(duration_us / 1000000);
     if (duration_sec > 0xFFFF) duration_sec = 0xFFFF;
-    REFLEX_REG(LP_AON_STORE1_REG) = REFLEX_SLEEP_MAGIC | (duration_sec & 0xFFFF);
+    REFLEX_REG(REFLEX_LP_AON_STORE1_REG) = REFLEX_SLEEP_MAGIC | (duration_sec & 0xFFFF);
     reflex_hal_reboot();
 #endif
 }

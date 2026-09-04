@@ -81,6 +81,10 @@
 #define REFLEX_SPI_MEM_MMU_ITEM_INDEX_REG 0x60002380u
 /* SPI0.SPI_MEM_MMU_POWER_CTRL @ base+0x384 */
 #define REFLEX_SPI_MEM_MMU_POWER_CTRL_REG 0x60002384u
+/* PMU.SLP_WAKEUP_STATUS0 @ base+0x140 — wakeup cause after deep sleep */
+#define REFLEX_PMU_SLP_WAKEUP_STATUS0_REG 0x600B0140u
+/* LP_AON.STORE1 @ base+0x4 — scratch shared with Boot0 across a sleep-as-reset */
+#define REFLEX_LP_AON_STORE1_REG 0x600B1004u
 /* SYSTIMER base — peripheral base, not a register */
 #define REFLEX_DR_REG_SYSTIMER_BASE 0x6000A000u
 /* SPI0.SPI_MEM_MMU_POWER_CTRL.SPI_MMU_PAGE_SIZE width 2 — field value mask */

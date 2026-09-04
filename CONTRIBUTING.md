@@ -94,6 +94,9 @@ build.** Run it before pushing anything that compiles into the image.
 | `make lock-check` | No telemetry emission while the loom lock is held |
 | `make format-diff` | Formatting of the lines your change touches |
 | `make ci-lint` | Workflow file schema (catches dangling `needs:` after a job rename) |
+| `make soc-check` | Generated SoC header is current with the SVD and mapping |
+| `make soc-bridge` | Every generated SoC constant equals the ESP-IDF macro it replaced |
+| `make rom-check` | ROM entry-point addresses match ESP-IDF's `esp32c6.rom.ld` |
 | `make idf-build` | Real ESP-IDF build (Docker) |
 | `make hw-test PORT=…` | Shell contract against a flashed board |
 

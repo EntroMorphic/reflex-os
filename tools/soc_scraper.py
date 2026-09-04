@@ -96,6 +96,10 @@ REGS = [
     ("REFLEX_SPI_MEM_MMU_ITEM_INDEX_REG",   "SPI_MEM_MMU_ITEM_INDEX_REG(0)",   "SPI0", "SPI_MEM_MMU_ITEM_INDEX",   None, ""),
     ("REFLEX_SPI_MEM_MMU_POWER_CTRL_REG",   "SPI_MEM_MMU_POWER_CTRL_REG(0)",   "SPI0", "SPI_MEM_MMU_POWER_CTRL",   None, ""),
 
+    # --- deep sleep / wakeup path ---
+    ("REFLEX_PMU_SLP_WAKEUP_STATUS0_REG", "PMU_SLP_WAKEUP_STATUS0_REG", "PMU", "SLP_WAKEUP_STATUS0", None, "wakeup cause after deep sleep"),
+    ("REFLEX_LP_AON_STORE1_REG",          "LP_AON_STORE1_REG",          "LP_AON", "STORE1", None, "scratch shared with Boot0 across a sleep-as-reset"),
+
     # --- systimer base (kernel scheduler + HAL time source) ---
     ("REFLEX_DR_REG_SYSTIMER_BASE",     "DR_REG_SYSTIMER_BASE",     "SYSTIMER", None, None, "peripheral base, not a register"),
 ]
