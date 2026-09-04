@@ -12,10 +12,24 @@
  *   goose_supervisor.c        — registers the policy function that
  *                               modulates task priorities based on
  *                               purpose, Hebbian plasticity, and holons
- *   reflex_task_kernel.c      — complete standalone task backend
- *                               (13 functions) selectable via
- *                               CONFIG_REFLEX_KERNEL_SCHEDULER
+ *   reflex_task_kernel.c      — all 13 functions of reflex_task.h,
+ *                               selectable via CONFIG_REFLEX_KERNEL_SCHEDULER.
+ *                               Not standalone: each one delegates to
+ *                               FreeRTOS. An earlier version of this note
+ *                               called it a "complete standalone task
+ *                               backend", which read as though the scheduler
+ *                               had already been replaced.
+ *   reflex_sched.c            — the scheduler that actually is standalone,
+ *                               with reflex_startup.c, reflex_trap.c and
+ *                               reflex_vectors.S as its entry path. All four
+ *                               compile; none are reached, so the linker
+ *                               discards them. They are in the build so they
+ *                               cannot rot before the work to reach them
+ *                               lands.
  *
  * The standard ESP-IDF startup path runs unchanged. The kernel hooks
  * are injected at link time via --wrap flags in CMakeLists.txt.
+ *
+ * This file contains no code — it is architecture notes in a .c file, and
+ * compiles to an empty object.
  */

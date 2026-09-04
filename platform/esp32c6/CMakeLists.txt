@@ -16,10 +16,28 @@ endif()
 # Default: FreeRTOS pass-through (reflex_task_esp32c6.c)
 # CONFIG_REFLEX_KERNEL_SCHEDULER: Reflex-owned scheduler + port assembly
 if(CONFIG_REFLEX_KERNEL_SCHEDULER)
+    # The standalone-scheduler path is compiled here but not yet reached.
+    #
+    # reflex_sched.c, reflex_startup.c, reflex_trap.c and reflex_vectors.S are
+    # the Reflex-owned scheduler and its entry path. Nothing calls them today —
+    # reflex_task_kernel.c still delegates to FreeRTOS — so the linker discards
+    # every one of them, which is exactly why they are listed. Four of them
+    # were in no CMakeLists at all and had therefore never been through a
+    # compiler; `goose_weave_loom` was in the same position once, and its
+    # hardening turned out to have been "verified by inspection only".
+    #
+    # Compiling without linking is the whole point at this stage: it costs
+    # nothing in the image, and it means the scheduler cannot rot silently
+    # while the work to reach it is still ahead. They define only
+    # reflex_-prefixed symbols in .text with no fixed placement, so there is
+    # no conflict with ESP-IDF's own startup or vectors.
     list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_task_kernel.c"
                                      "../../kernel/reflex_sched.c"
                                      "../../kernel/reflex_freertos_compat.c"
-                                     "../../kernel/reflex_portasm.S")
+                                     "../../kernel/reflex_portasm.S"
+                                     "../../kernel/reflex_startup.c"
+                                     "../../kernel/reflex_trap.c"
+                                     "../../kernel/reflex_vectors.S")
 else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
 endif()

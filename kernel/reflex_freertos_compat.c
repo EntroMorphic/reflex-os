@@ -10,7 +10,13 @@
  * Hebbian plasticity, and holon lifecycle state.
  *
  * FreeRTOS remains as the scheduling HAL behind reflex_task.h.
- * A complete standalone backend exists in reflex_task_kernel.c.
+ *
+ * reflex_task_kernel.c implements all thirteen functions of that interface,
+ * but it is not a standalone backend: every one of them delegates to FreeRTOS,
+ * as its own header says. The genuinely standalone scheduler is
+ * reflex_sched.c, which is compiled and then discarded by the linker because
+ * nothing reaches it yet — its callers (reflex_startup.c, reflex_trap.c) are
+ * compiled for the same reason and are equally unreferenced.
  */
 
 #include "reflex_sched.h"

@@ -21,10 +21,12 @@ Canonical design and status documents.
 - [`strategy.md`](strategy.md) — The Chronicler's Path: gaps, advantages, next phases.
 - [`potentials.md`](potentials.md) — Realized milestones and the biological-frontier roadmap.
 - [`prd.md`](prd.md) — Original product requirements.
+- [`independence-dependency-map.md`](independence-dependency-map.md) — What ESP-IDF is actually needed for, measured from the linked image, and the order those needs can be retired.
 
 ## Audits
 
-- [`audit-2026-08-12.md`](audit-2026-08-12.md) — Current. Defects ranked by severity × reachability, prior-audit closure status, documentation drift.
+- [`audit-2026-09-04.md`](audit-2026-09-04.md) — Current. Console I/O under the loom lock, a policy guard reporting success, the crypto suite that tested determinism rather than correctness, and the verification gates that came out of it.
+- [`audit-2026-08-12.md`](audit-2026-08-12.md) — Defects ranked by severity × reachability, prior-audit closure status, documentation drift.
 - [`audit-2026-04-16.md`](audit-2026-04-16.md) — First full assessment (post-v2.6.0): novelty, execution quality, and fluff.
 
 ## Ternary VM internals
