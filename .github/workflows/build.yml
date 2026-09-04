@@ -133,7 +133,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [host-tests, tasm-tests, format-check, build-esp32c6]
+    needs: [host-tests, tasm-tests, format-diff, warn-check, lock-check, build-esp32c6]
     runs-on: ubuntu-latest
     container: espressif/idf:release-v5.5
     steps:

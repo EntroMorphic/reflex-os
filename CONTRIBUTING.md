@@ -59,8 +59,13 @@ make verify
 ```
 
 That is host tests, TASM tests, doc links, the warning gate, the loom lock
-check, and a **real ESP-IDF build** in the same container image CI uses — no
-local ESP-IDF install required, only Docker.
+check, workflow schema validation, and a **real ESP-IDF build** in the same
+container image CI uses — no local ESP-IDF install required, only Docker.
+
+Renaming a CI job counts as a change that needs checking: GitHub rejects a
+workflow whose `needs:` names a job that no longer exists, and it rejects it at
+parse time, so *no jobs run at all* and the failure reports only as "a workflow
+file issue" without naming the dangling reference. `make ci-lint` names it.
 
 ### A syntax check is not a build
 
@@ -88,6 +93,7 @@ build.** Run it before pushing anything that compiles into the image.
 | `make warn-check` | ESP-independent firmware at `-Wall -Wextra -Werror` |
 | `make lock-check` | No telemetry emission while the loom lock is held |
 | `make format-diff` | Formatting of the lines your change touches |
+| `make ci-lint` | Workflow file schema (catches dangling `needs:` after a job rename) |
 | `make idf-build` | Real ESP-IDF build (Docker) |
 | `make hw-test PORT=…` | Shell contract against a flashed board |
 

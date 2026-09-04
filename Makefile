@@ -6,7 +6,7 @@ RELEASE_NAME := reflex-os-$(VERSION)-esp32c6
 RELEASE_DIR := release/$(RELEASE_NAME)
 
 .PHONY: build flash release clean test tasm-test hw-test doc-links format format-check \
-        format-diff warn-check lock-check idf-build verify config-reset docs atlas
+        format-diff warn-check lock-check ci-lint idf-build verify config-reset docs atlas
 
 build:
 	idf.py build
@@ -57,6 +57,18 @@ warn-check:
 lock-check:
 	@python3 tools/check_lock_discipline.py
 
+# Validate the workflow file itself. Renaming a job is not a local edit: the
+# `release` job's `needs:` list referred to a job that had been renamed, which
+# GitHub rejects at parse time — no jobs run at all, and the failure reports as
+# "a workflow file issue" rather than naming the dangling reference.
+# Schema only: shellcheck flags pre-existing SC2086 style in jobs this does not
+# own, and failing on that would make the gate noise rather than signal.
+ci-lint:
+	@command -v docker >/dev/null 2>&1 || { echo "docker required for ci-lint"; exit 1; }
+	@docker run --rm -v "$$PWD":/repo -w /repo $(ACTIONLINT_IMAGE) -no-color -shellcheck= \
+	  && echo "Workflows: schema valid."
+ACTIONLINT_IMAGE ?= rhysd/actionlint:latest
+
 # The real ESP-IDF toolchain, in the image CI uses, without installing it.
 # This is the only local check that speaks for the firmware build; everything
 # above is an approximation of it.
@@ -71,9 +83,9 @@ idf-build:
 	             idf.py -B build build'
 
 # Everything runnable without a board. Run this before pushing firmware changes.
-verify: test tasm-test doc-links warn-check lock-check idf-build
+verify: test tasm-test doc-links warn-check lock-check ci-lint idf-build
 	@echo ""
-	@echo "verify: host tests, TASM, doc links, warning gate, lock discipline, and a real ESP-IDF build all passed."
+	@echo "verify: host tests, TASM, doc links, warning gate, lock discipline, workflow schema, and a real ESP-IDF build all passed."
 
 hw-test:
 	@test -n "$(PORT)" || { echo "Usage: make hw-test PORT=/dev/cu.usbmodemXXXX"; exit 1; }
