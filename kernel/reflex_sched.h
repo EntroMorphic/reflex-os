@@ -44,6 +44,12 @@ typedef struct reflex_tcb {
     void (*entry)(void *);
     void *arg;
     bool started;
+    /* The queue this task is waiting on, or NULL. BLOCKED alone is not enough
+     * to tell "sleeping until a deadline" from "waiting for data": pick_next
+     * wakes a BLOCKED task once s_tick_count >= wake_tick, so a queue waiter
+     * needs this to be found and woken by its peer, and an untimed wait sets
+     * wake_tick to UINT32_MAX so the deadline never arrives on its own. */
+    void *blocked_on;
 } reflex_tcb_t;
 
 reflex_err_t reflex_sched_init(void);
@@ -63,6 +69,27 @@ reflex_tcb_t *reflex_sched_get_current(void);
 
 void reflex_sched_enter_critical(void);
 void reflex_sched_exit_critical(void);
+
+/* ---- Blocking queue operations ----
+ *
+ * The ring itself is in reflex_kqueue.h and knows nothing about tasks. These
+ * add the waiting: a full send or an empty receive parks the caller until a
+ * peer makes room or supplies an item, or until @p timeout_ms elapses.
+ *
+ * REFLEX_SCHED_WAIT_FOREVER waits without a deadline. Before the scheduler is
+ * started there is nothing to yield to, so both degrade to a single attempt
+ * and report REFLEX_ERR_TIMEOUT rather than spinning forever during boot.
+ */
+#define REFLEX_SCHED_WAIT_FOREVER UINT32_MAX
+
+struct reflex_kqueue;
+
+/** @return REFLEX_OK, or REFLEX_ERR_TIMEOUT if no room appeared in time. */
+reflex_err_t reflex_sched_queue_send(struct reflex_kqueue *q, const void *item,
+                                     uint32_t timeout_ms);
+
+/** @return REFLEX_OK, or REFLEX_ERR_TIMEOUT if no item arrived in time. */
+reflex_err_t reflex_sched_queue_recv(struct reflex_kqueue *q, void *item, uint32_t timeout_ms);
 
 #ifdef __cplusplus
 }

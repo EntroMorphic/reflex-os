@@ -53,6 +53,12 @@ static void reflex_stability_task(void *arg)
     reflex_task_delete(NULL);
 }
 
+/* Self-arc loopback demo, ESP-NOW builds only.
+ *
+ * Its one call site is already inside the !CONFIG_REFLEX_RADIO_802154 arm; the
+ * definition was not, so the blob-free build compiled a function nothing could
+ * call and warned about it on every run. The guard belongs on both. */
+#if !CONFIG_REFLEX_RADIO_802154
 static void manifest_demo_arc(void)
 {
     /**
@@ -99,6 +105,7 @@ static void manifest_demo_arc(void)
         }
     }
 }
+#endif /* !CONFIG_REFLEX_RADIO_802154 */
 
 void app_main(void)
 {

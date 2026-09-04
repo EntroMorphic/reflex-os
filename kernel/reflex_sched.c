@@ -29,6 +29,7 @@
  */
 
 #include "reflex_sched.h"
+#include "reflex_kqueue.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -87,6 +88,7 @@ reflex_err_t reflex_sched_create_task(void (*entry)(void *), const char *name,
     tcb->name = name;
     tcb->state = REFLEX_TASK_STATE_READY;
     tcb->wake_tick = 0;
+    tcb->blocked_on = NULL;
     tcb->entry = entry;
     tcb->arg = arg;
     tcb->started = false;
@@ -289,3 +291,92 @@ reflex_err_t reflex_sched_start(void) {
     return REFLEX_OK;
 }
 #endif /* !REFLEX_HOST_BUILD */
+
+/* ---- Blocking queue operations ---- */
+
+/* Wake one task waiting on @p q. Called after an operation that could satisfy
+ * a waiter: a send makes an item available, a receive makes room.
+ *
+ * One, not all. Waking every waiter for a single freed slot means they all run,
+ * all but one find the queue unchanged, and all but one block again — a
+ * thundering herd that costs a context switch each. The woken task is chosen by
+ * scan order, which is round-robin over the task table rather than a fairness
+ * guarantee; if starvation ever matters, this is the place to make it FIFO.
+ *
+ * Callers hold the critical section. */
+static void wake_one_waiter(const void *q) {
+    for (int i = 0; i < REFLEX_SCHED_MAX_TASKS; i++) {
+        if (s_tasks[i].state == REFLEX_TASK_STATE_BLOCKED && s_tasks[i].blocked_on == q) {
+            s_tasks[i].blocked_on = NULL;
+            s_tasks[i].state = REFLEX_TASK_STATE_READY;
+            return;
+        }
+    }
+}
+
+/* Shared body of send and recv: attempt, and if it fails, park until a peer
+ * acts or the deadline passes.
+ *
+ * The attempt happens inside the critical section and the check for "did it
+ * work" happens before yielding, which is what keeps this free of the classic
+ * lost-wakeup: a peer cannot slip an item in between our test and our block,
+ * because both are under the same lock. */
+static reflex_err_t queue_wait(reflex_kqueue_t *q, void *item, bool sending, uint32_t timeout_ms) {
+    if (!q) return REFLEX_ERR_INVALID_ARG;
+
+    const bool forever = (timeout_ms == REFLEX_SCHED_WAIT_FOREVER);
+    uint32_t deadline = 0;
+    if (!forever) {
+        uint32_t ticks = (timeout_ms * REFLEX_SCHED_TICK_HZ) / 1000;
+        deadline = s_tick_count + ticks;
+    }
+
+    for (;;) {
+        reflex_sched_enter_critical();
+        bool done = sending ? reflex_kqueue_try_send(q, item) : reflex_kqueue_try_recv(q, item);
+        if (done) {
+            /* A successful send may have unblocked a receiver and vice versa. */
+            wake_one_waiter(q);
+            reflex_sched_exit_critical();
+            return REFLEX_OK;
+        }
+
+        /* Nothing to yield to before the scheduler runs, and no peer can make
+         * progress, so waiting would hang the boot rather than delay it. */
+        if (!s_started || !s_current) {
+            reflex_sched_exit_critical();
+            return REFLEX_ERR_TIMEOUT;
+        }
+
+        if (!forever && s_tick_count >= deadline) {
+            reflex_sched_exit_critical();
+            return REFLEX_ERR_TIMEOUT;
+        }
+
+        /* UINT32_MAX rather than 0 for an untimed wait: pick_next promotes any
+         * BLOCKED task whose wake_tick has passed, so a zero here would be
+         * woken on the very next scheduling decision and spin. */
+        s_current->blocked_on = q;
+        s_current->wake_tick = forever ? UINT32_MAX : deadline;
+        s_current->state = REFLEX_TASK_STATE_BLOCKED;
+        reflex_sched_exit_critical();
+
+        reflex_sched_yield();
+
+        /* Back on the CPU, from either a peer's wake or the deadline. Clear the
+         * marker and retry: a woken task is not guaranteed to win the race for
+         * the item against a task that was already READY. */
+        s_current->blocked_on = NULL;
+    }
+}
+
+reflex_err_t reflex_sched_queue_send(struct reflex_kqueue *q, const void *item,
+                                     uint32_t timeout_ms) {
+    if (!item) return REFLEX_ERR_INVALID_ARG;
+    /* try_send takes a const pointer; the cast is discarded inside. */
+    return queue_wait(q, (void *)(uintptr_t)item, true, timeout_ms);
+}
+
+reflex_err_t reflex_sched_queue_recv(struct reflex_kqueue *q, void *item, uint32_t timeout_ms) {
+    return queue_wait(q, item, false, timeout_ms);
+}

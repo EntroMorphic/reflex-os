@@ -180,8 +180,34 @@ kernel files are in the build. They compile clean; they are still discarded.
 This converts six files of assumption into evidence and costs nothing in the
 image.
 
-**C1 — queues.** The one missing primitive. Needed by `fabric.c` and
-`event_bus.c` directly, and by the console driver if ESP-IDF's is kept.
+**C1 — queues.** *Done.* `kernel/reflex_kqueue.c` is the ring: fixed capacity,
+allocation-free after creation, and with no dependency on the scheduler, which
+is what makes it testable on a host at all. `reflex_sched.c` adds the blocking
+layer on top — `reflex_sched_queue_send` and `reflex_sched_queue_recv`, which
+park a caller until a peer acts or a deadline passes.
+
+The split is deliberate and follows `reflex_log_format.c`: the part where ring
+buffers actually fail — wraparound, and the `head == tail` ambiguity that reads
+as both empty and full — is exercised by the host suite on every commit rather
+than only on hardware. It is checked against a reference FIFO over 20,000
+randomised operations, compared after *every* step rather than at the end, on
+the same reasoning as `test_lattice.c`: a ring that diverges and re-converges
+would pass a final-state comparison. Seven mutations were introduced to confirm
+the tests fail when the code is wrong — off-by-one on the full check, head and
+tail not wrapping, receiving from the wrong index, a dropped decrement, the
+overflow guard removed, and destroy not releasing its pool slot. All seven were
+caught. The host suite went from 355 tests to 401.
+
+Two notes on the design. The name is `reflex_kqueue_*`, not `reflex_queue_*`,
+because `reflex_task.h` already declares `reflex_queue_create` with a different
+return type — the same symbol twice would be a one-definition-rule violation
+that only appears once both land in one image. And an untimed wait parks with
+`wake_tick = UINT32_MAX` rather than 0, because `pick_next` promotes any
+BLOCKED task whose `wake_tick` has passed: a zero there would be woken on the
+very next scheduling decision and spin.
+
+What C1 does *not* do is change who implements `reflex_task.h`.
+`reflex_task_kernel.c` still delegates to FreeRTOS. That cutover is C3.
 
 **C2 — startup, trap, vectors.** The path that makes `reflex_sched_start`
 actually run. `reflex_startup.c` already calls `reflex_sched_init`,
