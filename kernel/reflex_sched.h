@@ -132,6 +132,17 @@ bool reflex_sched_should_time_wake(const reflex_tcb_t *t, uint32_t now);
  * @param start  Slot to begin scanning from; wrapped into range.
  */
 int reflex_sched_select(const reflex_tcb_t *tasks, int count, int start);
+
+/* ---- Trap-side tick routing (reflex_trap.c) ----
+ *
+ * Which CPU interrupt line the scheduler tick arrives on is decided by the
+ * interrupt matrix, not by the architecture, so the trap handler has to be
+ * told. Until it is, it claims no interrupt as the tick: guessing a line
+ * number services some other peripheral's interrupt as though it were the
+ * tick and leaves that peripheral asserted forever.
+ */
+void reflex_trap_set_tick_line(int cpu_int);
+int reflex_trap_get_tick_line(void);
 void reflex_sched_tick(void);
 void reflex_sched_ack_tick(void);
 reflex_tcb_t *reflex_sched_get_current(void);

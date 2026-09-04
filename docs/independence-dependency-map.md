@@ -253,7 +253,7 @@ The scheduler's central decision — which task runs next — had never been
 tested, because it lived inside `pick_next`, which is not compiled on the host.
 It is now `reflex_sched_select`: highest priority wins, ties broken by a scan
 that starts after the current task, which is what makes it round-robin instead
-of always returning the lowest slot. Fifteen assertions and four mutations,
+of always returning the lowest slot. Nineteen assertions and four mutations,
 including one that only a negative start index catches.
 
 Three defects were fixed. `reflex_trap_handler`'s exception arm was empty and
@@ -279,9 +279,29 @@ The standalone path is incomplete in three specific ways:
 1. `setup_systimer_tick` enables the interrupt at the SYSTIMER peripheral and
    stops. Nothing maps it through the interrupt matrix to a CPU line, sets a
    PLIC priority, or enables the matching `mie` bit.
-2. `reflex_trap_handler` dispatches on `mcause == 7`, the CLINT machine *timer*
-   interrupt. A C6 peripheral interrupt does not arrive that way, so even a
-   correctly routed tick would fall through unhandled.
+2. Nothing tells the trap handler which CPU line the tick was mapped to.
+
+   This item was described wrongly on first writing, and the correction is
+   worth keeping rather than quietly editing. The claim was that
+   `reflex_trap_handler` dispatched on "`mcause == 7`, the CLINT machine timer
+   interrupt". That is the textbook RISC-V encoding and it is not what this
+   chip does. The C6 uses a PLIC with `RV_EXTERNAL_INT_OFFSET == 0`, and
+   ESP-IDF's own dispatcher states the consequence: "mcause contains the
+   interrupt number that triggered the current interrupt"
+   (`components/riscv/interrupt.c`). For an interrupt, mcause is the **CPU
+   interrupt line the matrix was programmed to route to** — a number chosen
+   when the peripheral is wired up, not an architectural constant.
+
+   And 7 is not spare on this chip: for an *exception* ESP-IDF reads
+   `mcause == 7` as a store access fault and `mcause == 5` as a load access
+   fault (`riscv/rv_utils.h`). The constant named one thing, meant another, and
+   collided with a third.
+
+   So the tick line cannot be a compile-time constant. `reflex_trap_set_tick_line`
+   now receives it from the routing step, and until that step calls it the
+   handler claims no interrupt as the tick — deliberately, because guessing a
+   line number services some other peripheral's interrupt as though it were the
+   tick and leaves that peripheral asserted forever.
 3. With no tick, `reflex_sched_start` runs its first task and parks on `wfi`
    the moment everything blocks, with nothing left to wake it.
 
