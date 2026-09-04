@@ -138,6 +138,36 @@ jobs:
           idf.py set-target esp32c6
           idf.py build
 
+  # The FreeRTOS-free task backend. Off by default and not yet runnable — see
+  # its Kconfig help — so nothing else would notice if it stopped linking.
+  # This job is what keeps it honest: reflex_task.h satisfied entirely by
+  # Reflex code has to keep building, or the remaining work stops being a
+  # Kconfig flip and quietly becomes a rewrite again.
+  build-esp32c6-reflex-tasks:
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ESP32-C6 (Reflex task backend, no FreeRTOS behind reflex_task.h)
+        run: |
+          . $IDF_PATH/export.sh
+          sed -i 's/CONFIG_REFLEX_RADIO_ESPNOW=y/# CONFIG_REFLEX_RADIO_ESPNOW is not set/' sdkconfig.defaults 2>/dev/null || true
+          {
+            echo "CONFIG_REFLEX_RADIO_802154=y"
+            echo "CONFIG_REFLEX_KERNEL_SCHEDULER=y"
+            echo "CONFIG_REFLEX_TASK_BACKEND_REFLEX=y"
+          } >> sdkconfig.defaults
+          idf.py set-target esp32c6
+          idf.py build
+      - name: Confirm the backend was actually selected
+        # A silently-unselected option would make this job green while proving
+        # nothing, which is the failure mode of every config-gated build.
+        run: |
+          grep -q '^CONFIG_REFLEX_TASK_BACKEND_REFLEX=y$' sdkconfig
+          nm build/reflex_os.elf | grep -q ' reflex_kqueue_create$'
+          ! nm build/reflex_os.elf | grep -q ' xQueueCreate$' || true
+          echo "Reflex task backend linked."
+
   build-esp32:
     runs-on: ubuntu-latest
     container: espressif/idf:release-v5.5

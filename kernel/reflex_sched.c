@@ -113,6 +113,38 @@ void reflex_sched_delete_task(reflex_tcb_t *tcb) {
 
 /* ---- Scheduler core ---- */
 
+int reflex_sched_find_index(const reflex_tcb_t *tasks, int count, const char *name) {
+    if (!tasks || count <= 0 || !name) return -1;
+    for (int i = 0; i < count; i++) {
+        /* A freed or dead slot keeps whatever name pointer it last held —
+         * create_task never clears it and delete_task only changes state — so
+         * skipping by state is what stops a lookup resolving to a corpse and
+         * handing the caller a TCB that is about to be reused. */
+        if (tasks[i].state == REFLEX_TASK_STATE_FREE || tasks[i].state == REFLEX_TASK_STATE_DEAD) {
+            continue;
+        }
+        if (tasks[i].name && strcmp(tasks[i].name, name) == 0) return i;
+    }
+    return -1;
+}
+
+reflex_tcb_t *reflex_sched_find_by_name(const char *name) {
+    int idx = reflex_sched_find_index(s_tasks, REFLEX_SCHED_MAX_TASKS, name);
+    return (idx < 0) ? NULL : &s_tasks[idx];
+}
+
+void reflex_sched_set_priority(reflex_tcb_t *t, int priority) {
+    if (!t) return;
+    t->priority = priority;
+    /* No reschedule here. The change takes effect at the next scheduling
+     * decision, which is the next tick or yield — raising your own priority
+     * does not preempt anyone mid-call. */
+}
+
+int reflex_sched_get_priority(const reflex_tcb_t *t) {
+    return t ? t->priority : 0;
+}
+
 int reflex_sched_select(const reflex_tcb_t *tasks, int count, int start) {
     if (!tasks || count <= 0) return -1;
     /* Normalise rather than trust: a caller computing `current + 1` off the end

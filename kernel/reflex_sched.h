@@ -133,6 +133,25 @@ bool reflex_sched_should_time_wake(const reflex_tcb_t *t, uint32_t now);
  */
 int reflex_sched_select(const reflex_tcb_t *tasks, int count, int start);
 
+/**
+ * @brief Index of the live task named @p name, or -1.
+ *
+ * FREE and DEAD slots are skipped: a slot retains its name pointer after the
+ * task is gone, so searching the raw table would resolve a name to a corpse.
+ * Split from the lookup below so the search itself is testable — the table is
+ * a parameter rather than the scheduler's private state.
+ */
+int reflex_sched_find_index(const reflex_tcb_t *tasks, int count, const char *name);
+
+/** @brief The live task named @p name, or NULL. */
+reflex_tcb_t *reflex_sched_find_by_name(const char *name);
+
+/** @brief Set a task's scheduling priority. NULL is ignored. */
+void reflex_sched_set_priority(reflex_tcb_t *t, int priority);
+
+/** @return The task's priority, or 0 for NULL. */
+int reflex_sched_get_priority(const reflex_tcb_t *t);
+
 /* ---- Trap-side tick routing (reflex_trap.c) ----
  *
  * Which CPU interrupt line the scheduler tick arrives on is decided by the

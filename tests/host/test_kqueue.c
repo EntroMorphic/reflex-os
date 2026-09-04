@@ -511,6 +511,59 @@ static void test_select(void) {
     CHECK("least-negative priority wins", reflex_sched_select(t, NTASK, 0) == 1);
 }
 
+/* ---- Task lookup by name ---- */
+static void test_find_index(void) {
+    reflex_tcb_t t[NTASK];
+    mk(t, NTASK);
+
+    CHECK("NULL table finds nothing", reflex_sched_find_index(NULL, NTASK, "a") == -1);
+    CHECK("NULL name finds nothing", reflex_sched_find_index(t, NTASK, NULL) == -1);
+    CHECK("empty table finds nothing", reflex_sched_find_index(t, NTASK, "a") == -1);
+
+    t[1].state = REFLEX_TASK_STATE_READY;
+    t[1].name = "supervisor";
+    t[2].state = REFLEX_TASK_STATE_BLOCKED;
+    t[2].name = "shell";
+    t[3].state = REFLEX_TASK_STATE_RUNNING;
+    t[3].name = "main";
+
+    CHECK("finds a READY task", reflex_sched_find_index(t, NTASK, "supervisor") == 1);
+    CHECK("finds a BLOCKED task", reflex_sched_find_index(t, NTASK, "shell") == 2);
+    CHECK("finds a RUNNING task", reflex_sched_find_index(t, NTASK, "main") == 3);
+    CHECK("unknown name is not found", reflex_sched_find_index(t, NTASK, "nope") == -1);
+
+    /* Exact match only — a prefix must not resolve. */
+    CHECK("prefix does not match", reflex_sched_find_index(t, NTASK, "shel") == -1);
+    CHECK("superstring does not match", reflex_sched_find_index(t, NTASK, "shells") == -1);
+
+    /* A dead or freed slot keeps its name pointer, and must not resolve: the
+     * caller would get a TCB that is about to be handed to another task. */
+    t[2].state = REFLEX_TASK_STATE_DEAD;
+    CHECK("a DEAD task is not found", reflex_sched_find_index(t, NTASK, "shell") == -1);
+    t[2].state = REFLEX_TASK_STATE_FREE;
+    CHECK("a FREE slot is not found", reflex_sched_find_index(t, NTASK, "shell") == -1);
+
+    /* A live slot with no name must not be matched by a NULL-ish probe. */
+    t[0].state = REFLEX_TASK_STATE_READY;
+    t[0].name = NULL;
+    CHECK("an unnamed live task is skipped safely",
+          reflex_sched_find_index(t, NTASK, "supervisor") == 1);
+}
+
+static void test_priority_accessors(void) {
+    reflex_tcb_t t;
+    memset(&t, 0, sizeof(t));
+    t.priority = 3;
+    CHECK("get returns the priority", reflex_sched_get_priority(&t) == 3);
+    reflex_sched_set_priority(&t, 9);
+    CHECK("set changes the priority", reflex_sched_get_priority(&t) == 9);
+    reflex_sched_set_priority(&t, -4);
+    CHECK("negative priorities are allowed", reflex_sched_get_priority(&t) == -4);
+    CHECK("get of NULL is 0", reflex_sched_get_priority(NULL) == 0);
+    reflex_sched_set_priority(NULL, 5); /* must not crash */
+    CHECK("set of NULL survives", true);
+}
+
 int test_reflex_queue(void) {
     printf("[kqueue] ");
     test_create();
@@ -525,6 +578,8 @@ int test_reflex_queue(void) {
     test_tick_reached();
     test_should_time_wake();
     test_select();
+    test_find_index();
+    test_priority_accessors();
     if (s_fail == 0) printf("ok\n");
     return s_fail;
 }

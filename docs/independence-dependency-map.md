@@ -317,10 +317,52 @@ quiesces those peripherals.
 That is register programming validated on a board. A misrouted interrupt does
 not fail to build.
 
-**C3 — cut `reflex_task_kernel.c` over** from FreeRTOS delegation to
-`reflex_sched_*`. This is the point at which Reflex owns its scheduling, and
-the point at which a bench stops being optional: a scheduler that is wrong does
-not fail to build.
+**C3 — cut the task backend over** from FreeRTOS delegation to `reflex_sched_*`.
+*Written, compiled, linked, and off by default.*
+
+`kernel/reflex_task_reflex.c` implements all thirteen functions of
+`reflex_task.h` on `reflex_sched_*` and `reflex_kqueue_*`, with **no ESP-IDF
+and no FreeRTOS** — it compiles against nothing but Reflex's own headers, which
+is why `make warn-check` builds it on every commit without it being in any
+firmware configuration. `CONFIG_REFLEX_TASK_BACKEND_REFLEX` selects it in place
+of `reflex_task_kernel.c`; exactly one is compiled, since both define the same
+symbols.
+
+The whole firmware links with it. That is the milestone: `reflex_task.h`, the
+interface the substrate and VM use for all concurrency, can be satisfied
+entirely by Reflex code.
+
+Three gaps in the scheduler had to be closed first — it had no lookup by name
+and no priority accessors, so `reflex_task_get_by_name`, `set_priority` and
+`get_priority` had nothing to call. `reflex_sched_find_index` skips FREE and
+DEAD slots, because a slot keeps its name pointer after the task is gone and a
+lookup would otherwise resolve a name to a corpse.
+
+**It must stay off, for a blunter reason than the tick.** *Nothing starts the
+scheduler.* `reflex_sched_start` is called only from `reflex_startup.c` and
+`reflex_kernel_test.c`, and nothing calls either — `nm` on a build with the
+option set shows `reflex_sched_create_task` linked and `reflex_sched_start`
+absent. So `reflex_task_create` files a TCB into the scheduler's table and no
+task ever runs. A board with this enabled boots ESP-IDF, creates tasks that
+never execute, and does nothing.
+
+Behind that sits the tick from C2. Both have to land, and both need hardware: a
+scheduler that is wrong does not fail to build, it stops responding.
+
+### Two deliberate differences from the FreeRTOS backend
+
+Critical sections are global. FreeRTOS's `portMUX_TYPE` is a per-object
+spinlock; `reflex_sched_enter_critical` disables interrupts for the core and
+counts nesting. On the single-core C6 that gives callers the mutual exclusion
+they rely on, but it is coarser — two unrelated critical sections serialise
+against each other. The `reflex_mutex_t` is accepted and ignored rather than
+quietly reinterpreted.
+
+Return codes match the FreeRTOS backend exactly, including its asymmetry: a
+failed send is `REFLEX_ERR_TIMEOUT` and a failed receive is
+`REFLEX_ERR_NOT_FOUND`. That is not obviously right, but callers compare
+against `REFLEX_OK`, and changing it here would make the two backends differ in
+a way no test would catch.
 
 **Then D, E, F.** FreeRTOS cannot leave the image while newlib pulls in
 `esp_timer` and `pthread`, so its final removal is a Tier F matter. Tier E

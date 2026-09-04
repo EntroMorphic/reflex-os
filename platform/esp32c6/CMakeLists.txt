@@ -32,8 +32,13 @@ if(CONFIG_REFLEX_KERNEL_SCHEDULER)
     # while the work to reach it is still ahead. They define only
     # reflex_-prefixed symbols in .text with no fixed placement, so there is
     # no conflict with ESP-IDF's own startup or vectors.
-    list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_task_kernel.c"
-                                     "../../kernel/reflex_sched.c"
+    # Exactly one task backend: both define the whole of reflex_task.h.
+    if(CONFIG_REFLEX_TASK_BACKEND_REFLEX)
+        list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_task_reflex.c")
+    else()
+        list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_task_kernel.c")
+    endif()
+    list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_sched.c"
                                      "../../kernel/reflex_freertos_compat.c"
                                      "../../kernel/reflex_portasm.S"
                                      "../../kernel/reflex_startup.c"

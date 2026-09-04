@@ -22,6 +22,41 @@ menu "Reflex OS"
             - Creates the kernel supervisor task (purpose-modulated
               scheduling, Hebbian priority, holon lifecycle)
             - Registers a 1kHz tick ISR on SYSTIMER TARGET1
-            FreeRTOS remains as the scheduling HAL. A complete
-            standalone task backend exists in kernel/reflex_task_kernel.c.
+            FreeRTOS remains the scheduling HAL: kernel/reflex_task_kernel.c
+            implements all thirteen functions of reflex_task.h and forwards
+            every one of them to FreeRTOS. The genuinely standalone backend is
+            kernel/reflex_task_reflex.c, below.
+
+    config REFLEX_TASK_BACKEND_REFLEX
+        bool "Use the Reflex scheduler as the task backend (INCOMPLETE)"
+        depends on REFLEX_KERNEL_SCHEDULER
+        default n
+        help
+            Implements reflex_task.h on reflex_sched.c and reflex_kqueue.c
+            instead of FreeRTOS. This is what "Reflex owns its scheduling"
+            means, and it does not work yet.
+
+            Two things are missing, and the first is the larger.
+
+            Nothing starts the scheduler. reflex_sched_start is only called
+            from reflex_startup.c and reflex_kernel_test.c, and nothing calls
+            either — verified by nm on a build with this option set:
+            reflex_sched_create_task is linked, reflex_sched_start is not. So
+            reflex_task_create files a TCB into the scheduler's table and no
+            task ever runs. Not "hangs when a task blocks": nothing starts.
+
+            And the scheduler has no working tick on this chip anyway.
+            setup_systimer_tick enables the interrupt at the SYSTIMER
+            peripheral, but nothing routes it through the interrupt matrix to
+            a CPU line, gives it a PLIC priority, or sets the matching mie
+            bit, and the trap handler is not told which line to expect. So
+            even once something starts it, delays never expire and the
+            scheduler parks on wfi as soon as every task blocks.
+
+            Enabling this today produces a board that boots ESP-IDF, creates
+            tasks that never execute, and does nothing.
+            It is selectable so the remaining work is a Kconfig flip rather
+            than a rewrite, and so the backend is built and reviewed before
+            anyone depends on it. See kernel/reflex_trap.c for the three
+            specific missing pieces.
 endmenu
