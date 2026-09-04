@@ -37,9 +37,9 @@
 #define KV_TYPE_ERASED  0xFF
 
 /* ROM flash functions (mask ROM, always available) */
-extern int esp_rom_spiflash_read(uint32_t addr, uint32_t *dest, int len);
-extern int esp_rom_spiflash_write(uint32_t addr, const uint32_t *src, int len);
-extern int esp_rom_spiflash_erase_sector(uint32_t sector);
+/* Declared in reflex_rom_esp32c6.h now. These three externs were the first
+ * instance of the technique in this tree; the header generalises it. */
+#include "reflex_rom_esp32c6.h"
 
 typedef struct {
     uint32_t magic;

@@ -6,7 +6,7 @@ RELEASE_NAME := reflex-os-$(VERSION)-esp32c6
 RELEASE_DIR := release/$(RELEASE_NAME)
 
 .PHONY: build flash release clean test tasm-test hw-test doc-links format format-check \
-        format-diff warn-check lock-check ci-lint soc-header soc-bridge soc-check \
+        format-diff warn-check lock-check ci-lint soc-header soc-bridge soc-check rom-check \
         idf-build verify config-reset docs atlas
 
 build:
@@ -72,6 +72,10 @@ soc-bridge:
 soc-check:
 	@python3 tools/soc_scraper.py --check
 
+# Verify Reflex's ROM entry-point addresses against ESP-IDF's rom.ld.
+rom-check:
+	@tools/check_rom_symbols.sh
+
 # Validate the workflow file itself. Renaming a job is not a local edit: the
 # `release` job's `needs:` list referred to a job that had been renamed, which
 # GitHub rejects at parse time — no jobs run at all, and the failure reports as
@@ -98,7 +102,7 @@ idf-build:
 	             idf.py -B build build'
 
 # Everything runnable without a board. Run this before pushing firmware changes.
-verify: test tasm-test doc-links warn-check lock-check ci-lint soc-check idf-build soc-bridge
+verify: test tasm-test doc-links warn-check lock-check ci-lint soc-check rom-check idf-build soc-bridge
 	@echo ""
 	@echo "verify: host tests, TASM, doc links, warning gate, lock discipline, workflow schema, a real ESP-IDF build, and the SoC constant bridge all passed."
 

@@ -24,7 +24,7 @@
 #define SYSTIMER_UNIT0_VAL_LO   (SYSTIMER_BASE_ADDR + 0x44)
 /* XTAL 40 MHz through the C6's fixed 2.5 divider. */
 #define SYSTIMER_TICKS_PER_US 16u
-#include "esp_rom_sys.h"
+#include "reflex_rom_esp32c6.h"
 
 /* PMU registers for deep sleep */
 #define PMU_BASE              0x600B0000

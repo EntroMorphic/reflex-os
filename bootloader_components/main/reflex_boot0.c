@@ -22,19 +22,23 @@
 #include <string.h>
 #include <stdint.h>
 
-/* ROM functions — these are in mask ROM, part of the silicon */
-#include "esp_rom_sys.h"
-#include "esp_rom_spiflash.h"
-/* ROM SHA-256 engine. Mask ROM, same dependency class as the flash and
- * printf routines above — used to verify the appended image hash before
- * any segment is trusted. */
+/* ROM entry points — mask ROM, part of the silicon. Declared by Reflex now,
+ * which also retires the three ad-hoc externs that used to sit here because
+ * esp_rom_uart.h could not be included in a bootloader build. */
+#include "reflex_rom_esp32c6.h"
+
+/* ROM SHA-256 engine — still ESP-IDF's header.
+ *
+ * The remaining ESP-IDF include in this file's ROM group, and deliberately so.
+ * ets_sha_* takes an opaque SHA_CTX whose layout Reflex would have to
+ * reproduce by hand, and getting that wrong corrupts the stack silently rather
+ * than failing to build — the one transcription risk this work has been
+ * avoiding everywhere else. The alternative is to drop ROM SHA entirely for
+ * the software SHA-256 in platform/reflex_crypto.c, which is already verified
+ * against the RFC 4231 vectors; that trades roughly 2 KB of bootloader and a
+ * few hundred milliseconds of boot-time hashing for one fewer dependency, and
+ * is a decision about boot behaviour rather than a mechanical substitution. */
 #include "rom/sha.h"
-/* esp_rom_uart.h excluded — needs hal/uart_ll.h which isn't available
- * in the bootloader build. Console is set up via install_channel_putc
- * which is declared in esp_rom_sys.h. */
-extern void esp_rom_output_putc(char c);
-extern void esp_rom_install_channel_putc(int channel, void (*putc)(char c));
-extern void esp_rom_output_tx_wait_idle(uint32_t uart_no);
 
 /* Register constants and accessors — Reflex's own.
  *
@@ -47,12 +51,6 @@ extern void esp_rom_output_tx_wait_idle(uint32_t uart_no);
  * the ESP-IDF macro it replaces by `make soc-bridge`. */
 #include "reflex_regops.h"
 #include "reflex_soc_esp32c6.h"
-
-/* ROM cache functions (mask ROM — silicon, not SDK) */
-extern int Cache_Enable_ICache(uint32_t autoload);
-extern int Cache_Disable_ICache(void);
-extern int Cache_Suspend_ICache(void);
-extern int Cache_Resume_ICache(uint32_t autoload);
 
 /* Clock configuration is the last ESP-IDF register dependency here.
  *
@@ -210,7 +208,8 @@ static void hw_clock_init(void) {
 }
 
 static void hw_console_init(void) {
-    esp_rom_install_channel_putc(1, esp_rom_output_putc);
+    /* The ROM primitive directly; see reflex_rom_esp32c6.h. */
+    ets_install_putc1(esp_rom_output_putc);
 }
 
 /* ---- Direct cache/MMU management (no HAL) ---- */

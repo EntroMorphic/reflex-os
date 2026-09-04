@@ -24,6 +24,7 @@
 #include "reflex_hal.h"
 #include "reflex_task.h"
 #include "reflex_soc_esp32c6.h" /* LEDC signal index; was soc/gpio_sig_map.h */
+#include "reflex_rom_esp32c6.h" /* esp_rom_gpio_connect_out_signal */
 
 #include "reflex_log.h"
 #include "reflex_config.h"

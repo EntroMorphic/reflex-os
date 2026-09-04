@@ -16,7 +16,7 @@
 #include "reflex_sched.h"
 #include "reflex_kernel.h"
 #include "reflex_hal.h"
-#include "esp_rom_sys.h"
+#include "reflex_rom_esp32c6.h"
 #include "freertos/portmacro.h"
 #include <stdint.h>
 #include <stddef.h>

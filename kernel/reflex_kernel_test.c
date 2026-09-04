@@ -8,7 +8,7 @@
  */
 
 #include "reflex_sched.h"
-#include "esp_rom_sys.h"
+#include "reflex_rom_esp32c6.h"
 #include "esp_intr_alloc.h"
 
 /* SYSTIMER TARGET1 interrupt source number for C6 */
