@@ -36,15 +36,19 @@ jobs:
         with:
           fetch-depth: 0        # git-clang-format needs the base commit present
       - name: Install clang-format
-        # The pip package ships git-clang-format too; the apt one does not.
-        # Installed to a known prefix because a user install lands in
-        # ~/.local/bin, which is not reliably on PATH on a runner.
+        # The pip package ships git-clang-format; the apt one does not.
+        # --user, not --prefix: pip appends its own "local" segment to a prefix,
+        # so --prefix=/usr/local resolves to /usr/local/local and fails as
+        # non-root. The --break-system-packages fallback covers a PEP 668
+        # externally-managed interpreter.
         run: |
-          python3 -m pip install --prefix=/usr/local clang-format
-          command -v clang-format
-          command -v git-clang-format
+          python3 -m pip install --user clang-format \
+            || python3 -m pip install --user --break-system-packages clang-format
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Check formatting of changed lines
         run: |
+          command -v clang-format
+          command -v git-clang-format
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
           else
