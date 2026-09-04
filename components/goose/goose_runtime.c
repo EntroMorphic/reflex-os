@@ -566,7 +566,14 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
                 int16_t g = goose_registry_find_coord(&goonies, fabric_cells[target].coord);
                 if (g != GOOSE_REGISTRY_EMPTY) {
                     if (__builtin_expect(goose_telemetry_enabled, 0)) {
-                        snprintf(t_evict, sizeof(t_evict), "%s", goonies_entries[g].name);
+                        /* Explicit precision, not decoration: registry names are
+                         * GOOSE_REGISTRY_NAME_MAX (96) and this buffer is 40, so
+                         * the truncation is deliberate and the compiler can prove
+                         * it — -Werror=format-truncation rejects the bare "%s".
+                         * Bounding the directive says "cut this to fit" in the
+                         * one place the width is already defined. */
+                        snprintf(t_evict, sizeof(t_evict), "%.*s",
+                                 (int)(sizeof(t_evict) - 1), goonies_entries[g].name);
                     }
                     snprintf(s_eviction_ring[s_eviction_ring_idx % GOOSE_EVICTION_RING_SIZE],
                              GOOSE_NAME_MAX, "%s", goonies_entries[g].name);
