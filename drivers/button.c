@@ -10,6 +10,7 @@
 
 static void reflex_button_task(void *arg)
 {
+    (void)arg; /* task entry signature; no context is passed */
     int last_level = 1;
     while (1) {
         int level = reflex_hal_gpio_get_level(REFLEX_BUTTON_PIN);

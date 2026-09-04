@@ -5,7 +5,8 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 RELEASE_NAME := reflex-os-$(VERSION)-esp32c6
 RELEASE_DIR := release/$(RELEASE_NAME)
 
-.PHONY: build flash release clean test tasm-test hw-test doc-links format format-check config-reset docs atlas
+.PHONY: build flash release clean test tasm-test hw-test doc-links format format-check \
+        format-diff warn-check lock-check idf-build verify config-reset docs atlas
 
 build:
 	idf.py build
@@ -46,6 +47,34 @@ tasm-test:
 doc-links:
 	python3 tools/check_doc_links.py
 
+# Compile the ESP-independent firmware for real, at -O2, with -Wall -Wextra
+# -Werror. A syntax check is not a build: `gcc -fsyntax-only` generates no
+# code and so runs none of the flow-sensitive analyses.
+warn-check:
+	@tools/check_warnings.sh
+
+# No telemetry emission may happen while the loom lock is held.
+lock-check:
+	@python3 tools/check_lock_discipline.py
+
+# The real ESP-IDF toolchain, in the image CI uses, without installing it.
+# This is the only local check that speaks for the firmware build; everything
+# above is an approximation of it.
+IDF_IMAGE ?= espressif/idf:release-v5.5
+IDF_TARGET_ ?= esp32c6
+idf-build:
+	@command -v docker >/dev/null 2>&1 || { echo "docker required for idf-build"; exit 1; }
+	docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e IDF_COMPONENT_MANAGER=0 \
+	    -v "$$PWD":/work -w /work $(IDF_IMAGE) \
+	    bash -c '. $$IDF_PATH/export.sh >/dev/null 2>&1 && \
+	             idf.py -B build set-target $(IDF_TARGET_) >/dev/null && \
+	             idf.py -B build build'
+
+# Everything runnable without a board. Run this before pushing firmware changes.
+verify: test tasm-test doc-links warn-check lock-check idf-build
+	@echo ""
+	@echo "verify: host tests, TASM, doc links, warning gate, lock discipline, and a real ESP-IDF build all passed."
+
 hw-test:
 	@test -n "$(PORT)" || { echo "Usage: make hw-test PORT=/dev/cu.usbmodemXXXX"; exit 1; }
 	python3 tests/hardware/validate_shell.py $(PORT)
@@ -57,9 +86,30 @@ atlas:
 format:
 	find . -name '*.c' -o -name '*.h' | grep -v build | grep -v esp-idf | xargs clang-format -i
 
+# Whole-tree formatting report. Advisory: the tree does not currently satisfy
+# .clang-format and bringing it into line is a deliberate reformat, not a
+# side effect of a check. Reports honestly and exits non-zero — the previous
+# version piped clang-format into `head`, which discarded its exit status, and
+# then printed "Format check passed." unconditionally, so it announced success
+# while listing violations and could never fail. CI gates on format-diff.
 format-check:
-	@find . -name '*.c' -o -name '*.h' | grep -v build | grep -v esp-idf | xargs clang-format --dry-run --Werror 2>&1 | head -20
-	@echo "Format check passed."
+	@find . -name '*.c' -o -name '*.h' | grep -v build | grep -v esp-idf \
+	    | xargs clang-format --dry-run --Werror
+
+# What CI gates on: the lines this change touches must be formatted, without
+# demanding a tree-wide reformat that would bury history in `git blame`.
+# BASE defaults to the previous commit; CI passes the merge base for a PR.
+format-diff:
+	@command -v git-clang-format >/dev/null 2>&1 || { \
+	    echo "git-clang-format not found (pip install clang-format)"; exit 1; }
+	@out=$$(git-clang-format --diff --extensions c,h $(or $(BASE),HEAD~1) -- 2>&1); \
+	 case "$$out" in \
+	   *"did not modify any files"*|"") echo "Format: changed lines are clean." ;; \
+	   *"no modified files"*)           echo "Format: no C/H changes to check." ;; \
+	   *) echo "$$out"; echo; \
+	      echo "Changed lines are not formatted. Fix with: git-clang-format $(or $(BASE),HEAD~1)"; \
+	      exit 1 ;; \
+	 esac
 
 docs:
 	@command -v doxygen >/dev/null 2>&1 || { echo "Error: doxygen not installed. Install with: brew install doxygen"; exit 1; }

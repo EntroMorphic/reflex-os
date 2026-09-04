@@ -10,7 +10,9 @@
 ## Development Setup
 
 1. Install [ESP-IDF v5.5](https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32c6/get-started/).
-2. Install `clang-format` for code formatting checks (`brew install clang-format` on macOS, `apt install clang-format` on Linux).
+2. Install `clang-format` for formatting checks. `pip install clang-format` is
+   preferred over the system package: it also provides `git-clang-format`,
+   which `make format-diff` needs.
 3. Export the ESP-IDF environment. The path depends on where you
    installed ESP-IDF; typical locations are `~/esp-idf/export.sh` or
    `~/Projects/esp-idf/export.sh`:
@@ -50,12 +52,52 @@ make hw-test PORT=/dev/cu.usbmodem1101
 
 ## Validation
 
-Before submitting changes:
+Run everything that does not need a board with one target:
 
-1. Rebuild with `idf.py build`.
-2. Reassemble any changed `.tasm` programs with `python3 tools/tasm.py`.
-3. If runtime or hardware paths changed, flash the board and verify the affected shell and device behavior.
-4. Keep implementation docs in sync with the actual runtime contract.
+```bash
+make verify
+```
+
+That is host tests, TASM tests, doc links, the warning gate, the loom lock
+check, and a **real ESP-IDF build** in the same container image CI uses — no
+local ESP-IDF install required, only Docker.
+
+### A syntax check is not a build
+
+`gcc -fsyntax-only` generates no code, so it runs none of GCC's
+flow-sensitive analyses. A change was once pushed on the strength of a clean
+`-fsyntax-only`, a green host suite, green TASM tests and green doc links, and
+it broke all four ESP-IDF builds on a `-Werror=format-truncation` diagnostic.
+
+`make warn-check` compiles the ESP-independent two thirds of the firmware for
+real, at `-O2`, with `-Wall -Wextra -Werror` — stricter than ESP-IDF's own
+flags, and it has caught real defects. But it is **not** a substitute: that
+truncation diagnostic is produced by the RISC-V toolchain and is missed by host
+GCC 11 through 14, at every optimisation level. Measured, not assumed.
+
+**`make idf-build` is the only local check that speaks for the firmware
+build.** Run it before pushing anything that compiles into the image.
+
+### The individual gates
+
+| Command | Checks |
+|---|---|
+| `make test` | C host suite (no hardware) |
+| `make tasm-test` | TASM compiler |
+| `make doc-links` | Relative links across all tracked Markdown |
+| `make warn-check` | ESP-independent firmware at `-Wall -Wextra -Werror` |
+| `make lock-check` | No telemetry emission while the loom lock is held |
+| `make format-diff` | Formatting of the lines your change touches |
+| `make idf-build` | Real ESP-IDF build (Docker) |
+| `make hw-test PORT=…` | Shell contract against a flashed board |
+
+`make format-check` reports formatting tree-wide and currently fails: the
+repository predates any enforced style. CI gates `format-diff` instead, so new
+lines converge without a wholesale reformat that would bury `git blame`.
+
+With a board attached, also run `make hw-test PORT=…` if you touched runtime
+or shell paths, and keep implementation docs in sync with the actual runtime
+contract.
 
 ## Commit Style
 

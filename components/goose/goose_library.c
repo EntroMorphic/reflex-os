@@ -17,6 +17,10 @@
 
 #include "goose.h"
 #include "reflex_hal.h"
+#include <stdlib.h> /* malloc/free — reached transitively under ESP-IDF; declared
+                       * here so the file also compiles standalone. An implicit
+                       * declaration of malloc returns int, which truncates the
+                       * pointer on any 64-bit build. */
 #include <string.h>
 #include <stdio.h>
 

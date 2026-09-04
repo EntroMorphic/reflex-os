@@ -37,6 +37,7 @@ static bool s_reflex_event_bus_ready = false;
 
 static void reflex_event_task(void *arg)
 {
+    (void)arg; /* task entry signature; no context is passed */
     reflex_queued_event_t q_ev;
     while (1) {
         if (reflex_queue_recv(s_event_queue, &q_ev, UINT32_MAX) == REFLEX_OK) {

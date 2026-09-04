@@ -21,6 +21,7 @@ static goose_field_t led_agency_field;
 
 static void reflex_led_task(void *arg)
 {
+    (void)arg; /* task entry signature; no context is passed */
     /* Retrieve the intent cell from the global fabric.
      *
      * The name must match what goose_fabric_init actually seeds:

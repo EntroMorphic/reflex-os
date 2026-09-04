@@ -52,6 +52,12 @@ SYS_CELL = "sys.kernel.disposition"
 # must refuse. IO_MUX sits at 0x60090000, outside the whitelist of pages
 # non-system code may touch, so the read is rejected before any dereference —
 # nothing is sampled and no peripheral state is disturbed by running this.
+#
+# Verified against the generated catalog rather than chosen by eye:
+# goose_shadow_atlas.c carries {"agency.io_mux.date", 0x600900FC, ...}, and
+# 0x600900FC & 0xFFFFF000 = 0x60090000 is absent from the allow-list in
+# goose_fabric_addr_is_sanctuary, so the predicate returns true. It is not
+# boot-woven, so the read takes the shadow-resolve branch.
 SANCTUARY_CELL = "agency.io_mux.date"
 
 
@@ -313,6 +319,16 @@ def validate(port, r):
                 original.strip() == b.raw("config get log_level").strip(), original)
 
     print("--- ternary outcome marker ---")
+    # Confirm the sanctuary probe still resolves before asserting what it
+    # returns. If the catalog is regenerated and this name moves or changes
+    # address, `goonies read` answers notfound and the guard assertion below
+    # fails — which would look like the Sanctuary Guard regressing when in
+    # fact the probe went stale. Distinguish the two here.
+    probe = b.raw(f"goonies find {SANCTUARY_CELL}")
+    if "not" in probe.lower() and "found" in probe.lower():
+        r.check(f"TEST PROBLEM: sanctuary probe {SANCTUARY_CELL} no longer resolves "
+                f"— pick another guarded catalog name", False, probe)
+
     # The marker is the SDK's contract now, so each outcome class is asserted
     # against a command known to produce it.
     for cmd, want in (

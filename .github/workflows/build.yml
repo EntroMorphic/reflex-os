@@ -20,14 +20,62 @@ jobs:
       - name: Run TASM compiler tests
         run: python3 tests/host/test_tasm.py
 
-  format-check:
+  # Gates the lines a change touches, not the whole tree. `make format-check`
+  # reports tree-wide and currently fails by design: the repository predates
+  # any enforced style and reformatting it wholesale would bury history in
+  # `git blame`. Gating the diff converges the tree without that cost.
+  #
+  # This job previously ran `make format-check`, which could not fail — it
+  # piped clang-format into `head`, discarding the exit status, then printed
+  # "Format check passed." unconditionally. It was green for its whole life,
+  # including on commits that violated the style it claimed to enforce.
+  format-diff:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # git-clang-format needs the base commit present
       - name: Install clang-format
-        run: sudo apt-get install -y clang-format
-      - name: Check formatting
-        run: make format-check
+        # The pip package ships git-clang-format too; the apt one does not.
+        # Installed to a known prefix because a user install lands in
+        # ~/.local/bin, which is not reliably on PATH on a runner.
+        run: |
+          python3 -m pip install --prefix=/usr/local clang-format
+          command -v clang-format
+          command -v git-clang-format
+      - name: Check formatting of changed lines
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          # A branch's first push reports an all-zero before-sha, and a
+          # force-push can name a commit that is no longer reachable.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            BASE="HEAD~1"
+          fi
+          echo "Comparing against $BASE"
+          make format-diff BASE="$BASE"
+
+  # Compiles the ESP-independent firmware for real, with -Wall -Wextra -Werror.
+  # Seconds rather than the three minutes an ESP-IDF build takes, and stricter
+  # than ESP-IDF's own flags, so it fails first and says more.
+  warn-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile with warnings as errors
+        run: make warn-check
+
+  # No telemetry emission while the loom lock is held.
+  lock-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check loom lock discipline
+        run: make lock-check
 
   doc-links:
     runs-on: ubuntu-latest

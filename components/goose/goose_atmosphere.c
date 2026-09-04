@@ -483,6 +483,21 @@ reflex_err_t goose_atmosphere_query(const char *name) {
 }
 
 reflex_err_t goose_atmosphere_advertise(uint32_t name_hash, goose_cell_t *cell, const uint8_t *dest_mac) {
+    /* The querier's MAC is deliberately not used as a destination.
+     *
+     * It reads like an oversight — the caller has the address and passes it —
+     * so the reasoning is recorded rather than left to be rediscovered.
+     * reflex_radio_send treats dest_mac as advisory and the 802.15.4 backend
+     * discards it outright, always emitting a broadcast frame. Unicasting here
+     * would therefore behave differently on the two shipped radios while
+     * buying nothing: the ADVERTISE consumer only logs the solidified ghost,
+     * so no directed delivery is required, and authorisation comes from the
+     * Aura MAC rather than the destination address.
+     *
+     * The parameter is kept because it is the only place the querier's
+     * identity reaches this function, and a future directed reply would need
+     * it — plus a short-address unicast path in the 802.15.4 shim. */
+    (void)dest_mac;
     uint32_t nonce = (uint32_t)reflex_hal_time_us();
     goose_arc_packet_t arc = {
         .version = GOOSE_ARC_VERSION,

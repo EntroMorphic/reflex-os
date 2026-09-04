@@ -34,7 +34,18 @@ reflex_err_t reflex_radio_init(void);
  * dropped on the air, which is why the mesh counts what it *receives*
  * (`mesh stat`) rather than trusting send counts.
  *
+ * **`dest_mac` is advisory, and one backend ignores it.** ESP-NOW honours it.
+ * The IEEE 802.15.4 backend — the blob-free mode — discards it and always
+ * emits a broadcast frame (`reflex_radio_802154.c`, `build_broadcast_frame`),
+ * because nothing in this mesh has needed a directed frame yet and the shim
+ * does not implement short-address unicast. A caller that passes a specific
+ * MAC therefore gets a broadcast in 802.15.4 mode and a unicast under ESP-NOW.
+ * Do not build a confidentiality or addressing assumption on this parameter;
+ * every arc the substrate sends today is a deliberate broadcast, and the Aura
+ * MAC — not the destination address — is what restricts who can act on one.
+ *
  * @param dest_mac Six-byte destination, or the all-`0xFF` broadcast address.
+ *                 Advisory: see above.
  * @param data     Frame payload.
  * @param len      Payload length, bounded by the backend's MTU (250 bytes for
  *                 ESP-NOW).
