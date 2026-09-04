@@ -113,6 +113,26 @@ void reflex_sched_delete_task(reflex_tcb_t *tcb) {
 
 /* ---- Scheduler core ---- */
 
+int reflex_sched_select(const reflex_tcb_t *tasks, int count, int start) {
+    if (!tasks || count <= 0) return -1;
+    /* Normalise rather than trust: a caller computing `current + 1` off the end
+     * of the table would otherwise index out of range on the first probe. */
+    int begin = start % count;
+    if (begin < 0) begin += count;
+
+    int best = -1;
+    for (int i = 0; i < count; i++) {
+        int idx = (begin + i) % count;
+        if (tasks[idx].state != REFLEX_TASK_STATE_READY) continue;
+        /* Strictly greater, so the first task reached at a given priority wins.
+         * With the scan starting after the current task, that is what makes
+         * equal priorities round-robin instead of always picking the lowest
+         * slot. */
+        if (best < 0 || tasks[idx].priority > tasks[best].priority) best = idx;
+    }
+    return best;
+}
+
 /* Only reflex_sched_start consumes this, and that is compiled out of the host
  * build, so scope it the same way rather than leave an unused-function warning. */
 #ifndef REFLEX_HOST_BUILD
@@ -130,17 +150,9 @@ static reflex_tcb_t *pick_next(void) {
         }
     }
 
-    reflex_tcb_t *best = NULL;
     int start = s_current ? (int)(s_current - s_tasks) + 1 : 0;
-    for (int i = 0; i < REFLEX_SCHED_MAX_TASKS; i++) {
-        int idx = (start + i) % REFLEX_SCHED_MAX_TASKS;
-        if (s_tasks[idx].state == REFLEX_TASK_STATE_READY) {
-            if (!best || s_tasks[idx].priority > best->priority) {
-                best = &s_tasks[idx];
-            }
-        }
-    }
-    return best;
+    int idx = reflex_sched_select(s_tasks, REFLEX_SCHED_MAX_TASKS, start);
+    return (idx < 0) ? NULL : &s_tasks[idx];
 }
 #endif /* !REFLEX_HOST_BUILD */
 

@@ -411,6 +411,106 @@ static void test_should_time_wake(void) {
     CHECK("deadline before the wrap wakes after it", reflex_sched_should_time_wake(&t, 5));
 }
 
+/* ---- Task selection ----
+ *
+ * The scheduler's central decision, and the first tests ever to make it. It
+ * lived inside pick_next, which is not compiled on the host, so no test had
+ * selected a task before this.
+ */
+#define NTASK 4
+static void mk(reflex_tcb_t *t, int n) {
+    memset(t, 0, sizeof(*t) * (size_t)n);
+    for (int i = 0; i < n; i++)
+        t[i].state = REFLEX_TASK_STATE_FREE;
+}
+
+static void test_select(void) {
+    reflex_tcb_t t[NTASK];
+
+    CHECK("NULL table selects nothing", reflex_sched_select(NULL, NTASK, 0) == -1);
+    mk(t, NTASK);
+    CHECK("zero count selects nothing", reflex_sched_select(t, 0, 0) == -1);
+    CHECK("no READY task selects nothing", reflex_sched_select(t, NTASK, 0) == -1);
+
+    /* Only READY is runnable — BLOCKED, RUNNING and DEAD are not. */
+    mk(t, NTASK);
+    t[1].state = REFLEX_TASK_STATE_BLOCKED;
+    t[2].state = REFLEX_TASK_STATE_DEAD;
+    t[3].state = REFLEX_TASK_STATE_RUNNING;
+    CHECK("only READY tasks are eligible", reflex_sched_select(t, NTASK, 0) == -1);
+
+    mk(t, NTASK);
+    t[2].state = REFLEX_TASK_STATE_READY;
+    CHECK("the one READY task is chosen", reflex_sched_select(t, NTASK, 0) == 2);
+
+    /* Priority beats scan order in both directions, so a passing result cannot
+     * be an accident of where the scan happened to begin. */
+    mk(t, NTASK);
+    for (int i = 0; i < NTASK; i++)
+        t[i].state = REFLEX_TASK_STATE_READY;
+    t[0].priority = 1;
+    t[1].priority = 9;
+    t[2].priority = 3;
+    t[3].priority = 2;
+    CHECK("highest priority wins from slot 0", reflex_sched_select(t, NTASK, 0) == 1);
+    CHECK("highest priority wins from slot 2", reflex_sched_select(t, NTASK, 2) == 1);
+    t[0].priority = 9;
+    t[1].priority = 1;
+    CHECK("highest priority wins when it moves", reflex_sched_select(t, NTASK, 0) == 0);
+
+    /* Equal priority: the scan start is what makes this round-robin. Starting
+     * after the task that just ran is what stops it starving its equals. */
+    mk(t, NTASK);
+    for (int i = 0; i < NTASK; i++) {
+        t[i].state = REFLEX_TASK_STATE_READY;
+        t[i].priority = 5;
+    }
+    CHECK("equal priority, start 0 picks 0", reflex_sched_select(t, NTASK, 0) == 0);
+    CHECK("equal priority, start 1 picks 1", reflex_sched_select(t, NTASK, 1) == 1);
+    CHECK("equal priority, start 3 picks 3", reflex_sched_select(t, NTASK, 3) == 3);
+
+    /* Rotating the start across the whole table must visit every task — this
+     * is the property that actually says "round-robin". */
+    bool seen[NTASK] = {false, false, false, false};
+    for (int st = 0; st < NTASK; st++) {
+        int idx = reflex_sched_select(t, NTASK, st);
+        if (idx >= 0 && idx < NTASK) seen[idx] = true;
+    }
+    bool all = true;
+    for (int i = 0; i < NTASK; i++)
+        if (!seen[i]) all = false;
+    CHECK("rotating the start reaches every equal-priority task", all);
+
+    /* A start index past the end is normalised, not used to index out of
+     * range: pick_next passes current+1, which is exactly count at the top slot. */
+    CHECK("start == count wraps to 0", reflex_sched_select(t, NTASK, NTASK) == 0);
+    CHECK("start beyond count wraps", reflex_sched_select(t, NTASK, NTASK + 2) == 2);
+
+    /* A negative start is the only case the explicit normalisation is for: the
+     * loop's own `% count` already handles anything non-negative, but C's `%`
+     * truncates toward zero, so -1 % 4 is -1 and the first probe would read
+     * tasks[-1]. pick_next never passes a negative today — the header promises
+     * the index is wrapped, so the promise is tested rather than assumed. */
+    CHECK("start -1 wraps to the last slot", reflex_sched_select(t, NTASK, -1) == 3);
+    CHECK("start -NTASK wraps to 0", reflex_sched_select(t, NTASK, -NTASK) == 0);
+    for (int st = -3 * NTASK; st < 3 * NTASK; st++) {
+        int idx = reflex_sched_select(t, NTASK, st);
+        if (idx < 0 || idx >= NTASK) {
+            CHECK("every start yields an in-range index", false);
+            break;
+        }
+    }
+    CHECK("no start index escapes the table", true);
+
+    /* Negative priorities are legal; a withheld task is still runnable. */
+    mk(t, NTASK);
+    t[0].state = REFLEX_TASK_STATE_READY;
+    t[0].priority = -5;
+    t[1].state = REFLEX_TASK_STATE_READY;
+    t[1].priority = -1;
+    CHECK("least-negative priority wins", reflex_sched_select(t, NTASK, 0) == 1);
+}
+
 int test_reflex_queue(void) {
     printf("[kqueue] ");
     test_create();
@@ -424,6 +524,7 @@ int test_reflex_queue(void) {
     test_ms_to_ticks();
     test_tick_reached();
     test_should_time_wake();
+    test_select();
     if (s_fail == 0) printf("ok\n");
     return s_fail;
 }

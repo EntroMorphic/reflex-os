@@ -114,6 +114,24 @@ bool reflex_sched_tick_reached(uint32_t now, uint32_t deadline);
  * deadline, and waiting on a queue without one — and the first two wake here.
  */
 bool reflex_sched_should_time_wake(const reflex_tcb_t *t, uint32_t now);
+
+/**
+ * @brief Choose the next task to run: index into @p tasks, or -1 if none.
+ *
+ * The scheduler's central decision, and until now the least examined thing in
+ * the kernel — it lived inside pick_next, which is not compiled on the host,
+ * so no test has ever selected a task.
+ *
+ * Highest priority wins. Among equal priorities the scan starts at @p start
+ * and wraps, which is what makes it round-robin rather than always returning
+ * the lowest-numbered slot: passing the current task's index plus one is what
+ * stops one task of a priority level starving its equals.
+ *
+ * @param tasks  Task table.
+ * @param count  Entries in @p tasks.
+ * @param start  Slot to begin scanning from; wrapped into range.
+ */
+int reflex_sched_select(const reflex_tcb_t *tasks, int count, int start);
 void reflex_sched_tick(void);
 void reflex_sched_ack_tick(void);
 reflex_tcb_t *reflex_sched_get_current(void);

@@ -245,9 +245,57 @@ it is not later removed as dead.
 What C1 does *not* do is change who implements `reflex_task.h`.
 `reflex_task_kernel.c` still delegates to FreeRTOS. That cutover is C3.
 
-**C2 — startup, trap, vectors.** The path that makes `reflex_sched_start`
-actually run. `reflex_startup.c` already calls `reflex_sched_init`,
-`create_task` and `start`; nothing calls `reflex_startup.c`.
+**C2 — startup, trap, vectors.** *Reviewed, defects fixed, gap specified. Not
+running.* These files had never been executed, so the first task was reading
+them, and that turned up more than expected.
+
+The scheduler's central decision — which task runs next — had never been
+tested, because it lived inside `pick_next`, which is not compiled on the host.
+It is now `reflex_sched_select`: highest priority wins, ties broken by a scan
+that starts after the current task, which is what makes it round-robin instead
+of always returning the lowest slot. Fifteen assertions and four mutations,
+including one that only a negative start index catches.
+
+Three defects were fixed. `reflex_trap_handler`'s exception arm was empty and
+fell through to `return frame`, which restores the context and executes `mret`
+with `mepc` still pointing at the faulting instruction — so any fault became a
+silent infinite trap loop with no output. A stubbed exception handler that
+returns is worse than none; it now reports `mcause`, `mepc` and `mtval` and
+halts. `reflex_kernel_startup` discarded the return of `reflex_sched_init`,
+`create_task` and `start`, so a failed task creation produced a scheduler with
+nothing to run, which looks exactly like a hang; and its own comment claimed a
+BSS clear as step 1 that the code does not do and should not. The same
+discarded-return pattern in `reflex_kernel_test.c` is fixed too.
+
+### What C2 still owes, precisely
+
+There are two tick paths and only one works. `reflex_kernel_test.c` routes
+SYSTIMER TARGET1 through `esp_intr_alloc` — ESP-IDF's allocator doing the
+interrupt-matrix mapping, the PLIC priority and the `mie` bit — and its ISR
+calls `reflex_sched_tick` directly. That works, and it is not independence.
+
+The standalone path is incomplete in three specific ways:
+
+1. `setup_systimer_tick` enables the interrupt at the SYSTIMER peripheral and
+   stops. Nothing maps it through the interrupt matrix to a CPU line, sets a
+   PLIC priority, or enables the matching `mie` bit.
+2. `reflex_trap_handler` dispatches on `mcause == 7`, the CLINT machine *timer*
+   interrupt. A C6 peripheral interrupt does not arrive that way, so even a
+   correctly routed tick would fall through unhandled.
+3. With no tick, `reflex_sched_start` runs its first task and parks on `wfi`
+   the moment everything blocks, with nothing left to wake it.
+
+And the reason none of this can simply be switched on: `reflex_kernel_startup`
+writes `mtvec`, the trap vector for *every* interrupt and exception on the
+core. ESP-IDF owns that register — its interrupt allocator, the FreeRTOS tick,
+the console and the radio all arrive through the vector it installed.
+Overwriting it mid-boot does not degrade gracefully; it redirects the entire
+machine to a handler that services a scheduler tick and nothing else. Reaching
+it means either owning startup outright or a deliberate hand-off that first
+quiesces those peripherals.
+
+That is register programming validated on a board. A misrouted interrupt does
+not fail to build.
 
 **C3 — cut `reflex_task_kernel.c` over** from FreeRTOS delegation to
 `reflex_sched_*`. This is the point at which Reflex owns its scheduling, and

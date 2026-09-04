@@ -43,17 +43,42 @@ static void task_b(void *arg) {
 void reflex_kernel_test(void) {
     esp_rom_printf("\n[kernel] Reflex OS kernel scheduler test\n");
 
-    /* Register the tick ISR via ESP-IDF's interrupt allocator */
+    /* The tick arrives through ESP-IDF's interrupt allocator, which does the
+     * interrupt-matrix mapping, the PLIC priority and the mie bit. Worth being
+     * clear about what that means: this test exercises the Reflex scheduler,
+     * not Reflex's independence. The standalone tick path — setup_systimer_tick
+     * plus reflex_trap_handler — is incomplete, and reflex_trap.c records
+     * exactly how. */
     intr_handle_t isr_handle;
-    esp_intr_alloc(SYSTIMER_TARGET1_INTR_SOURCE, ESP_INTR_FLAG_IRAM,
-                   systimer_tick_isr, NULL, &isr_handle);
+    esp_err_t ie = esp_intr_alloc(SYSTIMER_TARGET1_INTR_SOURCE, ESP_INTR_FLAG_IRAM,
+                                  systimer_tick_isr, NULL, &isr_handle);
+    if (ie != ESP_OK) {
+        esp_rom_printf("[kernel] ERROR: tick ISR alloc failed (0x%x)\n", (int)ie);
+        return;
+    }
 
-    reflex_sched_init();
-    reflex_sched_create_task(task_a, "task-A", 4096, NULL, 5, NULL);
-    reflex_sched_create_task(task_b, "task-B", 4096, NULL, 5, NULL);
+    /* Each of these reported a status that was discarded. Starting a scheduler
+     * whose tasks failed to be created looks identical to a scheduler that
+     * hangs, and this is a test — the one place a silent failure is least
+     * affordable. */
+    reflex_err_t rc = reflex_sched_init();
+    if (rc != REFLEX_OK) {
+        esp_rom_printf("[kernel] ERROR: sched init failed (0x%x)\n", (int)rc);
+        return;
+    }
+    rc = reflex_sched_create_task(task_a, "task-A", 4096, NULL, 5, NULL);
+    if (rc != REFLEX_OK) {
+        esp_rom_printf("[kernel] ERROR: task-A create failed (0x%x)\n", (int)rc);
+        return;
+    }
+    rc = reflex_sched_create_task(task_b, "task-B", 4096, NULL, 5, NULL);
+    if (rc != REFLEX_OK) {
+        esp_rom_printf("[kernel] ERROR: task-B create failed (0x%x)\n", (int)rc);
+        return;
+    }
 
     esp_rom_printf("[kernel] starting scheduler (cooperative)...\n");
-    reflex_sched_start();
+    rc = reflex_sched_start();
 
-    esp_rom_printf("[kernel] ERROR: scheduler returned\n");
+    esp_rom_printf("[kernel] ERROR: scheduler returned (0x%x)\n", (int)rc);
 }
