@@ -12,6 +12,9 @@
 #include "reflex_task.h"
 #include "reflex_tuning.h"
 #include "goose_telemetry.h"
+#include <stdlib.h>   /* malloc — reached transitively under ESP-IDF, declared here so
+                       * the file also compiles standalone without an implicit
+                       * declaration (an error, not a warning, from C11 onward). */
 #include <string.h>
 
 #ifdef CONFIG_ULP_COPROC_ENABLED
@@ -491,6 +494,31 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
         goose_cell_t *heap_cell = goonies_resolve_cell("perception.heap.pressure");
         if (heap_cell && heap_cell->state == -1) return NULL;
     }
+    /* Deferred telemetry, emitted after both locks are dropped.
+     *
+     * goose_telem_* writes straight to the console via reflex_hal_write_raw,
+     * which spins on a USB-JTAG FIFO one byte at a time (up to
+     * USJ_TX_SPIN_LIMIT iterations each) and has no bounded upper cost. Doing
+     * that from here held loom_authority *and* fabric_mux across it, and
+     * fabric_mux is a critical section with interrupts disabled. The loom
+     * budget these two emissions sat inside is LOOM_LOCK_TIMEOUT_US = 300us,
+     * against a measured steady-state peak hold of 353us: a single console
+     * write is orders of magnitude past that, so with telemetry enabled a
+     * saturated fabric (where every allocation evicts, emitting twice) drove
+     * the supervisor pulse straight into LOOM_CONTENTION_FAULT.
+     *
+     * Every other telemetry site in the substrate already snapshots inside the
+     * lock and emits outside it — internal_process_transitions, the weave path
+     * below, learn_sync. These two were the only ones that did not.
+     *
+     * Snapshotting is gated on goose_telemetry_enabled for the same reason the
+     * weave path gates its name lookups: with telemetry off, the default, this
+     * must cost nothing. 40 bytes matches the telemetry name width documented
+     * in docs/implementation-status.md, deliberately narrower than
+     * GOOSE_NAME_MAX so the locked region's stack footprint stays small. */
+    char t_evict[40] = {0};
+    int8_t t_alloc_type = 0;
+
     /* Serialize against the supervisor pulse. Lock order is
      * loom_authority -> fabric_mux. The pulse path holds loom_authority
      * for the duration of internal_process_transitions and never takes
@@ -537,7 +565,9 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
                  * essentially every step. */
                 int16_t g = goose_registry_find_coord(&goonies, fabric_cells[target].coord);
                 if (g != GOOSE_REGISTRY_EMPTY) {
-                    TELEM_IF(goose_telem_evict(goonies_entries[g].name));
+                    if (__builtin_expect(goose_telemetry_enabled, 0)) {
+                        snprintf(t_evict, sizeof(t_evict), "%s", goonies_entries[g].name);
+                    }
                     snprintf(s_eviction_ring[s_eviction_ring_idx % GOOSE_EVICTION_RING_SIZE],
                              GOOSE_NAME_MAX, "%s", goonies_entries[g].name);
                     s_eviction_ring_idx++;
@@ -572,6 +602,10 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
         if (appended) fabric_cell_count--;  /* nothing published yet — give the slot back */
         reflex_critical_exit(&fabric_mux);
         goose_loom_unlock();
+        /* The comment above says this cannot fail on the eviction branch, but
+         * the victim is already gone if it did — so the eviction is reported
+         * either way rather than trusting that reasoning to stay true. */
+        TELEM_IF(if (t_evict[0]) goose_telem_evict(t_evict));
         return NULL;
     }
     goose_cell_t *c = &fabric_cells[idx];
@@ -580,9 +614,14 @@ static goose_cell_t* fabric_alloc_internal(const char *name, reflex_tryte9_t coo
     goose_lattice_insert(lattice_index, REFLEX_LATTICE_BUCKETS,
                          fabric_cells, fabric_cell_count, coord, (int16_t)idx);
     fabric_version++;
-    TELEM_IF(goose_telem_alloc(name, c->type));
+    t_alloc_type = (int8_t)c->type;
     reflex_critical_exit(&fabric_mux);
     goose_loom_unlock();
+    /* `name` is the caller's pointer and outlives this frame; the type is
+     * copied because `c` points into fabric_cells[] and another allocation
+     * could evict it the moment the lock is dropped. */
+    TELEM_IF(if (t_evict[0]) goose_telem_evict(t_evict));
+    TELEM_IF(goose_telem_alloc(name, t_alloc_type));
     return c;
 }
 

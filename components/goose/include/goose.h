@@ -632,6 +632,13 @@ typedef struct {
      *  non-zero value means a peer holding the Aura key is emitting malformed
      *  arcs — a buggy or tampered peer, not radio noise. */
     uint32_t rx_malformed;
+    /** TX counters for the remaining ops. Only MMIO_SYNC and DISCOVER were
+     *  counted, so `mesh status` could report tx=0 on a board that had been
+     *  emitting SYNC and POSTURE arcs for hours. */
+    uint32_t tx_sync;
+    uint32_t tx_query;
+    uint32_t tx_advertise;
+    uint32_t tx_posture;
 } goose_mesh_stats_t;
 
 goose_mesh_stats_t goose_atmosphere_get_stats(void);

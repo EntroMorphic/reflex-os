@@ -1,6 +1,6 @@
 # Reflex OS
 
-A purpose-aware ternary operating system for embedded mesh networks. ~26,000 lines of C and assembly, hardware-validated on RISC-V (ESP32-C6) and Xtensa (ESP32).
+A purpose-aware ternary operating system for embedded mesh networks. ~16,000 lines of hand-written C and assembly (~29,000 including the SVD-generated shadow atlas), hardware-validated on RISC-V (ESP32-C6) and Xtensa (ESP32).
 
 **In plain terms:** Reflex OS is firmware for ESP32 microcontrollers that represents hardware state using three values (-1, 0, +1) instead of binary. You tell the OS what you're trying to do (`purpose set led`), and it prioritizes the hardware routes that serve that goal — learning which connections matter through a reward signal, like a nervous system forming habits.
 
@@ -89,7 +89,7 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `led status` | Query the physical LED state |
 | `goonies ls` | List the hierarchical hardware DNS registry |
 | `goonies find <name>` | Resolve a name: live registry first, then fall through to the 12,738-entry shadow catalog. Output is labeled `[live]` or `[shadow]`. |
-| `goonies read <name>` | Read the live MMIO register value for a named hardware cell. Shows raw hex, masked hex, and ternary state. Works on live cells, shadow entries, and GPIO pins. |
+| `goonies read <name>` | Read the live MMIO register value for a named hardware cell. Shows raw hex, masked hex, and ternary state. Works on live cells, shadow entries, and GPIO pins. Addresses behind the Sanctuary Guard are refused and report `#R:-1,guard`. |
 | `atlas verify` | Walk the entire SVD-documented MMIO shadow catalog (full round-trip + duplicate sweep). Prints progress dots; reports `ok=N/N, duplicates=D, failures=F`. |
 | `temp` | Read the internal die temperature (ternary state: cold/normal/warm) |
 | `loom list` | List live cells with coordinate, namespace, state and type |
@@ -116,10 +116,10 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `mesh emit <state>` | Broadcast an `ARC_OP_SYNC` packet with the given ternary state (`-1\|0\|1`) without mutating the local cell |
 | `mesh query <name>` | Broadcast an `ARC_OP_QUERY` for `<name>`; peers respond with `ARC_OP_ADVERTISE` if they have the name locally |
 | `mesh posture <state> <weight>` | Broadcast an `ARC_OP_POSTURE` with weight clamped to `SWARM_WEIGHT_MAX=4` |
-| `mesh stat` | Dump the mesh RX counters (sync/query/advertise/posture/mmio_sync, plus version_mismatch, aura_fail, replay_drop, self_drop, malformed). `malformed` counts authenticated arcs dropped for carrying a state outside `-1\|0\|+1` — non-zero means a peer holding the Aura key is emitting bad arcs. |
-| `mesh status` | Mesh summary (peer count, total RX/TX, per-peer status) |
+| `mesh stat` | Dump the mesh counters. RX: sync/query/advertise/posture/mmio_sync/discover, plus version_mismatch, aura_fail, replay_drop, self_drop, malformed. TX: sync/query/advertise/posture/mmio_sync/discover — every op this board emits is counted. `malformed` counts authenticated arcs dropped for carrying a state outside `-1\|0\|+1` — non-zero means a peer holding the Aura key is emitting bad arcs. |
+| `mesh status` | Mesh summary (peer count, total RX/TX across every op including DISCOVER, per-peer status) |
 | `mesh ping` | Broadcast a sync arc to all peers |
-| `mesh peer add <name> <mac>` | Register a named peer for MMIO sync (e.g., `mesh peer add bravo B4:3A:45:8A:C8:24`) |
+| `mesh peer add <name> <mac>` | Register a named peer for MMIO sync (e.g., `mesh peer add bravo B4:3A:45:8A:C8:24`). Names are capped at 11 characters and a longer one is **refused**, not truncated. Re-adding a known MAC renames it, and the rename is persisted. |
 | `mesh peer ls` | List registered peers with active/stale status and last-seen time |
 | `services` | List registered services |
 | `config <get\|set>` | Persistence management |

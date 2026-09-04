@@ -31,29 +31,88 @@ static void test_ternary(void) {
 }
 
 /* --- Crypto tests --- */
+
+/* Compare a computed MAC against a hex-encoded expected value. */
+static int hmac_matches(const uint8_t *key, size_t key_len,
+                        const void *data, size_t data_len,
+                        const char *expect_hex) {
+    uint8_t out[32];
+    if (reflex_hmac_sha256(key, key_len, (const uint8_t *)data, data_len, out) != REFLEX_OK)
+        return 0;
+    for (int i = 0; i < 32; i++) {
+        unsigned byte;
+        if (sscanf(expect_hex + (i * 2), "%2x", &byte) != 1) return 0;
+        if (out[i] != (uint8_t)byte) return 0;
+    }
+    return 1;
+}
+
 static void test_crypto(void) {
     printf("[crypto]  ");
 
-    /* Known-answer test: HMAC-SHA256("key", "message") */
-    uint8_t out[32];
-    reflex_hmac_sha256((const uint8_t *)"key", 3,
-                       (const uint8_t *)"message", 7, out);
+    /* Known-answer tests from RFC 4231.
+     *
+     * This suite previously asserted only that the MAC was deterministic and
+     * that it changed when the key or message changed. Every one of those
+     * holds for an implementation that computes the wrong digest — and because
+     * both sides of the mesh run this same code, a wrong-but-consistent
+     * SHA-256 would have authenticated every arc between two boards happily
+     * while being incompatible with every other HMAC-SHA-256 on earth. The
+     * Aura MAC is the only thing standing between the substrate and an
+     * attacker-supplied arc, so it is checked against the standard's vectors
+     * rather than against itself.
+     *
+     * Case 6 is the one that matters structurally: a 131-byte key exercises
+     * the key_len > 64 branch, which folds the key through SHA-256 first and
+     * which nothing here had ever executed. */
+    uint8_t key20[20], key131[131], data50[50];
+    memset(key20, 0x0b, sizeof(key20));
+    memset(key131, 0xaa, sizeof(key131));
+    memset(data50, 0xdd, sizeof(data50));
 
-    /* Expected: from RFC 4231 test vector (not exact — key/msg differ).
-     * Validate it's non-zero and deterministic. */
-    uint8_t out2[32];
-    reflex_hmac_sha256((const uint8_t *)"key", 3,
-                       (const uint8_t *)"message", 7, out2);
-    TEST("deterministic", memcmp(out, out2, 32) == 0);
+    TEST("rfc4231_case1",
+         hmac_matches(key20, 20, "Hi There", 8,
+                      "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"));
 
-    /* Different input → different output */
-    reflex_hmac_sha256((const uint8_t *)"key", 3,
-                       (const uint8_t *)"other", 5, out2);
+    TEST("rfc4231_case2",
+         hmac_matches((const uint8_t *)"Jefe", 4,
+                      "what do ya want for nothing?", 28,
+                      "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"));
+
+    memset(key20, 0xaa, sizeof(key20));
+    TEST("rfc4231_case3",
+         hmac_matches(key20, 20, data50, 50,
+                      "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe"));
+
+    /* Key longer than the 64-byte block: hashed down before use. */
+    TEST("rfc4231_case6_long_key",
+         hmac_matches(key131, 131,
+                      "Test Using Larger Than Block-Size Key - Hash Key First", 54,
+                      "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"));
+
+    /* Long key *and* a message spanning several blocks. */
+    TEST("rfc4231_case7_long_key_and_data",
+         hmac_matches(key131, 131,
+                      "This is a test using a larger than block-size key and a "
+                      "larger than block-size data. The key needs to be hashed "
+                      "before being used by the HMAC algorithm.", 152,
+                      "9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2"));
+
+    /* The 16-byte width the Aura key actually uses. Cross-checked against
+     * OpenSSL rather than taken from the RFC, which has no 16-byte case. */
+    uint8_t key16[16];
+    for (int i = 0; i < 16; i++) key16[i] = (uint8_t)i;
+    TEST("aura_width_16_byte_key",
+         hmac_matches(key16, 16, "reflex", 6,
+                      "dfd7087e2bb7752783e5c2780733a453076e0d19a21e50002b44dc042c4e7a79"));
+
+    /* Behavioural properties, kept: they catch a stuck or key-ignoring MAC
+     * that somehow still matched a vector. */
+    uint8_t out[32], out2[32];
+    reflex_hmac_sha256((const uint8_t *)"key", 3, (const uint8_t *)"message", 7, out);
+    reflex_hmac_sha256((const uint8_t *)"key", 3, (const uint8_t *)"other", 5, out2);
     TEST("different_input", memcmp(out, out2, 32) != 0);
-
-    /* Different key → different output */
-    reflex_hmac_sha256((const uint8_t *)"key2", 4,
-                       (const uint8_t *)"message", 7, out2);
+    reflex_hmac_sha256((const uint8_t *)"key2", 4, (const uint8_t *)"message", 7, out2);
     TEST("different_key", memcmp(out, out2, 32) != 0);
 
     printf("ok\n");

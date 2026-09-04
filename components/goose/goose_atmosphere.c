@@ -49,10 +49,18 @@ typedef struct {
 
 static uint32_t goose_name_hash(const char *name) { return goose_fnv1a(name); }
 
-/* HMAC-SHA256 over the packet's authenticated fields (including version),
- * truncated to 32 bits to fit the existing wire format. Truncation caps
- * collision resistance at the birthday bound (~2^16). Fail-closed on any
- * mbedtls error via a fixed sentinel that reliably fails the receiver check. */
+/* HMAC-SHA256 over the packet's authenticated fields (including version).
+ *
+ * Fail-closed on any HMAC error via a fixed sentinel that reliably fails the
+ * receiver check. The comment here used to credit mbedtls, which this
+ * firmware has not depended on since the crypto consolidation — the MAC comes
+ * from reflex_crypto.c, whose implementation cannot currently fail, so the
+ * branch is defence in depth against a future one that can rather than a path
+ * taken today. It is kept for that reason: an aura that silently degrades to
+ * a predictable value is exactly the failure this must never have.
+ *
+ * (The truncation note that lived here described the retired 32-bit MAC; the
+ * width rationale now sits with the widening below, where it belongs.) */
 #define AURA_ERROR_SENTINEL 0xDEADBEEFDEADBEEFull
 
 #pragma pack(push, 1)
@@ -103,11 +111,24 @@ int32_t swarm_accumulator = 0;
 
 static goose_mesh_stats_t mesh_stats;
 
+/* Counters are bumped from the radio receive callback and read from the shell
+ * task. `mesh_stats.field++` is a read-modify-write, so a preemption between
+ * the load and the store drops the increment outright — and on the dual-core
+ * ESP32 the two can genuinely run at once.
+ *
+ * The getter used to take swarm_mux, which protected nothing: not one of the
+ * writers held it. That is worse than no lock, because it reads as though the
+ * snapshot were serialised. Relaxed ordering is the right memory model here —
+ * these counters carry no happens-before relationship to anything else, they
+ * are only ever observed for their own value. */
+#define MESH_STAT_INC(field) __atomic_fetch_add(&mesh_stats.field, 1u, __ATOMIC_RELAXED)
+
 goose_mesh_stats_t goose_atmosphere_get_stats(void) {
-    if (swarm_mux_init) reflex_critical_enter(&swarm_mux);
-    goose_mesh_stats_t copy = mesh_stats;
-    if (swarm_mux_init) reflex_critical_exit(&swarm_mux);
-    return copy;
+    /* A plain struct copy. Each field is a naturally-aligned uint32_t, so no
+     * single counter can be read torn; the snapshot as a whole is not one
+     * instant, which is the correct trade for observability counters and is
+     * the guarantee the removed lock only appeared to give. */
+    return mesh_stats;
 }
 /* Swarm constants now live in reflex_tuning.h:
  * REFLEX_SWARM_THRESHOLD, REFLEX_SWARM_ACCUM_MAX, REFLEX_SWARM_WEIGHT_MAX
@@ -241,7 +262,7 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
     uint8_t local_mac[6];
     reflex_hal_mac_read(local_mac);
     if (memcmp(recv_info->src_addr, local_mac, 6) == 0) {
-        mesh_stats.rx_self_drop++;
+        MESH_STAT_INC(rx_self_drop);
         return;
     }
 
@@ -252,7 +273,7 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
      * window instead of the louder one starving the quieter one. 8-slot
      * direct-mapped ring keyed on the low-order MAC bytes. */
     if (arc->version != GOOSE_ARC_VERSION) {
-        mesh_stats.rx_version_mismatch++;
+        MESH_STAT_INC(rx_version_mismatch);
         typedef struct { uint8_t mac[6]; uint8_t version; uint64_t last_us; } version_warn_entry_t;
         static version_warn_entry_t version_warn_ring[8];
         uint32_t slot = ((uint32_t)recv_info->src_addr[4] << 8 |
@@ -273,7 +294,7 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
     uint64_t expected_aura = calculate_aura(arc->version, arc->op, arc->coord,
                                             arc->name_hash, arc->state, arc->nonce);
     if (arc->aura != expected_aura) {
-        mesh_stats.rx_aura_fail++;
+        MESH_STAT_INC(rx_aura_fail);
         return;
     }
 
@@ -293,7 +314,7 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
      * after the Aura gate so the counter means "a peer holding our key sent a
      * malformed arc" rather than counting radio noise. */
     if (arc->state < REFLEX_TRIT_NEG || arc->state > REFLEX_TRIT_POS) {
-        mesh_stats.rx_malformed++;
+        MESH_STAT_INC(rx_malformed);
         REFLEX_LOGW(TAG, "ARC_MALFORMED state=%d op=%u from " REFLEX_MAC_FMT,
                     (int)arc->state, (unsigned)arc->op, REFLEX_MAC_ARG(recv_info->src_addr));
         return;
@@ -303,18 +324,18 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
 
     // Replay protection — reject packets seen within the cache window
     if (replay_seen_or_record(recv_info->src_addr, arc->nonce, now)) {
-        mesh_stats.rx_replay_drop++;
+        MESH_STAT_INC(rx_replay_drop);
         return;
     }
 
     if (arc->op == ARC_OP_SYNC) {
-        mesh_stats.rx_sync++;
+        MESH_STAT_INC(rx_sync);
         goose_route_t *route = goose_fabric_find_radio_route_by_source_coord(arc->coord);
         if (route && route->cached_sink) { route->cached_sink->state = arc->state; }
         TELEM_IF(goose_telem_mesh("SYNC", arc->state));
     }
     else if (arc->op == ARC_OP_QUERY) {
-        mesh_stats.rx_query++;
+        MESH_STAT_INC(rx_query);
         TELEM_IF(goose_telem_mesh("QUERY", arc->state));
         if (now - last_query_processed_us < 100000) return;
         last_query_processed_us = now;
@@ -329,13 +350,13 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
         }
     }
     else if (arc->op == ARC_OP_ADVERTISE) {
-        mesh_stats.rx_advertise++;
+        MESH_STAT_INC(rx_advertise);
         TELEM_IF(goose_telem_mesh("ADVERTISE", arc->state));
         REFLEX_LOGI(TAG, "Ghost Solidified for hash [0x%08lX] at " REFLEX_MAC_FMT,
                      (unsigned long)arc->name_hash, REFLEX_MAC_ARG(recv_info->src_addr));
     }
     else if (arc->op == ARC_OP_POSTURE) {
-        mesh_stats.rx_posture++;
+        MESH_STAT_INC(rx_posture);
         TELEM_IF(goose_telem_mesh("POSTURE", arc->state));
         uint8_t wire_weight = (uint8_t)(arc->nonce & 0x0F);
         if (wire_weight > REFLEX_SWARM_WEIGHT_MAX) wire_weight = REFLEX_SWARM_WEIGHT_MAX;
@@ -355,12 +376,12 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
         }
     }
     else if (arc->op == ARC_OP_MMIO_SYNC) {
-        mesh_stats.rx_mmio_sync++;
+        MESH_STAT_INC(rx_mmio_sync);
         TELEM_IF(goose_telem_mesh("MMIO_SYNC", arc->state));
         goose_mmio_sync_recv(recv_info->src_addr, arc->name_hash, arc->state);
     }
     else if (arc->op == ARC_OP_DISCOVER) {
-        mesh_stats.rx_discover++;
+        MESH_STAT_INC(rx_discover);
         TELEM_IF(goose_telem_mesh("DISCOVER", 0));
         char name[9] = {0};
         memcpy(name, arc->coord.trits, 8);
@@ -391,7 +412,7 @@ reflex_err_t goose_atmosphere_emit_discover(void) {
         .aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_DISCOVER, name_coord, nhash, 0, nonce)
     };
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    mesh_stats.tx_discover++;
+    MESH_STAT_INC(tx_discover);
     return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
 
@@ -444,6 +465,7 @@ reflex_err_t goose_atmosphere_emit_arc(goose_cell_t *source) {
         .aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_SYNC, source->coord, 0, source->state, nonce)
     };
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    MESH_STAT_INC(tx_sync);
     return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
 
@@ -456,6 +478,7 @@ reflex_err_t goose_atmosphere_query(const char *name) {
     };
     arc.aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_QUERY, (reflex_tryte9_t){{0}}, h, 0, nonce);
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    MESH_STAT_INC(tx_query);
     return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
 
@@ -467,6 +490,7 @@ reflex_err_t goose_atmosphere_advertise(uint32_t name_hash, goose_cell_t *cell, 
     };
     arc.aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_ADVERTISE, arc.coord, name_hash, arc.state, nonce);
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    MESH_STAT_INC(tx_advertise);
     return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
 
@@ -479,7 +503,7 @@ reflex_err_t goose_atmosphere_emit_sync_arc(uint32_t name_hash, int8_t state) {
         .aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_MMIO_SYNC, (reflex_tryte9_t){{0}}, name_hash, state, nonce)
     };
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    mesh_stats.tx_mmio_sync++;
+    MESH_STAT_INC(tx_mmio_sync);
     return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
 
@@ -494,5 +518,6 @@ reflex_err_t goose_atmosphere_emit_posture(int8_t state, uint8_t weight) {
         .aura = calculate_aura(GOOSE_ARC_VERSION, ARC_OP_POSTURE, (reflex_tryte9_t){{0}}, 0, state, nonce)
     };
     uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    MESH_STAT_INC(tx_posture);
     return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }

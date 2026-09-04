@@ -48,6 +48,11 @@ RESULT_RE = re.compile(r"^#R:([+-]?\d+),(\w+)$")
 LIVE_CELL = "agency.led.intent"
 # A supervisor cell that `tapestry signal` must refuse.
 SYS_CELL = "sys.kernel.disposition"
+# A shadow-catalog register behind the Sanctuary Guard, which `goonies read`
+# must refuse. IO_MUX sits at 0x60090000, outside the whitelist of pages
+# non-system code may touch, so the read is rejected before any dereference —
+# nothing is sampled and no peripheral state is disturbed by running this.
+SANCTUARY_CELL = "agency.io_mux.date"
 
 
 class Board:
@@ -323,8 +328,21 @@ def validate(port, r):
         ("aura setkey zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", (-1, "invalid")),
         ("vm loadhex zzzz", (-1, "invalid")),
         (f"tapestry signal {SYS_CELL} 1", (-1, "guard")),
+        # The Sanctuary Guard is the other policy guard SHELL_GUARD names, and
+        # it reported `+1,ok` while refusing: an agent could not tell a
+        # rejected MMIO read from a successful one. Asserted here for the same
+        # reason the sys.* guard is.
+        (f"goonies read {SANCTUARY_CELL}", (-1, "guard")),
         ("tapestry signal no.such.cell 1", (-1, "notfound")),
         ("no_such_command_xyz", (-1, "notfound")),
+        # Rejections in the mesh peer parser. A 17-character string with the
+        # wrong separators passed the length check and then reported success.
+        ("mesh peer add p aa-bb-cc-dd-ee-ff", (-1, "invalid")),
+        # Over-long peer names are refused rather than silently truncated.
+        ("mesh peer add thisnameiswaytoolong aa:bb:cc:dd:ee:ff", (-1, "invalid")),
+        # Bare invocations print usage and do nothing; both reported `+1,ok`.
+        ("snapshot", (0, "usage")),
+        ("purpose", (0, "usage")),
     ):
         b.raw(cmd)
         sign = "+1" if want[0] > 0 else ("-1" if want[0] < 0 else "0")

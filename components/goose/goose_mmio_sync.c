@@ -66,10 +66,28 @@ reflex_err_t goose_mmio_sync_init(void) {
 reflex_err_t goose_mmio_sync_add_peer(const char *name, const uint8_t mac[6]) {
     if (!name || !mac) return REFLEX_ERR_INVALID_ARG;
 
+    /* Refuse an oversized name rather than truncating it.
+     *
+     * reflex_peer_t::name is 12 bytes, and strncpy silently kept the first 11
+     * characters. `mesh peer add` then echoed back the operator's argv, not
+     * what was stored, so the confirmation line named a peer that `mesh peer
+     * ls` would never show. This is the rule the goonies registry already
+     * follows for atlas names — anything too long fails loudly instead of
+     * being quietly cut down. Both mesh-side callers are well inside the
+     * bound: DISCOVER carries at most 8 bytes of device name, and the
+     * auto-registration path in goose_mmio_sync_recv formats "auto_xxxx". */
+    if (name[0] == '\0') return REFLEX_ERR_INVALID_ARG;
+    if (strlen(name) >= sizeof(s_peers[0].name)) return REFLEX_ERR_INVALID_SIZE;
+
     for (size_t i = 0; i < s_peer_count; i++) {
         if (memcmp(s_peers[i].mac, mac, 6) == 0) {
-            strncpy(s_peers[i].name, name, sizeof(s_peers[i].name) - 1);
+            /* Renaming a known peer is a change to persisted state, so it has
+             * to reach NVS. Only the append path saved, which meant a rename
+             * held until the next reboot and then silently reverted. */
+            bool renamed = (strcmp(s_peers[i].name, name) != 0);
+            snprintf(s_peers[i].name, sizeof(s_peers[i].name), "%s", name);
             s_peers[i].active = true;
+            if (renamed) peers_save_nvs();
             return REFLEX_OK;
         }
     }
@@ -78,7 +96,7 @@ reflex_err_t goose_mmio_sync_add_peer(const char *name, const uint8_t mac[6]) {
 
     reflex_peer_t *p = &s_peers[s_peer_count];
     memset(p, 0, sizeof(*p));
-    strncpy(p->name, name, sizeof(p->name) - 1);
+    snprintf(p->name, sizeof(p->name), "%s", name);
     memcpy(p->mac, mac, 6);
     p->active = true;
     p->last_seen_us = reflex_hal_time_us();

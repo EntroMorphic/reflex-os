@@ -167,7 +167,7 @@ static void reflex_shell_config_set(const char *key, const char *value)
     }
     else if (strcmp(key, "boot_count") == 0) {
         if (!shell_parse_int(value, INT32_MIN, INT32_MAX, &v)) {
-            printf("config set %s: expected an integer\n", key); return;
+            printf("config set %s: expected an integer\n", key); outcome(SHELL_INVALID); return;
         }
         err = reflex_config_set_boot_count((int32_t)v);
     }
@@ -747,6 +747,15 @@ static uint8_t s_session_role = ROLE_ADMIN;
 static shell_reason_t s_outcome = SHELL_OK;
 static void outcome(shell_reason_t r) { s_outcome = r; }
 
+/* Map a driver return code onto the outcome trit.
+ *
+ * A handler that prints `rc=0x%x` and returns has told a human what happened
+ * and told the SDK nothing: s_outcome is still SHELL_OK, so a failed NVS
+ * commit or a radio send that never left the antenna both came back as
+ * `#R:+1,ok`. These handlers predate the outcome marker and were not revisited
+ * when it became the SDK's contract. */
+static void outcome_rc(reflex_err_t rc) { if (rc != REFLEX_OK) outcome(SHELL_FAILED); }
+
 /* The tokenizer splits on spaces and there is no quoting, so a command handed
  * more arguments than it consumes has lost operator intent rather than gained
  * anything: `purpose set my purpose` stored the name "my", discarded the rest,
@@ -861,6 +870,7 @@ static void shell_cmd_goonies_read(const char *name) {
             printf("%s addr=0x%08lx [sanctuary — refused: reading it can clear "
                    "status bits or pop a live FIFO]\n",
                    name, (unsigned long)s_addr);
+            outcome(SHELL_GUARD);
             return;
         }
     }
@@ -872,6 +882,7 @@ static void shell_cmd_goonies_read(const char *name) {
         goose_fabric_addr_is_sanctuary(cell->hardware_addr)) {
         printf("%s addr=0x%08lx [sanctuary — refused]\n",
                name, (unsigned long)cell->hardware_addr);
+        outcome(SHELL_GUARD);
         return;
     }
     if (cell && cell->hardware_addr >= 0x60000000) {
@@ -899,6 +910,7 @@ static void shell_cmd_goonies_read(const char *name) {
         if (goose_fabric_addr_is_sanctuary(addr)) {
             printf("%s addr=0x%08lx [sanctuary — refused] [shadow]\n",
                    name, (unsigned long)addr);
+            outcome(SHELL_GUARD);
             return;
         }
         volatile uint32_t *reg = (volatile uint32_t *)addr;
@@ -939,7 +951,7 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
            (pname && pname[0]) ? pname : "none");
 
     size_t n = goose_kernel_field_count();
-    if (n == 0) { printf("  (no supervised fields)\n"); return; }
+    if (n == 0) { printf("  (no supervised fields)\n"); outcome(SHELL_NONE); return; }
     printf("%-18s | %-9s | %s\n", "Field", "Stance", "Trit");
     printf("-------------------+-----------+-----\n");
     for (size_t i = 0; i < n; i++) {
@@ -1025,6 +1037,7 @@ static void shell_cmd_loom_evictions(void) {
     uint32_t total = goose_fabric_get_eviction_count();
     if (count == 0) {
         printf("loom evictions: total=%lu (none yet)\n", (unsigned long)total);
+        outcome(SHELL_NONE);
         return;
     }
 
@@ -1100,15 +1113,15 @@ static void shell_cmd_temp(int argc, char *argv[]) {
 static void shell_cmd_snapshot(int argc, char *argv[]) {
     if (argc >= 2 && strcmp(argv[1], "save") == 0) {
         reflex_err_t rc = goose_snapshot_save();
-        printf("snapshot save: rc=0x%x\n", rc);
+        printf("snapshot save: rc=0x%x\n", rc); outcome_rc(rc);
     } else if (argc >= 2 && strcmp(argv[1], "load") == 0) {
         reflex_err_t rc = goose_snapshot_load();
-        printf("snapshot load: rc=0x%x\n", rc);
+        printf("snapshot load: rc=0x%x\n", rc); outcome_rc(rc);
     } else if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
         reflex_err_t rc = goose_snapshot_clear();
-        printf("snapshot clear: rc=0x%x\n", rc);
+        printf("snapshot clear: rc=0x%x\n", rc); outcome_rc(rc);
     } else {
-        printf("snapshot <save|load|clear>\n");
+        printf("snapshot <save|load|clear>\n"); outcome(SHELL_USAGE);
     }
 }
 
@@ -1144,7 +1157,7 @@ static void shell_cmd_purpose(int argc, char *argv[]) {
         TELEM_IF(goose_telem_purpose(NULL));
         printf("purpose: cleared\n");
     } else {
-        printf("purpose <set name|get|clear>\n");
+        printf("purpose <set name|get|clear>\n"); outcome(SHELL_USAGE);
     }
 }
 
@@ -1177,11 +1190,11 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         goose_cell_t tx = *c;
         tx.state = (int8_t)req;
         reflex_err_t rc = goose_atmosphere_emit_arc(&tx);
-        printf("mesh emit: state=%d rc=0x%x\n", (int)tx.state, rc);
+        printf("mesh emit: state=%d rc=0x%x\n", (int)tx.state, rc); outcome_rc(rc);
     } else if (argc >= 3 && strcmp(argv[1], "query") == 0) {
         if (extra_args(argc, 3)) return;
         reflex_err_t rc = goose_atmosphere_query(argv[2]);
-        printf("mesh query: name=%s rc=0x%x\n", argv[2], rc);
+        printf("mesh query: name=%s rc=0x%x\n", argv[2], rc); outcome_rc(rc);
     } else if (argc >= 4 && strcmp(argv[1], "posture") == 0) {
         /* The state goes onto the radio and is multiplied by the weight into
          * every peer's swarm accumulator. Unvalidated, `mesh posture 99 4`
@@ -1200,7 +1213,7 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         }
         uint8_t weight = (uint8_t)weight_in;
         reflex_err_t rc = goose_atmosphere_emit_posture(state, weight);
-        printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc);
+        printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc); outcome_rc(rc);
     } else if (argc >= 2 && strcmp(argv[1], "stat") == 0) {
         /* Print every counter the struct carries. DISCOVER and MMIO_SYNC were
          * omitted here, and they are precisely the ops the supervisor emits on
@@ -1214,6 +1227,9 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         printf("rx_discover=%lu tx_discover=%lu rx_mmio_sync=%lu tx_mmio_sync=%lu\n",
                (unsigned long)s.rx_discover, (unsigned long)s.tx_discover,
                (unsigned long)s.rx_mmio_sync, (unsigned long)s.tx_mmio_sync);
+        printf("tx_sync=%lu tx_query=%lu tx_advertise=%lu tx_posture=%lu\n",
+               (unsigned long)s.tx_sync, (unsigned long)s.tx_query,
+               (unsigned long)s.tx_advertise, (unsigned long)s.tx_posture);
         printf("version_mismatch=%lu aura_fail=%lu replay_drop=%lu self_drop=%lu\n",
                (unsigned long)s.rx_version_mismatch, (unsigned long)s.rx_aura_fail,
                (unsigned long)s.rx_replay_drop, (unsigned long)s.rx_self_drop);
@@ -1227,7 +1243,7 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         if (strlen(hex) != 17) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); outcome(SHELL_INVALID); return; }
         bool mac_ok = true;
         for (int i = 0; i < 5; i++) { if (hex[i*3+2] != ':') mac_ok = false; }
-        if (!mac_ok) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); return; }
+        if (!mac_ok) { printf("mesh peer add: mac format XX:XX:XX:XX:XX:XX\n"); outcome(SHELL_INVALID); return; }
         /* Format-checked above, but the pairs themselves were decoded with
          * strtoul, so `zz:zz:zz:zz:zz:zz` passed and registered a peer at
          * 00:00:00:00:00:00. */
@@ -1239,8 +1255,25 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
             }
         }
         reflex_err_t rc = goose_mmio_sync_add_peer(pname, mac);
+        if (rc == REFLEX_ERR_INVALID_SIZE) {
+            /* Name the bound rather than printing a bare rc: the registry
+             * refuses an oversized name now instead of storing a truncated
+             * one, and the operator needs to know what will fit. */
+            printf("mesh peer add: name too long (max %u chars)\n",
+                   (unsigned)(sizeof(((reflex_peer_t *)0)->name) - 1));
+            outcome(SHELL_INVALID); return;
+        }
+        /* Echo the stored name, not argv. These were the same string only for
+         * as long as nothing rejected or altered it. */
+        const reflex_peer_t *added = NULL;
+        for (size_t i = 0; i < goose_mmio_sync_peer_count(); i++) {
+            const reflex_peer_t *q = goose_mmio_sync_get_peer(i);
+            if (q && memcmp(q->mac, mac, 6) == 0) { added = q; break; }
+        }
         printf("mesh peer add: %s %02x:%02x:%02x:%02x:%02x:%02x rc=0x%x\n",
-               pname, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], rc);
+               added ? added->name : pname,
+               mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], rc);
+        outcome_rc(rc);
     } else if (argc >= 3 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "ls") == 0) {
         size_t count = goose_mmio_sync_peer_count();
         if (count == 0) { printf("no peers\n"); outcome(SHELL_NONE); return; }
@@ -1257,8 +1290,16 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
     } else if (argc >= 2 && strcmp(argv[1], "status") == 0) {
         goose_mesh_stats_t s = goose_atmosphere_get_stats();
         size_t peers = goose_mmio_sync_peer_count();
-        uint32_t rx_total = s.rx_sync + s.rx_query + s.rx_advertise + s.rx_posture + s.rx_mmio_sync;
-        uint32_t tx_total = s.tx_mmio_sync;
+        /* Both totals omitted DISCOVER, which is the op the supervisor emits
+         * on its own — the same omission `mesh stat` was fixed for, left
+         * behind here. tx_total counted MMIO_SYNC alone, so a board that had
+         * been broadcasting discovery beacons since boot reported tx=0. The
+         * emit paths now each carry a counter, so `tx` means every arc this
+         * board put on the air rather than one op's worth. */
+        uint32_t rx_total = s.rx_sync + s.rx_query + s.rx_advertise + s.rx_posture +
+                            s.rx_mmio_sync + s.rx_discover;
+        uint32_t tx_total = s.tx_sync + s.tx_query + s.tx_advertise + s.tx_posture +
+                            s.tx_mmio_sync + s.tx_discover;
         printf("mesh: peers=%u rx=%lu tx=%lu sync=%lu mmio_sync_rx=%lu mmio_sync_tx=%lu\n",
                (unsigned)peers, (unsigned long)rx_total, (unsigned long)tx_total,
                (unsigned long)s.rx_sync, (unsigned long)s.rx_mmio_sync, (unsigned long)s.tx_mmio_sync);
@@ -1275,7 +1316,7 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         goose_cell_t tx = *c;
         tx.state = 1;
         reflex_err_t rc = goose_atmosphere_emit_arc(&tx);
-        printf("mesh ping: broadcast rc=0x%x\n", rc);
+        printf("mesh ping: broadcast rc=0x%x\n", rc); outcome_rc(rc);
     } else {
         printf("mesh <mac|emit|query|posture|stat|status|ping|peer add/ls>\n"); outcome(SHELL_USAGE);
     }
@@ -1330,7 +1371,7 @@ static void shell_cmd_vm(int argc, char *argv[]) {
         reflex_shell_vm.status = REFLEX_VM_STATUS_HALTED;
         printf("vm stopped\n");
     } else if (argc >= 2 && strcmp(argv[1], "list") == 0) {
-        if (vm_program_registry_len == 0) { printf("no embedded programs\n"); return; }
+        if (vm_program_registry_len == 0) { printf("no embedded programs\n"); outcome(SHELL_NONE); return; }
         for (size_t i = 0; i < vm_program_registry_len; i++) {
             const vm_program_t *p = vm_program_get(i);
             if (p) printf("  %s (%u bytes)\n", p->name, (unsigned)p->len);
