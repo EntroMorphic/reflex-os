@@ -73,6 +73,14 @@ jobs:
       - name: Compile with warnings as errors
         run: make warn-check
 
+  # The SVD-generated SoC header must not drift from the SVD or the mapping.
+  soc-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check generated SoC header is current
+        run: make soc-check
+
   # No telemetry emission while the loom lock is held.
   lock-check:
     runs-on: ubuntu-latest
@@ -98,6 +106,12 @@ jobs:
           . $IDF_PATH/export.sh
           idf.py set-target esp32c6
           idf.py build
+      - name: Prove SoC constants match ESP-IDF
+        # Runs natively here: the job is already inside the ESP-IDF image, and
+        # compile_commands.json from the build above supplies the exact flags.
+        run: |
+          . $IDF_PATH/export.sh
+          tools/check_soc_bridge.sh
 
   build-esp32c6-802154:
     runs-on: ubuntu-latest

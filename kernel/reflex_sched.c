@@ -38,18 +38,19 @@
  * shadow atlas names that exact address comm.i2c0.scl_low_period. Taken from
  * the SoC definitions now. Guarded because the host suite compiles this file
  * and has no soc/ headers. */
-#ifndef REFLEX_HOST_BUILD
-#include "soc/systimer_reg.h"
-#define SYSTIMER_BASE           DR_REG_SYSTIMER_BASE
-#else
-#define SYSTIMER_BASE           0u
-#endif
+#include "reflex_regops.h"
+#include "reflex_soc_esp32c6.h"
+
+/* The host guard is gone with the ESP-IDF include that required it. The base
+ * now comes from Reflex's own SVD-generated header, which the host suite can
+ * compile as readily as the target — so the host build exercises these offsets
+ * against the real base instead of against a stand-in 0. */
+#define SYSTIMER_BASE REFLEX_DR_REG_SYSTIMER_BASE
 #define SYSTIMER_CONF           (SYSTIMER_BASE + 0x00)
 #define SYSTIMER_TARGET1_CONF   (SYSTIMER_BASE + 0x38)
 #define SYSTIMER_COMP1_LOAD     (SYSTIMER_BASE + 0x54)
 #define SYSTIMER_INT_ENA        (SYSTIMER_BASE + 0x64)
-#define SYSTIMER_INT_CLR        (SYSTIMER_BASE + 0x6C)
-#define REG32(addr) (*(volatile uint32_t *)(addr))
+#define SYSTIMER_INT_CLR (SYSTIMER_BASE + 0x6C)
 #define SYSTIMER_TICK_PERIOD    (40000000 / REFLEX_SCHED_TICK_HZ)
 
 reflex_tcb_t s_tasks[REFLEX_SCHED_MAX_TASKS];
@@ -139,7 +140,7 @@ void reflex_sched_tick(void) {
 }
 
 void reflex_sched_ack_tick(void) {
-    REG32(SYSTIMER_INT_CLR) = (1 << 1);  /* Clear TARGET1 interrupt */
+    REFLEX_REG(SYSTIMER_INT_CLR) = (1 << 1); /* Clear TARGET1 interrupt */
 }
 
 void reflex_sched_yield(void) {
@@ -211,12 +212,12 @@ void reflex_sched_exit_critical(void) {
 
 #ifndef REFLEX_HOST_BUILD
 static void setup_systimer_tick(void) {
-    REG32(SYSTIMER_CONF) |= (1 << 0);
-    REG32(SYSTIMER_TARGET1_CONF) = (1 << 30) | SYSTIMER_TICK_PERIOD;
-    REG32(SYSTIMER_COMP1_LOAD) = 1;
-    REG32(SYSTIMER_CONF) |= (1 << 25);
-    REG32(SYSTIMER_INT_CLR) = (1 << 1);
-    REG32(SYSTIMER_INT_ENA) |= (1 << 1);
+    REFLEX_REG(SYSTIMER_CONF) |= (1 << 0);
+    REFLEX_REG(SYSTIMER_TARGET1_CONF) = (1 << 30) | SYSTIMER_TICK_PERIOD;
+    REFLEX_REG(SYSTIMER_COMP1_LOAD) = 1;
+    REFLEX_REG(SYSTIMER_CONF) |= (1 << 25);
+    REFLEX_REG(SYSTIMER_INT_CLR) = (1 << 1);
+    REFLEX_REG(SYSTIMER_INT_ENA) |= (1 << 1);
 }
 #endif
 

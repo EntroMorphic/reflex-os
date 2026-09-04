@@ -1,7 +1,10 @@
 if("${IDF_TARGET}" STREQUAL "esp32c6")
     # Reflex Boot0 — our own second-stage bootloader. C6 only: it speaks to
     # LP_AON registers, the C6 MMU layout and the RISC-V ROM entry points.
+    # ../../include carries reflex_regops.h and the SVD-generated
+    # reflex_soc_esp32c6.h, which replaced nine ESP-IDF soc register headers.
     idf_component_register(SRCS "reflex_boot0.c"
+                        INCLUDE_DIRS "../../include"
                         REQUIRES bootloader bootloader_support soc esp_rom esp_hw_support hal)
     idf_build_get_property(scripts BOOTLOADER_LINKER_SCRIPT)
     target_linker_script(${COMPONENT_LIB} INTERFACE "${scripts}")

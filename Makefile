@@ -6,7 +6,8 @@ RELEASE_NAME := reflex-os-$(VERSION)-esp32c6
 RELEASE_DIR := release/$(RELEASE_NAME)
 
 .PHONY: build flash release clean test tasm-test hw-test doc-links format format-check \
-        format-diff warn-check lock-check ci-lint idf-build verify config-reset docs atlas
+        format-diff warn-check lock-check ci-lint soc-header soc-bridge soc-check \
+        idf-build verify config-reset docs atlas
 
 build:
 	idf.py build
@@ -57,6 +58,20 @@ warn-check:
 lock-check:
 	@python3 tools/check_lock_discipline.py
 
+# Regenerate Reflex's own SoC register header from the vendor SVD.
+soc-header:
+	python3 tools/soc_scraper.py --emit-bridge
+
+# Prove every generated SoC constant equals the ESP-IDF macro it replaced, by
+# compiling a translation unit of _Static_asserts with the real toolchain.
+# Requires a prior `make idf-build` for compile_commands.json.
+soc-bridge:
+	@tools/check_soc_bridge.sh
+
+# Fail if the generated header is stale relative to the SVD or the mapping.
+soc-check:
+	@python3 tools/soc_scraper.py --check
+
 # Validate the workflow file itself. Renaming a job is not a local edit: the
 # `release` job's `needs:` list referred to a job that had been renamed, which
 # GitHub rejects at parse time — no jobs run at all, and the failure reports as
@@ -83,9 +98,9 @@ idf-build:
 	             idf.py -B build build'
 
 # Everything runnable without a board. Run this before pushing firmware changes.
-verify: test tasm-test doc-links warn-check lock-check ci-lint idf-build
+verify: test tasm-test doc-links warn-check lock-check ci-lint soc-check idf-build soc-bridge
 	@echo ""
-	@echo "verify: host tests, TASM, doc links, warning gate, lock discipline, workflow schema, and a real ESP-IDF build all passed."
+	@echo "verify: host tests, TASM, doc links, warning gate, lock discipline, workflow schema, a real ESP-IDF build, and the SoC constant bridge all passed."
 
 hw-test:
 	@test -n "$(PORT)" || { echo "Usage: make hw-test PORT=/dev/cu.usbmodemXXXX"; exit 1; }

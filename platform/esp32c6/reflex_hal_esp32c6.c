@@ -16,14 +16,14 @@
  * base is DR_REG_SYSTIMER_BASE (0x6000A000). Every offset below was correct;
  * only the base was wrong, so reflex_hal_time_us latched and read I2C
  * registers and returned 0 forever. */
-#include "soc/systimer_reg.h"
-#define SYSTIMER_BASE_ADDR      DR_REG_SYSTIMER_BASE
+#include "reflex_regops.h"
+#include "reflex_soc_esp32c6.h"
+#define SYSTIMER_BASE_ADDR REFLEX_DR_REG_SYSTIMER_BASE
 #define SYSTIMER_UNIT0_OP       (SYSTIMER_BASE_ADDR + 0x04)
 #define SYSTIMER_UNIT0_VAL_HI   (SYSTIMER_BASE_ADDR + 0x40)
 #define SYSTIMER_UNIT0_VAL_LO   (SYSTIMER_BASE_ADDR + 0x44)
 /* XTAL 40 MHz through the C6's fixed 2.5 divider. */
-#define SYSTIMER_TICKS_PER_US   16u
-#define REG32_HAL(a) (*(volatile uint32_t *)(a))
+#define SYSTIMER_TICKS_PER_US 16u
 #include "esp_rom_sys.h"
 
 /* PMU registers for deep sleep */
@@ -81,12 +81,12 @@ uint64_t reflex_hal_time_us(void) {
      * while the base address was also wrong and the whole function returned 0.
      *
      * Bounded spin (max 20 iterations) — the latch completes in ~2 cycles. */
-    REG32_HAL(SYSTIMER_UNIT0_OP) = (1U << 30);
+    REFLEX_REG(SYSTIMER_UNIT0_OP) = (1U << 30);
     for (volatile int i = 0; i < 20; i++) {
-        if (REG32_HAL(SYSTIMER_UNIT0_OP) & (1U << 29)) break;
+        if (REFLEX_REG(SYSTIMER_UNIT0_OP) & (1U << 29)) break;
     }
-    uint32_t lo = REG32_HAL(SYSTIMER_UNIT0_VAL_LO);
-    uint32_t hi = REG32_HAL(SYSTIMER_UNIT0_VAL_HI);
+    uint32_t lo = REFLEX_REG(SYSTIMER_UNIT0_VAL_LO);
+    uint32_t hi = REFLEX_REG(SYSTIMER_UNIT0_VAL_HI);
     return (((uint64_t)hi << 32) | lo) / SYSTIMER_TICKS_PER_US;
 }
 
@@ -103,38 +103,40 @@ void reflex_hal_delay_us(uint32_t us) {
 reflex_err_t reflex_hal_gpio_init_output(uint32_t pin) {
     if (pin >= 31) return REFLEX_ERR_INVALID_ARG;
     /* IO MUX: GPIO function (MCU_SEL=1), no pulls, no input */
-    uint32_t mux = REG32_HAL(IO_MUX_PIN_REG(pin));
+    uint32_t mux = REFLEX_REG(IO_MUX_PIN_REG(pin));
     mux &= ~(IO_MUX_MCU_SEL_BITS | IO_MUX_FUN_IE_BIT | IO_MUX_FUN_PU_BIT | IO_MUX_FUN_PD_BIT);
     mux |= (1 << 12);  /* MCU_SEL = 1 → GPIO function */
-    REG32_HAL(IO_MUX_PIN_REG(pin)) = mux;
+    REFLEX_REG(IO_MUX_PIN_REG(pin)) = mux;
     /* Enable output + set func_out_sel to 0x80 (simple GPIO output) */
-    REG32_HAL(GPIO_ENABLE_W1TS) = (1 << pin);
-    REG32_HAL(GPIO_FUNC_OUT_BASE + pin * 4) = 0x80;
+    REFLEX_REG(GPIO_ENABLE_W1TS) = (1 << pin);
+    REFLEX_REG(GPIO_FUNC_OUT_BASE + pin * 4) = 0x80;
     return REFLEX_OK;
 }
 
 reflex_err_t reflex_hal_gpio_init_input(uint32_t pin, bool pullup) {
     if (pin >= 31) return REFLEX_ERR_INVALID_ARG;
-    uint32_t mux = REG32_HAL(IO_MUX_PIN_REG(pin));
+    uint32_t mux = REFLEX_REG(IO_MUX_PIN_REG(pin));
     mux &= ~(IO_MUX_MCU_SEL_BITS | IO_MUX_FUN_PU_BIT | IO_MUX_FUN_PD_BIT);
     mux |= (1 << 12) | IO_MUX_FUN_IE_BIT;  /* GPIO func + input enable */
     if (pullup) mux |= IO_MUX_FUN_PU_BIT;
-    REG32_HAL(IO_MUX_PIN_REG(pin)) = mux;
+    REFLEX_REG(IO_MUX_PIN_REG(pin)) = mux;
     /* Disable output */
-    REG32_HAL(GPIO_ENABLE_W1TC) = (1 << pin);
+    REFLEX_REG(GPIO_ENABLE_W1TC) = (1 << pin);
     return REFLEX_OK;
 }
 
 reflex_err_t reflex_hal_gpio_set_level(uint32_t pin, int level) {
     if (pin >= 31) return REFLEX_ERR_INVALID_ARG;
-    if (level) REG32_HAL(GPIO_OUT_W1TS) = (1 << pin);
-    else       REG32_HAL(GPIO_OUT_W1TC) = (1 << pin);
+    if (level)
+        REFLEX_REG(GPIO_OUT_W1TS) = (1 << pin);
+    else
+        REFLEX_REG(GPIO_OUT_W1TC) = (1 << pin);
     return REFLEX_OK;
 }
 
 int reflex_hal_gpio_get_level(uint32_t pin) {
     if (pin >= 31) return 0;
-    return (REG32_HAL(GPIO_IN_REG_ADDR) >> pin) & 1;
+    return (REFLEX_REG(GPIO_IN_REG_ADDR) >> pin) & 1;
 }
 
 reflex_err_t reflex_hal_gpio_connect_out(uint32_t out_pin, uint32_t signal,
@@ -155,7 +157,7 @@ void reflex_hal_reboot(void) {
 #define REFLEX_SLEEP_MAGIC      0x534C5000  /* "SLP\0" + duration encoded in low bits */
 
 int reflex_hal_sleep_wakeup_cause(void) {
-    uint32_t cause = REG32_HAL(PMU_WAKEUP_STATUS0_REG);
+    uint32_t cause = REFLEX_REG(PMU_WAKEUP_STATUS0_REG);
     if (cause & (1 << 0)) return 4;  /* LP timer → maps to ESP_SLEEP_WAKEUP_TIMER */
     if (cause & (1 << 4)) return 2;  /* GPIO → maps to ESP_SLEEP_WAKEUP_EXT0 */
     if (cause == 0) return 0;         /* Not a sleep wakeup (power-on) */
@@ -169,7 +171,7 @@ void reflex_hal_sleep_enter(uint64_t duration_us) {
 #else
     uint32_t duration_sec = (uint32_t)(duration_us / 1000000);
     if (duration_sec > 0xFFFF) duration_sec = 0xFFFF;
-    REG32_HAL(LP_AON_STORE1_REG) = REFLEX_SLEEP_MAGIC | (duration_sec & 0xFFFF);
+    REFLEX_REG(LP_AON_STORE1_REG) = REFLEX_SLEEP_MAGIC | (duration_sec & 0xFFFF);
     reflex_hal_reboot();
 #endif
 }
@@ -179,15 +181,15 @@ void reflex_hal_random_fill(uint8_t *buf, size_t len) {
      * the ESP-IDF approach. Each read returns a 32-bit word from
      * the hardware noise source. */
     for (size_t i = 0; i < len; i += 4) {
-        uint32_t rnd = REG32_HAL(RNG_DATA_REG) ^ REG32_HAL(RNG_DATA_REG);
+        uint32_t rnd = REFLEX_REG(RNG_DATA_REG) ^ REFLEX_REG(RNG_DATA_REG);
         size_t n = (len - i < 4) ? len - i : 4;
         for (size_t j = 0; j < n; j++) buf[i + j] = (uint8_t)(rnd >> (j * 8));
     }
 }
 
 reflex_err_t reflex_hal_mac_read(uint8_t mac[6]) {
-    uint32_t w0 = REG32_HAL(EFUSE_MAC0_REG);
-    uint32_t w1 = REG32_HAL(EFUSE_MAC1_REG);
+    uint32_t w0 = REFLEX_REG(EFUSE_MAC0_REG);
+    uint32_t w1 = REFLEX_REG(EFUSE_MAC1_REG);
     mac[0] = (uint8_t)(w1 >> 8);
     mac[1] = (uint8_t)(w1);
     mac[2] = (uint8_t)(w0 >> 24);
@@ -206,8 +208,8 @@ reflex_err_t reflex_hal_mac_read(uint8_t mac[6]) {
 
 reflex_err_t reflex_hal_temp_init(reflex_temp_handle_t *out) {
     /* Enable TSENS clock and power up */
-    REG32_HAL(TSENS_CTRL2_REG) |= TSENS_CLK_SEL;
-    REG32_HAL(TSENS_CTRL_REG) |= TSENS_PU_BIT;
+    REFLEX_REG(TSENS_CTRL2_REG) |= TSENS_CLK_SEL;
+    REFLEX_REG(TSENS_CTRL_REG) |= TSENS_PU_BIT;
     reflex_hal_delay_us(300);
     if (out) *out = (reflex_temp_handle_t)1;
     return REFLEX_OK;
@@ -216,7 +218,7 @@ reflex_err_t reflex_hal_temp_init(reflex_temp_handle_t *out) {
 reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
     (void)h;
     if (!celsius) return REFLEX_ERR_INVALID_ARG;
-    uint32_t raw = REG32_HAL(TSENS_CTRL_REG) & TSENS_OUT_MASK;
+    uint32_t raw = REFLEX_REG(TSENS_CTRL_REG) & TSENS_OUT_MASK;
     *celsius = (float)raw * 0.4386f - 27.88f;
     return REFLEX_OK;
 }
@@ -295,21 +297,21 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
     s_intr_table[cpu_int].arg = arg;
 
     /* Route peripheral source → CPU interrupt via interrupt matrix */
-    REG32_HAL(INTMTX_BASE + 4 * source) = cpu_int;
+    REFLEX_REG(INTMTX_BASE + 4 * source) = cpu_int;
 
     /* Set priority (1 = lowest non-zero) */
-    REG32_HAL(PLIC_MXINT_PRI(cpu_int)) = 1;
+    REFLEX_REG(PLIC_MXINT_PRI(cpu_int)) = 1;
 
     /* Disable interrupts for atomic RMW of shared registers */
     __asm__ volatile ("csrci mstatus, 0x8");
 
     /* Level-triggered (clear the type bit) */
-    uint32_t type = REG32_HAL(PLIC_MXINT_TYPE);
+    uint32_t type = REFLEX_REG(PLIC_MXINT_TYPE);
     type &= ~(1U << cpu_int);
-    REG32_HAL(PLIC_MXINT_TYPE) = type;
+    REFLEX_REG(PLIC_MXINT_TYPE) = type;
 
     /* Enable the CPU interrupt in PLIC */
-    REG32_HAL(PLIC_MXINT_ENABLE) |= (1U << cpu_int);
+    REFLEX_REG(PLIC_MXINT_ENABLE) |= (1U << cpu_int);
 
     __asm__ volatile ("csrsi mstatus, 0x8");
 
@@ -334,13 +336,13 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
 
     /* Disable with interrupts off to prevent RMW race */
     __asm__ volatile ("csrci mstatus, 0x8");
-    REG32_HAL(PLIC_MXINT_ENABLE) &= ~(1U << cpu_int);
+    REFLEX_REG(PLIC_MXINT_ENABLE) &= ~(1U << cpu_int);
     __asm__ volatile ("csrsi mstatus, 0x8");
 
     /* Clear interrupt matrix routing */
     for (int s = 0; s <= INTMTX_SOURCE_MAX; s++) {
-        if (REG32_HAL(INTMTX_BASE + 4 * s) == (uint32_t)cpu_int) {
-            REG32_HAL(INTMTX_BASE + 4 * s) = 0;
+        if (REFLEX_REG(INTMTX_BASE + 4 * s) == (uint32_t)cpu_int) {
+            REFLEX_REG(INTMTX_BASE + 4 * s) = 0;
         }
     }
 
@@ -374,17 +376,17 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
 static void usj_write_bytes(const char *data, int len) {
     for (int i = 0; i < len; i++) {
         uint32_t spins = 0;
-        while (!(REG32_HAL(USJ_EP1_CONF) & USJ_IN_EP_DATA_FREE)) {
+        while (!(REFLEX_REG(USJ_EP1_CONF) & USJ_IN_EP_DATA_FREE)) {
             if (++spins > USJ_TX_SPIN_LIMIT) {
                 /* No reader. Flush whatever made it into the FIFO and drop the
                  * rest of this line rather than blocking the caller forever. */
-                REG32_HAL(USJ_EP1_CONF) |= USJ_WR_DONE;
+                REFLEX_REG(USJ_EP1_CONF) |= USJ_WR_DONE;
                 return;
             }
         }
-        REG32_HAL(USJ_EP1_DATA) = (uint32_t)(uint8_t)data[i];
+        REFLEX_REG(USJ_EP1_DATA) = (uint32_t)(uint8_t)data[i];
     }
-    REG32_HAL(USJ_EP1_CONF) |= USJ_WR_DONE;
+    REFLEX_REG(USJ_EP1_CONF) |= USJ_WR_DONE;
 }
 
 void reflex_hal_write_raw(const char *data, int len) {

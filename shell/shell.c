@@ -23,7 +23,7 @@
 #include "reflex_types.h"
 #include "reflex_hal.h"
 #include "reflex_task.h"
-#include "soc/gpio_sig_map.h"
+#include "reflex_soc_esp32c6.h" /* LEDC signal index; was soc/gpio_sig_map.h */
 
 #include "reflex_log.h"
 #include "reflex_config.h"
@@ -261,9 +261,16 @@ static void reflex_shell_bonsai_exp4_route(int orient) {
         ledc_channel_config(&c);
         reflex_shell_bonsai_exp4.ledc_initialized = true;
     }
-    if (orient == 1) { esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, LEDC_LS_SIG_OUT0_IDX, false, false); reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_POS; }
-    else if (orient == -1) { esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, LEDC_LS_SIG_OUT0_IDX, true, false); reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_NEG; }
-    else { esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, 128, false, false); reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_ZERO; }
+    if (orient == 1) {
+        esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, REFLEX_LEDC_LS_SIG_OUT0_IDX, false, false);
+        reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_POS;
+    } else if (orient == -1) {
+        esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, REFLEX_LEDC_LS_SIG_OUT0_IDX, true, false);
+        reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_NEG;
+    } else {
+        esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, 128, false, false);
+        reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_ZERO;
+    }
     printf("bonsai exp4 route orient=%s\n", reflex_shell_bonsai_edge_name(reflex_shell_bonsai_exp4.route));
 }
 

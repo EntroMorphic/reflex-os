@@ -36,20 +36,17 @@ extern void esp_rom_output_putc(char c);
 extern void esp_rom_install_channel_putc(int channel, void (*putc)(char c));
 extern void esp_rom_output_tx_wait_idle(uint32_t uart_no);
 
-/* Register definitions — just #define constants, no code */
-/* REG_READ/REG_WRITE, plus the SOC_IRAM and SOC_RTC_IRAM window bounds. */
-#include "soc/soc.h"
-#include "soc/lp_wdt_reg.h"
-#include "soc/lp_aon_reg.h"
-#include "soc/timer_group_reg.h"  /* MWDT0 feed — hashing outlives the ROM-armed timeout */
-#include "soc/wdt_periph.h"       /* TIMG_WDT_WKEY_VALUE */
-#include "soc/pcr_reg.h"
-#include "soc/assist_debug_reg.h"
-
-/* Cache/MMU register definitions */
-#include "soc/extmem_reg.h"
-#include "soc/spi_mem_reg.h"
-#include "soc/ext_mem_defs.h"
+/* Register constants and accessors — Reflex's own.
+ *
+ * These were nine ESP-IDF `soc` register headers. Nothing in them was ESP-IDF
+ * code:
+ * they carry register addresses and bit positions, which are silicon facts,
+ * plus volatile load/store macros the compiler already knows how to emit.
+ * reflex_soc_esp32c6.h is generated from the same vendor SVD that backs the
+ * 12,738-node shadow atlas, and every constant in it is proved identical to
+ * the ESP-IDF macro it replaces by `make soc-bridge`. */
+#include "reflex_regops.h"
+#include "reflex_soc_esp32c6.h"
 
 /* ROM cache functions (mask ROM — silicon, not SDK) */
 extern int Cache_Enable_ICache(uint32_t autoload);
@@ -57,17 +54,20 @@ extern int Cache_Disable_ICache(void);
 extern int Cache_Suspend_ICache(void);
 extern int Cache_Resume_ICache(uint32_t autoload);
 
-/* Clock config — rtc_clk_init is the chip-level PLL driver */
+/* Clock configuration is the last ESP-IDF register dependency here.
+ *
+ * rtc_clk_init is the chip-level PLL driver and RTC_CLK_CONFIG_DEFAULT is a
+ * struct initialiser rather than an address, so neither is derivable from the
+ * SVD the way the constants above are. Porting the PLL bring-up is real work
+ * on real analogue behaviour — not the mechanical substitution the rest of
+ * this file just went through — and is deliberately left standing. */
 #include "soc/rtc.h"
 #include "hal/clk_tree_ll.h"
 #include "esp_private/regi2c_ctrl.h"
 #include "soc/regi2c_lp_bias.h"
-#include "soc/lp_analog_peri_reg.h"
-#include "soc/pmu_reg.h"
 
-/* Bootloader support — ONLY for linker symbols, startup assembly,
- * and the REG_READ/REG_WRITE macros from soc/soc.h. No high-level
- * bootloader functions are called. */
+/* Bootloader support — ONLY for linker symbols and startup assembly.
+ * No high-level bootloader functions are called. */
 
 #define TAG "reflex.boot0"
 
@@ -118,18 +118,22 @@ typedef struct {
 /* ---- Boot-loop protection ---- */
 
 #define BOOT_FAIL_MAX       3
-#define BOOT_FAIL_REG       LP_AON_STORE0_REG
+#define BOOT_FAIL_REG REFLEX_LP_AON_STORE0_REG
 #define BOOT_FAIL_MAGIC     0xBF000000u
 #define BOOT_FAIL_MASK      0xFF000000u
 #define BOOT_FAIL_COUNT(v)  ((v) & 0xFF)
 
 static int get_fail_count(void) {
-    uint32_t val = REG_READ(BOOT_FAIL_REG);
+    uint32_t val = REFLEX_REG_READ(BOOT_FAIL_REG);
     if ((val & BOOT_FAIL_MASK) != BOOT_FAIL_MAGIC) return 0;
     return BOOT_FAIL_COUNT(val);
 }
-static void set_fail_count(int c) { REG_WRITE(BOOT_FAIL_REG, BOOT_FAIL_MAGIC | (c & 0xFF)); }
-static void clear_fail_count(void) { REG_WRITE(BOOT_FAIL_REG, 0); }
+static void set_fail_count(int c) {
+    REFLEX_REG_WRITE(BOOT_FAIL_REG, BOOT_FAIL_MAGIC | (c & 0xFF));
+}
+static void clear_fail_count(void) {
+    REFLEX_REG_WRITE(BOOT_FAIL_REG, 0);
+}
 
 /* ---- Halt helper ---- */
 
@@ -141,9 +145,9 @@ static void __attribute__((noreturn)) halt(const char *msg) {
 /* ---- Hardware init (direct register + ROM calls) ---- */
 
 static void hw_feed_wdt(void) {
-    REG_WRITE(LP_WDT_SWD_WPROTECT_REG, 0x50D83AA1);
-    REG_SET_BIT(LP_WDT_SWD_CONFIG_REG, LP_WDT_SWD_AUTO_FEED_EN);
-    REG_WRITE(LP_WDT_SWD_WPROTECT_REG, 0);
+    REFLEX_REG_WRITE(REFLEX_LP_WDT_SWD_WPROTECT_REG, 0x50D83AA1);
+    REFLEX_REG_SET_BIT(REFLEX_LP_WDT_SWD_CONFIG_REG, REFLEX_LP_WDT_SWD_AUTO_FEED_EN);
+    REFLEX_REG_WRITE(REFLEX_LP_WDT_SWD_WPROTECT_REG, 0);
 }
 
 /* Feed the Timer Group 0 main watchdog.
@@ -155,16 +159,17 @@ static void hw_feed_wdt(void) {
  * rather than disabled: it is the only thing that catches a boot0 that wedges
  * somewhere without its own retry path. */
 static void hw_feed_mwdt0(void) {
-    REG_WRITE(TIMG_WDTWPROTECT_REG(0), TIMG_WDT_WKEY_VALUE);
-    REG_WRITE(TIMG_WDTFEED_REG(0), 1);
-    REG_WRITE(TIMG_WDTWPROTECT_REG(0), 0);
+    REFLEX_REG_WRITE(REFLEX_TIMG0_WDTWPROTECT_REG, REFLEX_TIMG_WDT_WKEY_VALUE);
+    REFLEX_REG_WRITE(REFLEX_TIMG0_WDTFEED_REG, 1);
+    REFLEX_REG_WRITE(REFLEX_TIMG0_WDTWPROTECT_REG, 0);
 }
 
 static void hw_debug_init(void) {
-    REG_SET_BIT(PCR_ASSIST_CONF_REG, PCR_ASSIST_CLK_EN);
-    REG_CLR_BIT(PCR_ASSIST_CONF_REG, PCR_ASSIST_RST_EN);
-    REG_WRITE(ASSIST_DEBUG_CORE_0_RCD_EN_REG,
-              ASSIST_DEBUG_CORE_0_RCD_PDEBUGEN | ASSIST_DEBUG_CORE_0_RCD_RECORDEN);
+    REFLEX_REG_SET_BIT(REFLEX_PCR_ASSIST_CONF_REG, REFLEX_PCR_ASSIST_CLK_EN);
+    REFLEX_REG_CLR_BIT(REFLEX_PCR_ASSIST_CONF_REG, REFLEX_PCR_ASSIST_RST_EN);
+    REFLEX_REG_WRITE(REFLEX_ASSIST_DEBUG_CORE_0_RCD_EN_REG,
+                     REFLEX_ASSIST_DEBUG_CORE_0_RCD_PDEBUGEN |
+                         REFLEX_ASSIST_DEBUG_CORE_0_RCD_RECORDEN);
 }
 
 static void hw_clock_init(void) {
@@ -194,16 +199,14 @@ static void hw_clock_init(void) {
     /* Clear all LP interrupt enables and pending bits so stale brownout,
      * WDT, or sleep interrupts from a previous boot don't fire during
      * early OS init. */
-    CLEAR_PERI_REG_MASK(LP_WDT_INT_ENA_REG, LP_WDT_SUPER_WDT_INT_ENA);
-    CLEAR_PERI_REG_MASK(LP_WDT_INT_ENA_REG, LP_WDT_LP_WDT_INT_ENA);
-    CLEAR_PERI_REG_MASK(LP_ANALOG_PERI_LP_ANA_LP_INT_ENA_REG,
-                        LP_ANALOG_PERI_LP_ANA_BOD_MODE0_LP_INT_ENA);
-    CLEAR_PERI_REG_MASK(PMU_HP_INT_ENA_REG, PMU_SOC_WAKEUP_INT_ENA);
-    CLEAR_PERI_REG_MASK(PMU_HP_INT_ENA_REG, PMU_SOC_SLEEP_REJECT_INT_ENA);
-    SET_PERI_REG_MASK(LP_WDT_INT_CLR_REG, LP_WDT_SUPER_WDT_INT_CLR);
-    SET_PERI_REG_MASK(LP_WDT_INT_CLR_REG, LP_WDT_LP_WDT_INT_CLR);
-    SET_PERI_REG_MASK(LP_ANALOG_PERI_LP_ANA_LP_INT_CLR_REG,
-                      LP_ANALOG_PERI_LP_ANA_BOD_MODE0_LP_INT_CLR);
+    REFLEX_REG_CLR_BIT(REFLEX_LP_WDT_INT_ENA_REG, REFLEX_LP_WDT_SUPER_WDT_INT_ENA);
+    REFLEX_REG_CLR_BIT(REFLEX_LP_WDT_INT_ENA_REG, REFLEX_LP_WDT_LP_WDT_INT_ENA);
+    REFLEX_REG_CLR_BIT(REFLEX_LP_ANA_INT_ENA_REG, REFLEX_LP_ANA_BOD_MODE0_INT_ENA);
+    REFLEX_REG_CLR_BIT(REFLEX_PMU_HP_INT_ENA_REG, REFLEX_PMU_SOC_WAKEUP_INT_ENA);
+    REFLEX_REG_CLR_BIT(REFLEX_PMU_HP_INT_ENA_REG, REFLEX_PMU_SOC_SLEEP_REJECT_INT_ENA);
+    REFLEX_REG_SET_BIT(REFLEX_LP_WDT_INT_CLR_REG, REFLEX_LP_WDT_SUPER_WDT_INT_CLR);
+    REFLEX_REG_SET_BIT(REFLEX_LP_WDT_INT_CLR_REG, REFLEX_LP_WDT_LP_WDT_INT_CLR);
+    REFLEX_REG_SET_BIT(REFLEX_LP_ANA_INT_CLR_REG, REFLEX_LP_ANA_BOD_MODE0_INT_CLR);
 }
 
 static void hw_console_init(void) {
@@ -220,14 +223,14 @@ static void hw_console_init(void) {
 
 static void reflex_mmu_unmap_all(void) {
     for (int i = 0; i < MMU_ENTRY_NUM; i++) {
-        REG_WRITE(SPI_MEM_MMU_ITEM_INDEX_REG(0), i);
-        REG_WRITE(SPI_MEM_MMU_ITEM_CONTENT_REG(0), MMU_INVALID_VAL);
+        REFLEX_REG_WRITE(REFLEX_SPI_MEM_MMU_ITEM_INDEX_REG, i);
+        REFLEX_REG_WRITE(REFLEX_SPI_MEM_MMU_ITEM_CONTENT_REG, MMU_INVALID_VAL);
     }
 }
 
 static void reflex_mmu_map_page(uint32_t entry_id, uint32_t paddr_page) {
-    REG_WRITE(SPI_MEM_MMU_ITEM_INDEX_REG(0), entry_id);
-    REG_WRITE(SPI_MEM_MMU_ITEM_CONTENT_REG(0), paddr_page | MMU_VALID_BIT);
+    REFLEX_REG_WRITE(REFLEX_SPI_MEM_MMU_ITEM_INDEX_REG, entry_id);
+    REFLEX_REG_WRITE(REFLEX_SPI_MEM_MMU_ITEM_CONTENT_REG, paddr_page | MMU_VALID_BIT);
 }
 
 static void reflex_cache_disable(void) {
@@ -236,15 +239,16 @@ static void reflex_cache_disable(void) {
 
 static void reflex_cache_enable(void) {
     /* Enable IBUS and DBUS by clearing the shut bits */
-    REG_CLR_BIT(EXTMEM_L1_CACHE_CTRL_REG, EXTMEM_L1_CACHE_SHUT_IBUS);
-    REG_CLR_BIT(EXTMEM_L1_CACHE_CTRL_REG, EXTMEM_L1_CACHE_SHUT_DBUS);
+    REFLEX_REG_CLR_BIT(REFLEX_EXTMEM_L1_CACHE_CTRL_REG, REFLEX_EXTMEM_L1_CACHE_SHUT_IBUS);
+    REFLEX_REG_CLR_BIT(REFLEX_EXTMEM_L1_CACHE_CTRL_REG, REFLEX_EXTMEM_L1_CACHE_SHUT_DBUS);
     /* autoload=0: the app configures cache autoload during startup */
     Cache_Enable_ICache(0);
 }
 
 static void hw_cache_init(void) {
     /* Set page size to 64 KB (code 0) */
-    REG_SET_FIELD(SPI_MEM_MMU_POWER_CTRL_REG(0), SPI_MEM_MMU_PAGE_SIZE, 0);
+    REFLEX_REG_SET_FIELD(REFLEX_SPI_MEM_MMU_POWER_CTRL_REG, REFLEX_SPI_MEM_MMU_PAGE_SIZE,
+                         REFLEX_SPI_MEM_MMU_PAGE_SIZE_S, 0);
     reflex_mmu_unmap_all();
     reflex_cache_enable();
 }
@@ -276,14 +280,14 @@ static uint32_t find_factory_partition(void) {
 
 /* RAM windows, taken from the SoC definitions rather than restated here.
  * An earlier revision hardcoded the LP window as 0x50000000-0x50002000 (8 KB);
- * the C6 actually has 16 KB (SOC_RTC_IRAM_HIGH == 0x50004000), and a real
+ * the C6 actually has 16 KB (REFLEX_SOC_RTC_IRAM_HIGH == 0x50004000), and a real
  * image does place a 0x3490-byte segment at 0x50000800. That mistake was
  * invisible while the bound was never enforced — the loader only tested the
  * start address — and became a false rejection the moment it was. */
-#define SRAM_LOW            SOC_IRAM_LOW
-#define SRAM_HIGH           SOC_IRAM_HIGH
-#define RTC_LOW             SOC_RTC_IRAM_LOW
-#define RTC_HIGH            SOC_RTC_IRAM_HIGH
+#define SRAM_LOW REFLEX_SOC_IRAM_LOW
+#define SRAM_HIGH REFLEX_SOC_IRAM_HIGH
+#define RTC_LOW REFLEX_SOC_RTC_IRAM_LOW
+#define RTC_HIGH REFLEX_SOC_RTC_IRAM_HIGH
 #define IMAGE_HASH_LEN      32
 #define IMAGE_MAX_SEG_LEN   (16u * 1024u * 1024u)  /* larger than any sane segment */
 
@@ -512,14 +516,16 @@ void __attribute__((noreturn)) call_start_cpu0(void)
         esp_rom_printf("[%s] no factory partition (attempt %d/%d)\n",
                        TAG, fail_count + 1, BOOT_FAIL_MAX);
         esp_rom_delay_us(100000);
-        /* Software reset to retry. LP_AON_HPSYS_SW_RESET is bit 31 of
-         * LP_AON_SYS_CFG_REG; the only other defined bit in that register is
+        /* Software reset to retry. REFLEX_LP_AON_HPSYS_SW_RESET is bit 31 of
+         * REFLEX_LP_AON_SYS_CFG_REG; the only other defined bit in that register is
          * FORCE_DOWNLOAD_BOOT (bit 30). Use the named constants — an earlier
          * revision wrote the literal 0x8000 (bit 15, reserved) to a hardcoded
          * 0x600B1034, which is a no-op, so this loop span forever instead of
          * resetting. The fail counter is left incremented on purpose: if the
          * reset does not take, the next boot still converges on the halt. */
-        while (1) { REG_WRITE(LP_AON_SYS_CFG_REG, LP_AON_HPSYS_SW_RESET); }
+        while (1) {
+            REFLEX_REG_WRITE(REFLEX_LP_AON_SYS_CFG_REG, REFLEX_LP_AON_HPSYS_SW_RESET);
+        }
     }
 
     esp_rom_printf("[%s] factory partition at 0x%lx\n", TAG, (unsigned long)part_offset);

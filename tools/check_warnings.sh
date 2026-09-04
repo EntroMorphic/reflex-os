@@ -18,10 +18,12 @@
 # evidence than `make idf-build`, which is the only local check that speaks for
 # the firmware build and which does catch it.
 #
-# Scope: roughly two thirds of the firmware compiles against nothing but this
-# repository's own headers, a direct consequence of the platform abstraction.
-# That subset is checked here. The rest needs ESP-IDF and is listed as skipped
-# rather than quietly dropped.
+# Scope: the subset of the firmware that compiles against nothing but this
+# repository's own headers — a direct consequence of the platform abstraction,
+# and it grows as ESP-IDF dependencies are retired. Replacing the ESP-IDF soc
+# register headers with the SVD-generated reflex_soc_esp32c6.h moved
+# kernel/reflex_sched.c into this set on its own. Files still needing ESP-IDF
+# are listed as skipped rather than quietly dropped.
 #
 # The rule this all exists to enforce: a syntax check is not a build.
 # `gcc -fsyntax-only` generates no code and so runs none of the flow-sensitive
@@ -37,17 +39,21 @@ INC="-Iinclude -Icomponents/goose/include -Ivm/include -Ishell/include -Ikernel
      -Icore/include -Idrivers/include -Istorage/include -Iservices/include -Inet/include"
 
 # -Wall -Wextra -Werror, at -O2 so the flow-sensitive analyses actually run.
-# int-to-pointer-cast is suppressed: MMIO addresses are uint32_t and the cast is
-# correct on a 32-bit target, so the warning is an artefact of the 64-bit host
-# and says nothing about the firmware.
-FLAGS="-O2 -Wall -Wextra -Werror -Wno-int-to-pointer-cast -DREFLEX_RTC_DATA_ATTR="
+#
+# The two pointer/integer cast warnings are suppressed, in both directions.
+# Firmware moves between uint32_t and pointers deliberately: MMIO addresses are
+# uint32_t, and the scheduler computes a stack top as an integer. Both casts are
+# exact on a 32-bit target and only lossy on the 64-bit host doing the
+# compiling, so the warnings describe this machine rather than the firmware.
+# Nothing else is suppressed.
+FLAGS="-O2 -Wall -Wextra -Werror -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast \
+       -DREFLEX_RTC_DATA_ATTR="
 
 # Not compilable on the host for reasons other than a missing ESP-IDF header,
 # so they cannot be detected by the probe below and are named explicitly.
 declare -A EXPLICIT_SKIP=(
   ["core/boot.c"]="needs sdkconfig.h for CONFIG_IDF_TARGET"
-  ["kernel/reflex_startup.c"]="RISC-V inline asm; no host equivalent"
-  ["kernel/reflex_trap.c"]="RISC-V CSR instructions; fails at assembly, not parse"
+  ["kernel/reflex_startup.c"]="asks the compiler for RISC-V register t0; rejected by the host backend, not the assembler"
 )
 
 checked=0; skipped=0; failed=0
@@ -66,7 +72,11 @@ while IFS= read -r f; do
         skip_list+=("$f — needs $hdr"); skipped=$((skipped+1)); continue
     fi
 
-    if ! out=$($CC -c $FLAGS $INC "$f" -o /dev/null 2>&1); then
+    # -S, not -c: stop after code generation and before the assembler. Every
+    # warning is produced by the compiler proper, so nothing is lost, while
+    # files carrying RISC-V inline assembly (reflex_sched.c, reflex_trap.c)
+    # become checkable on an x86 host instead of failing on `wfi` and `csrci`.
+    if ! out=$($CC -S $FLAGS $INC "$f" -o /dev/null 2>&1); then
         fail_list+=("$out"); failed=$((failed+1))
     fi
     checked=$((checked+1))
