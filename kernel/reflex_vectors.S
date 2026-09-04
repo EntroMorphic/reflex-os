@@ -20,8 +20,17 @@
 
     .section .text
     .global reflex_trap_entry
-    .global reflex_context_switch
     .align 4
+
+/*
+ * `.global reflex_context_switch` used to sit here for a routine this file
+ * never defined and nothing anywhere referenced — a leftover from a planned
+ * context switch. Declaring a global for a symbol that does not exist puts an
+ * undefined entry in the object's symbol table and would only surface as a
+ * link error the first time something tried to call it. The context switch
+ * belongs with C2, when reflex_sched_start is actually reached; it is not
+ * announced here until it exists.
+ */
 
 /*
  * Trap entry point. Set as mtvec. Saves all registers, calls

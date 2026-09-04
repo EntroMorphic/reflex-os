@@ -18,8 +18,9 @@ endif()
 if(CONFIG_REFLEX_KERNEL_SCHEDULER)
     # The standalone-scheduler path is compiled here but not yet reached.
     #
-    # reflex_sched.c, reflex_startup.c, reflex_trap.c and reflex_vectors.S are
-    # the Reflex-owned scheduler and its entry path. Nothing calls them today —
+    # reflex_sched.c, reflex_startup.c, reflex_trap.c, reflex_vectors.S and
+    # reflex_kernel_test.c are the Reflex-owned scheduler, its entry path and
+    # its self-test. Nothing calls them today —
     # reflex_task_kernel.c still delegates to FreeRTOS — so the linker discards
     # every one of them, which is exactly why they are listed. Four of them
     # were in no CMakeLists at all and had therefore never been through a
@@ -37,7 +38,8 @@ if(CONFIG_REFLEX_KERNEL_SCHEDULER)
                                      "../../kernel/reflex_portasm.S"
                                      "../../kernel/reflex_startup.c"
                                      "../../kernel/reflex_trap.c"
-                                     "../../kernel/reflex_vectors.S")
+                                     "../../kernel/reflex_vectors.S"
+                                     "../../kernel/reflex_kernel_test.c")
 else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
 endif()

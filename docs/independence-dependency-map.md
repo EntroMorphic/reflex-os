@@ -54,34 +54,64 @@ more modest achievement than independence from ESP-IDF.
 
 ---
 
-## 3. Tier C is not gated on Tier D
-
-This is the correction that reorders the plan.
+## 3. Where the scheduler coupling actually is
 
 The standing assumption — recorded in `reflex_task_kernel.c`'s own header — is
 that "FreeRTOS remains as the task management backend because ESP-IDF drivers
 (WiFi, USB-JTAG, ESP-NOW) create internal FreeRTOS tasks that require its API."
 
-In the 802.15.4 build, that is not what the linker shows. Exactly four linked
-archives reference `xTaskCreate*`:
+It is true, but not for the stated reason, and the difference decides the
+order of work. In the 802.15.4 build, exactly four linked archives reference
+`xTaskCreate*`:
 
 | Archive | Why it is there |
 |---|---|
 | `libesp32c6.a` | **Reflex's own** platform component |
 | `libfreertos.a` | FreeRTOS itself (idle and timer tasks) |
-| `libesp_timer.a` | pulled in by **newlib**, not by Reflex |
-| `libpthread.a` | pulled in by **newlib**, not by Reflex |
+| `libesp_timer.a` | pulled in by `esp_phy`, `esp_coex` and `esp_hw_support` |
+| `libpthread.a` | force-linked by ESP-IDF via `-u pthread_include_pthread_impl` |
 
-**The entire 802.15.4 radio stack creates no tasks at all.** `libieee802154.a`,
-`libesp_hal_ieee802154.a` and `libbtbb.a` reference no task, queue or semaphore
-API. The radio is interrupt-driven and is not a scheduler dependency.
+### The protocol stack is scheduler-light; its PHY support is not
 
-The console is a weaker coupling than the assumption implies too:
-`esp_driver_usb_serial_jtag` and `vfs` need **queues, not tasks**.
+`libieee802154.a` and `libesp_hal_ieee802154.a` create **no tasks and use no
+queues or semaphores**. `libieee802154.a` needs exactly two FreeRTOS symbols,
+`vPortEnterCritical` and `vPortExitCritical` — critical sections, which any
+scheduler must provide and which `reflex_sched.h` already does.
 
-And `esp_timer` and `pthread` arrive through `libnewlib.a` — the C runtime.
-That is Tier F. So *removing FreeRTOS from the image* is gated on F, while
-*Reflex owning its own task scheduling* is gated on neither D nor E.
+But the radio does not arrive alone. `libesp_phy.a` and `libesp_coex.a` come
+with it, and they reference `esp_timer_create` and `ets_timer_setfn`, which
+pulls in `libesp_timer.a` — and `esp_timer` **runs a task**: `s_timer_task`,
+`init_timer_task` and `deinit_timer_task` are all present in the linked image.
+
+So the radio, taken as the set of components it actually drags in, does
+transitively require task creation. The coupling is real but narrow: it runs
+through **one component, `esp_timer`**, rather than through the driver set. A
+Reflex-owned scheduler that can host `esp_timer`'s task satisfies it.
+
+> An earlier revision of this document claimed `esp_timer` and `pthread` were
+> pulled in by newlib and concluded that Tier C was not gated on Tier D at all.
+> That was read from the wrong lines of the link map. The referencing objects
+> are `esp_phy/phy_common.c`, `esp_coex/esp_coex_adapter.c` and
+> `esp_hw_support/sleep_modes.c`. `pthread` is the one that is not a real
+> dependency — ESP-IDF force-links it with an undefined-symbol flag, which
+> makes it a build-system artifact and therefore Tier F.
+
+### The console coupling is heavier than "queues"
+
+`esp_driver_usb_serial_jtag` and `vfs` need queues, mutexes **and** the task
+timeout helpers (`vTaskSetTimeOutState`, `xTaskCheckForTimeOut`).
+
+`esp_ringbuf` is heavier still: it reaches `vTaskPlaceOnEventList` and
+`xTaskRemoveFromEventList`, which are FreeRTOS *internals* rather than any
+portable scheduler contract. Reimplementing those against a different scheduler
+is not a port, it is a reimplementation of FreeRTOS's blocking model. It is
+worth noting that `esp_ringbuf` arrives through the `esp_timer`/`esp_coex`/
+`esp_phy` chain rather than through the console, so owning console RX does not
+by itself remove it.
+
+The practical consequence: keeping ESP-IDF's console driver while replacing
+the scheduler is the expensive path. Owning console RX (Tier E) is cheaper
+than emulating FreeRTOS internals underneath a driver.
 
 ---
 
@@ -104,10 +134,25 @@ out to have been "verified by inspection only". Two of the six are not code:
 - `reflex_app_startup.c` — 21 lines of architecture notes, compiles to an empty object
 - `reflex_freertos_shim.c` — a deprecation tombstone that says so itself
 
-The four real ones define exactly one `reflex_`-prefixed symbol each, in `.text`
-with no fixed placement, so linking them cannot collide with ESP-IDF's own
-startup or vectors. They are now in the kernel-scheduler build: compiled,
-discarded, and no longer able to rot silently. The image is unchanged.
+The four real ones — `reflex_sched.c`, `reflex_startup.c`, `reflex_trap.c`,
+`reflex_vectors.S` — plus `reflex_kernel_test.c` are now all in the
+kernel-scheduler build: compiled, discarded by the linker, and no longer able
+to rot silently. Each defines one `reflex_`-prefixed symbol in `.text` with no
+fixed placement, so they cannot collide with ESP-IDF's startup or vectors.
+`reflex_vectors.S` also carried `.global reflex_context_switch` for a routine
+it never defined and nothing referenced; that has been removed rather than left
+as an undefined entry in the symbol table.
+
+**What "unchanged" does and does not mean.** No symbol from these files appears
+in the linked image — verified by `nm` for all five. The image is *not*
+byte-identical, and cannot be: building the same configuration twice from the
+same sources produces different bytes, so ESP-IDF's build is not reproducible
+here and byte equality is not a test anything could pass. Building the
+configuration with and without these files gives images of different size,
+differing by 8 bytes in `.flash.rodata` with every section otherwise identical,
+no symbol changing size, and the same set of linked objects — layout padding,
+not content. The claim worth making is the one that was measured: **no code
+from these files reaches the image.**
 
 ### What the Reflex scheduler is missing
 
@@ -159,8 +204,15 @@ direct register write (`usj_write_bytes`), and only RX uses the driver.
 - No hardware was attached for any of this. Everything above is a property of
   builds and link maps, which is exactly the right evidence for a dependency
   question and exactly the wrong evidence for a scheduler that runs.
-- The four newly-built kernel files compile clean. That is all it establishes.
-  They have never been linked, never executed, and C2 should treat them as a
-  reviewed draft rather than working code.
+- The newly-built kernel files compile clean, under the flags of the
+  configuration that actually builds them. That is all it establishes. They
+  have never been linked, never executed, and C2 should treat them as a
+  reviewed draft rather than working code. An earlier check compiled them with
+  the *default* build's flags rather than the kernel configuration's, which
+  would have missed any breakage behind a config-conditional; it has been
+  redone correctly.
+- ESP-IDF's build is not byte-reproducible in this environment. Two builds of
+  one configuration from identical sources differ. That is worth knowing before
+  anyone tries to use image equality as evidence for anything.
 - Tier F is unexamined here beyond naming its parts. The heap in particular is
   load-bearing in a way this document does not explore: six files call `malloc`.
