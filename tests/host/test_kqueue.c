@@ -294,6 +294,123 @@ static void test_blocking_before_start(void) {
     reflex_kqueue_destroy(q);
 }
 
+/* ---- Tick arithmetic ----
+ *
+ * Both of these were extracted from the scheduler because they were wrong and
+ * unreachable: the host build never runs a task, so nothing that lived inside
+ * reflex_sched_delay_ms or the queue wait could be tested at all. Pulled out,
+ * they are ordinary functions with ordinary edge cases.
+ */
+static void test_ms_to_ticks(void) {
+    CHECK("zero ms is zero ticks", reflex_sched_ms_to_ticks(0) == 0);
+    CHECK("10 ms at 1000 Hz is 10 ticks", reflex_sched_ms_to_ticks(10) == 10);
+
+    /* The last value where ms * REFLEX_SCHED_TICK_HZ still fits in a uint32. */
+    CHECK("4294967 ms is exact", reflex_sched_ms_to_ticks(4294967) == 4294967);
+
+    /* One past it. The naive expression wrapped to 705,032 ticks here, turning
+     * an 83-minute timeout into a 12-minute one — a timeout that fires early is
+     * far worse than one that is merely capped, because the caller believes it
+     * waited. */
+    CHECK("5,000,000 ms does not wrap short", reflex_sched_ms_to_ticks(5000000) == 5000000);
+    CHECK("5,000,000 ms is not the wrapped value", reflex_sched_ms_to_ticks(5000000) != 705032);
+
+    /* At REFLEX_SCHED_TICK_HZ == 1000 the conversion is the identity, so this
+     * is the largest representable request rather than a clamped one — the
+     * saturation branch in ms_to_ticks is genuinely unreachable at this tick
+     * rate, and mutation testing confirms deleting it breaks nothing. It is
+     * kept as defence against a tick-rate change, guarded by a _Static_assert
+     * there. Noted here so the branch is not later removed as dead code. */
+    CHECK("UINT32_MAX does not wrap", reflex_sched_ms_to_ticks(UINT32_MAX) == UINT32_MAX);
+
+    /* Monotonic — a longer wait must never convert to a shorter one. */
+    bool mono = true;
+    uint32_t prev = 0;
+    for (uint64_t ms = 0; ms <= UINT32_MAX; ms += 0x01000000u) {
+        uint32_t t = reflex_sched_ms_to_ticks((uint32_t)ms);
+        if (t < prev) {
+            mono = false;
+            break;
+        }
+        prev = t;
+    }
+    CHECK("conversion is monotonic across the range", mono);
+}
+
+static void test_tick_reached(void) {
+    CHECK("past deadline is reached", reflex_sched_tick_reached(100, 50));
+    CHECK("exact deadline is reached", reflex_sched_tick_reached(100, 100));
+    CHECK("future deadline is not reached", !reflex_sched_tick_reached(50, 100));
+
+    /* The case a plain `now >= deadline` gets wrong. The counter wraps every
+     * 49.7 days at 1000 Hz; a deadline set just before the wrap compares a
+     * small `now` against a huge `deadline` and reads as unreached forever,
+     * so the sleeping task never wakes. */
+    CHECK("deadline before the wrap is reached after it",
+          reflex_sched_tick_reached(5, 0xFFFFFF00u));
+    CHECK("naive comparison would have failed that", !(5u >= 0xFFFFFF00u));
+
+    /* And the mirror: a deadline just after the wrap is genuinely in the
+     * future and must not read as reached. */
+    CHECK("deadline just past the wrap is not yet reached",
+          !reflex_sched_tick_reached(0xFFFFFF00u, 5));
+
+    /* Boundary of the technique: correct up to half the counter range. */
+    CHECK("just under half-range ahead is not reached", !reflex_sched_tick_reached(0, 0x7FFFFFFFu));
+    CHECK("just under half-range behind is reached", reflex_sched_tick_reached(0x7FFFFFFFu, 0));
+}
+
+/* ---- The deadline sweep's decision ----
+ *
+ * pick_next is not compiled on the host, so this predicate was untestable
+ * where it lived — and it was got wrong: an earlier revision skipped every
+ * task with blocked_on set, which quietly removed the timeout from a timed
+ * queue wait. Extracted, it is checkable.
+ */
+static void test_should_time_wake(void) {
+    reflex_tcb_t t;
+    memset(&t, 0, sizeof(t));
+
+    CHECK("NULL never wakes", !reflex_sched_should_time_wake(NULL, 100));
+
+    t.state = REFLEX_TASK_STATE_READY;
+    t.wake_deadline_valid = true;
+    t.wake_tick = 0;
+    CHECK("a READY task is not woken by the sweep", !reflex_sched_should_time_wake(&t, 100));
+
+    /* Plain sleeper: reflex_sched_delay_ms. */
+    t.state = REFLEX_TASK_STATE_BLOCKED;
+    t.blocked_on = NULL;
+    t.wake_deadline_valid = true;
+    t.wake_tick = 50;
+    CHECK("expired sleeper wakes", reflex_sched_should_time_wake(&t, 100));
+    t.wake_tick = 200;
+    CHECK("unexpired sleeper does not wake", !reflex_sched_should_time_wake(&t, 100));
+
+    /* Timed queue wait. This is the regression: it has blocked_on set *and* a
+     * real deadline, and it must still expire on its own. */
+    int dummy_queue;
+    t.blocked_on = &dummy_queue;
+    t.wake_deadline_valid = true;
+    t.wake_tick = 50;
+    CHECK("timed queue waiter still times out", reflex_sched_should_time_wake(&t, 100));
+
+    /* Untimed queue wait: the clock must never wake it. */
+    t.wake_deadline_valid = false;
+    t.wake_tick = 0;
+    CHECK("untimed queue waiter is not woken at tick 0", !reflex_sched_should_time_wake(&t, 0));
+    CHECK("untimed queue waiter is not woken later",
+          !reflex_sched_should_time_wake(&t, 0xFFFFFFFFu));
+    t.wake_tick = 0xFFFFFFFFu;
+    CHECK("untimed waiter is not woken by a sentinel deadline either",
+          !reflex_sched_should_time_wake(&t, 0));
+
+    /* And it still works across the counter wrap. */
+    t.wake_deadline_valid = true;
+    t.wake_tick = 0xFFFFFF00u;
+    CHECK("deadline before the wrap wakes after it", reflex_sched_should_time_wake(&t, 5));
+}
+
 int test_reflex_queue(void) {
     printf("[kqueue] ");
     test_create();
@@ -304,6 +421,9 @@ int test_reflex_queue(void) {
     test_wraparound();
     test_differential();
     test_blocking_before_start();
+    test_ms_to_ticks();
+    test_tick_reached();
+    test_should_time_wake();
     if (s_fail == 0) printf("ok\n");
     return s_fail;
 }

@@ -14,6 +14,7 @@
 #define REFLEX_SCHED_H
 
 #include "reflex_types.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include <setjmp.h>
 
@@ -44,12 +45,19 @@ typedef struct reflex_tcb {
     void (*entry)(void *);
     void *arg;
     bool started;
-    /* The queue this task is waiting on, or NULL. BLOCKED alone is not enough
-     * to tell "sleeping until a deadline" from "waiting for data": pick_next
-     * wakes a BLOCKED task once s_tick_count >= wake_tick, so a queue waiter
-     * needs this to be found and woken by its peer, and an untimed wait sets
-     * wake_tick to UINT32_MAX so the deadline never arrives on its own. */
+    /* The queue this task is waiting on, or NULL. BLOCKED alone cannot say
+     * whether a task is sleeping until a deadline or waiting for data, and a
+     * queue waiter has to be findable by the peer that satisfies it. */
     void *blocked_on;
+    /* Whether wake_tick means anything.
+     *
+     * "No deadline" cannot be encoded as a wake_tick sentinel. UINT32_MAX
+     * fails under the wrap-safe comparison — (int32_t)(0 - UINT32_MAX) is 1,
+     * so an untimed waiter reads as already expired and wakes immediately —
+     * and excluding queue waiters from the time sweep instead would mean a
+     * *timed* queue wait could never time out, only ever be woken by a peer.
+     * Both cases need saying, so the deadline gets its own flag. */
+    bool wake_deadline_valid;
 } reflex_tcb_t;
 
 reflex_err_t reflex_sched_init(void);
@@ -63,6 +71,49 @@ void reflex_sched_delay_ms(uint32_t ms);
 void reflex_sched_yield(void);
 
 uint32_t reflex_sched_get_tick(void);
+
+/**
+ * @brief Convert milliseconds to scheduler ticks, saturating rather than wrapping.
+ *
+ * The obvious `(ms * REFLEX_SCHED_TICK_HZ) / 1000` overflows a uint32 for any
+ * `ms` above 4,294,967 — at 1000 Hz a 5,000,000 ms timeout came out as 705,032
+ * ticks, so a timeout of just under 84 minutes fired after 12. Computed in 64
+ * bits and clamped, so a too-large request becomes "as long as this can
+ * express" instead of a short one.
+ *
+ * Exported because it is worth testing, and it cannot be tested through the
+ * scheduler: the host build never runs tasks.
+ */
+uint32_t reflex_sched_ms_to_ticks(uint32_t ms);
+
+/**
+ * @brief Has the tick counter reached @p deadline, accounting for wraparound?
+ *
+ * `s_tick_count >= deadline` is wrong across the wrap. At 1000 Hz the counter
+ * wraps every 49.7 days, and a task whose deadline landed just before the wrap
+ * would compare a small current tick against a huge deadline and never be
+ * woken — a sleep that silently becomes permanent.
+ *
+ * The subtraction is unsigned and its result read as signed, which is the
+ * standard technique: correct for any interval shorter than half the counter's
+ * range, so deadlines up to about 24.8 days behave. Beyond that no comparison
+ * can distinguish "long past" from "far future" with one counter.
+ */
+bool reflex_sched_tick_reached(uint32_t now, uint32_t deadline);
+
+/**
+ * @brief Should the deadline sweep move @p t back to READY at tick @p now?
+ *
+ * Extracted from pick_next because pick_next is not compiled on the host — the
+ * scheduler never runs there — which left this decision untestable, and it is
+ * subtle enough to have been got wrong. An earlier revision excluded every
+ * task with `blocked_on` set, on the reasoning that queue waiters are woken by
+ * their peers. That silently removed the timeout from a *timed* queue wait: it
+ * could then only ever end when a peer acted, never by expiring. Three states
+ * have to be distinguished — sleeping on a deadline, waiting on a queue with a
+ * deadline, and waiting on a queue without one — and the first two wake here.
+ */
+bool reflex_sched_should_time_wake(const reflex_tcb_t *t, uint32_t now);
 void reflex_sched_tick(void);
 void reflex_sched_ack_tick(void);
 reflex_tcb_t *reflex_sched_get_current(void);

@@ -206,6 +206,42 @@ that only appears once both land in one image. And an untimed wait parks with
 BLOCKED task whose `wake_tick` has passed: a zero there would be woken on the
 very next scheduling decision and spin.
 
+Red-teaming C1 turned up three defects, two of them in the code that had just
+been written and one introduced by the fix for the first.
+
+`(timeout_ms * REFLEX_SCHED_TICK_HZ) / 1000` overflows a uint32 above
+4,294,967 ms, and the wrapped value is *shorter* than requested — a timeout of
+83 minutes fired after 12. Worse than a capped wait, because the caller
+believes it waited. `reflex_sched_delay_ms` carried the same expression and had
+since it was written.
+
+`s_tick_count >= wake_tick` is wrong across the counter wrap. At 1000 Hz that
+is every 49.7 days, and a task whose deadline landed just before it compares a
+small `now` against a huge `deadline` and is never woken — a sleep that
+silently becomes permanent.
+
+Both are now `reflex_sched_ms_to_ticks` and `reflex_sched_tick_reached`,
+extracted rather than fixed in place because neither was reachable from a host
+test while it lived inside the scheduler.
+
+The third was mine, made while fixing the second. Requiring `blocked_on == NULL`
+before the deadline sweep would wake a task — reasoning that queue waiters are
+woken by peers — quietly removed the timeout from a *timed* queue wait, which
+could then only ever end if a peer acted. "No deadline" also cannot be encoded
+as a `wake_tick` sentinel: under the wrap-safe comparison `UINT32_MAX` reads as
+already expired. Three states need distinguishing — sleeping on a deadline,
+waiting on a queue with one, waiting on a queue without one — so the deadline
+now carries its own validity flag, and the sweep's decision is
+`reflex_sched_should_time_wake`, extracted for the same reason as the other two
+and tested against exactly that regression.
+
+Ten mutations across the queue and the tick arithmetic; all but one killed. The
+survivor is the saturation clamp in `ms_to_ticks`, which is genuinely
+unreachable at 1000 Hz because the conversion is the identity there. It is kept
+as defence against a tick-rate change and guarded by a `_Static_assert` that
+fires above 1000 Hz, with the reason recorded in both the code and the test so
+it is not later removed as dead.
+
 What C1 does *not* do is change who implements `reflex_task.h`.
 `reflex_task_kernel.c` still delegates to FreeRTOS. That cutover is C3.
 

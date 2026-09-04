@@ -65,7 +65,20 @@ typedef struct reflex_kqueue {
  */
 reflex_kqueue_t *reflex_kqueue_create(uint32_t length, uint32_t item_size);
 
-/** @brief Release a queue and its storage. Safe on NULL. */
+/**
+ * @brief Release a queue and its storage. Safe on NULL, and safe to repeat.
+ *
+ * Does **not** release tasks parked on the queue by
+ * `reflex_sched_queue_send`/`_recv`. The control block is zeroed, so a waiter
+ * that runs afterwards sees a queue with no storage and simply fails its
+ * attempt — a timed wait then expires, but an untimed one waits forever for a
+ * peer that can no longer exist.
+ *
+ * Latent rather than live: nothing in the OS destroys a queue today, since the
+ * ones that exist are created during init and live for the uptime. If that
+ * changes, destroy needs to wake every waiter first, and they need a way to
+ * report that the queue went away rather than that they timed out.
+ */
 void reflex_kqueue_destroy(reflex_kqueue_t *q);
 
 /**

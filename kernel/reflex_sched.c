@@ -89,6 +89,7 @@ reflex_err_t reflex_sched_create_task(void (*entry)(void *), const char *name,
     tcb->state = REFLEX_TASK_STATE_READY;
     tcb->wake_tick = 0;
     tcb->blocked_on = NULL;
+    tcb->wake_deadline_valid = false;
     tcb->entry = entry;
     tcb->arg = arg;
     tcb->started = false;
@@ -117,8 +118,14 @@ void reflex_sched_delete_task(reflex_tcb_t *tcb) {
 #ifndef REFLEX_HOST_BUILD
 static reflex_tcb_t *pick_next(void) {
     for (int i = 0; i < REFLEX_SCHED_MAX_TASKS; i++) {
-        if (s_tasks[i].state == REFLEX_TASK_STATE_BLOCKED &&
-            s_tick_count >= s_tasks[i].wake_tick) {
+        /* Time only wakes tasks that asked for a deadline. That includes a
+         * queue wait with a timeout — excluding queue waiters here would mean
+         * such a wait could only ever end by a peer acting, never by expiring.
+         * An untimed waiter has wake_deadline_valid false and is left for its
+         * peer. */
+        if (reflex_sched_should_time_wake(&s_tasks[i], s_tick_count)) {
+            s_tasks[i].blocked_on = NULL;
+            s_tasks[i].wake_deadline_valid = false;
             s_tasks[i].state = REFLEX_TASK_STATE_READY;
         }
     }
@@ -177,15 +184,55 @@ void reflex_sched_yield(void) {
 
 void reflex_sched_delay_ms(uint32_t ms) {
     if (!s_started || !s_current) return;
-    uint32_t ticks = (ms * REFLEX_SCHED_TICK_HZ) / 1000;
+    uint32_t ticks = reflex_sched_ms_to_ticks(ms);
     if (ticks == 0) ticks = 1;
     s_current->wake_tick = s_tick_count + ticks;
+    s_current->wake_deadline_valid = true;
     s_current->state = REFLEX_TASK_STATE_BLOCKED;
     reflex_sched_yield();
 }
 
 uint32_t reflex_sched_get_tick(void) {
     return s_tick_count;
+}
+
+uint32_t reflex_sched_ms_to_ticks(uint32_t ms) {
+    /* 64-bit intermediate: ms * REFLEX_SCHED_TICK_HZ overflows a uint32 above
+     * ms = 4,294,967, and the wrapped result is a *shorter* interval than was
+     * asked for — so the failure is a timeout that fires early rather than one
+     * that never fires. */
+    uint64_t ticks = ((uint64_t)ms * REFLEX_SCHED_TICK_HZ) / 1000u;
+
+    /* The clamp is unreachable at the current tick rate, and deliberately kept.
+     *
+     * At REFLEX_SCHED_TICK_HZ == 1000 the conversion is the identity, so the
+     * largest uint32 input produces the largest uint32 output and nothing can
+     * exceed the range. Mutation testing says as much: deleting this line does
+     * not fail any test, because no input at this tick rate can reach it.
+     *
+     * It is defence against the one change that makes it live. At 2000 Hz the
+     * same input yields 8,589,934,590, and without the clamp that truncates to
+     * a *shorter* interval — the early-timeout failure above, reintroduced by
+     * a Kconfig edit rather than by touching this file. The static assertion
+     * below is what actually notices; the clamp is what survives it. */
+    _Static_assert(REFLEX_SCHED_TICK_HZ <= 1000,
+                   "Above 1000 Hz the clamp in reflex_sched_ms_to_ticks stops "
+                   "being unreachable — check its tests still cover the range");
+    return (ticks > UINT32_MAX) ? UINT32_MAX : (uint32_t)ticks;
+}
+
+bool reflex_sched_should_time_wake(const reflex_tcb_t *t, uint32_t now) {
+    if (!t) return false;
+    if (t->state != REFLEX_TASK_STATE_BLOCKED) return false;
+    /* No deadline asked for: this task waits for a peer, not for the clock. */
+    if (!t->wake_deadline_valid) return false;
+    return reflex_sched_tick_reached(now, t->wake_tick);
+}
+
+bool reflex_sched_tick_reached(uint32_t now, uint32_t deadline) {
+    /* Unsigned subtraction read as signed. Correct across the counter wrap for
+     * any interval under half its range; see the header for the bound. */
+    return (int32_t)(now - deadline) >= 0;
 }
 
 reflex_tcb_t *reflex_sched_get_current(void) {
@@ -303,11 +350,18 @@ reflex_err_t reflex_sched_start(void) {
  * scan order, which is round-robin over the task table rather than a fairness
  * guarantee; if starvation ever matters, this is the place to make it FIFO.
  *
+ * Waking "a waiter" rather than "a waiter of the right kind" is safe because
+ * senders and receivers cannot both be parked on one queue at once: a send only
+ * blocks when the queue is full and a receive only when it is empty, and a
+ * queue of non-zero capacity cannot be both. If a zero-capacity rendezvous
+ * queue is ever allowed, that invariant goes and this must distinguish them.
+ *
  * Callers hold the critical section. */
 static void wake_one_waiter(const void *q) {
     for (int i = 0; i < REFLEX_SCHED_MAX_TASKS; i++) {
         if (s_tasks[i].state == REFLEX_TASK_STATE_BLOCKED && s_tasks[i].blocked_on == q) {
             s_tasks[i].blocked_on = NULL;
+            s_tasks[i].wake_deadline_valid = false;
             s_tasks[i].state = REFLEX_TASK_STATE_READY;
             return;
         }
@@ -321,19 +375,25 @@ static void wake_one_waiter(const void *q) {
  * work" happens before yielding, which is what keeps this free of the classic
  * lost-wakeup: a peer cannot slip an item in between our test and our block,
  * because both are under the same lock. */
-static reflex_err_t queue_wait(reflex_kqueue_t *q, void *item, bool sending, uint32_t timeout_ms) {
+/* One of send_item / recv_item is non-NULL and selects the direction. The
+ * earlier shape took a single void* plus a bool and had to launder away const
+ * at the send call site, which is exactly the kind of cast that outlives the
+ * reason for it. */
+static reflex_err_t queue_wait(reflex_kqueue_t *q, const void *send_item, void *recv_item,
+                               uint32_t timeout_ms) {
+    const bool sending = (send_item != NULL);
     if (!q) return REFLEX_ERR_INVALID_ARG;
 
     const bool forever = (timeout_ms == REFLEX_SCHED_WAIT_FOREVER);
     uint32_t deadline = 0;
     if (!forever) {
-        uint32_t ticks = (timeout_ms * REFLEX_SCHED_TICK_HZ) / 1000;
-        deadline = s_tick_count + ticks;
+        deadline = s_tick_count + reflex_sched_ms_to_ticks(timeout_ms);
     }
 
     for (;;) {
         reflex_sched_enter_critical();
-        bool done = sending ? reflex_kqueue_try_send(q, item) : reflex_kqueue_try_recv(q, item);
+        bool done =
+            sending ? reflex_kqueue_try_send(q, send_item) : reflex_kqueue_try_recv(q, recv_item);
         if (done) {
             /* A successful send may have unblocked a receiver and vice versa. */
             wake_one_waiter(q);
@@ -348,16 +408,16 @@ static reflex_err_t queue_wait(reflex_kqueue_t *q, void *item, bool sending, uin
             return REFLEX_ERR_TIMEOUT;
         }
 
-        if (!forever && s_tick_count >= deadline) {
+        if (!forever && reflex_sched_tick_reached(s_tick_count, deadline)) {
             reflex_sched_exit_critical();
             return REFLEX_ERR_TIMEOUT;
         }
 
-        /* UINT32_MAX rather than 0 for an untimed wait: pick_next promotes any
-         * BLOCKED task whose wake_tick has passed, so a zero here would be
-         * woken on the very next scheduling decision and spin. */
         s_current->blocked_on = q;
-        s_current->wake_tick = forever ? UINT32_MAX : deadline;
+        s_current->wake_tick = deadline;
+        /* A timed wait must still expire if no peer ever comes; an untimed one
+         * must not be woken by the clock at all. */
+        s_current->wake_deadline_valid = !forever;
         s_current->state = REFLEX_TASK_STATE_BLOCKED;
         reflex_sched_exit_critical();
 
@@ -367,16 +427,16 @@ static reflex_err_t queue_wait(reflex_kqueue_t *q, void *item, bool sending, uin
          * marker and retry: a woken task is not guaranteed to win the race for
          * the item against a task that was already READY. */
         s_current->blocked_on = NULL;
+        s_current->wake_deadline_valid = false;
     }
 }
 
 reflex_err_t reflex_sched_queue_send(struct reflex_kqueue *q, const void *item,
                                      uint32_t timeout_ms) {
     if (!item) return REFLEX_ERR_INVALID_ARG;
-    /* try_send takes a const pointer; the cast is discarded inside. */
-    return queue_wait(q, (void *)(uintptr_t)item, true, timeout_ms);
+    return queue_wait(q, item, NULL, timeout_ms);
 }
 
 reflex_err_t reflex_sched_queue_recv(struct reflex_kqueue *q, void *item, uint32_t timeout_ms) {
-    return queue_wait(q, item, false, timeout_ms);
+    return queue_wait(q, NULL, item, timeout_ms);
 }
