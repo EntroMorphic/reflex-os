@@ -71,6 +71,10 @@ reflex_err_t reflex_hal_gpio_connect_out(uint32_t out_pin, uint32_t signal,
     return REFLEX_ERR_NOT_SUPPORTED;
 }
 
+/* No Boot0 on this target: the ESP32 uses ESP-IDF's stock second-stage
+ * bootloader, which keeps no such counter. */
+void reflex_hal_boot_mark_stable(void) {}
+
 void reflex_hal_reboot(void) {
     esp_restart();
 }

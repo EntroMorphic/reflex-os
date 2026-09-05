@@ -49,6 +49,11 @@ static void reflex_stability_task(void *arg)
 {
     reflex_task_delay_ms(REFLEX_STABILITY_MS);
     reflex_config_set_boot_count(0);
+    /* Two counters, and only one of them was being cleared here. The NVS
+     * boot_count above is the OS's; Boot0 keeps its own in an always-on
+     * register and used to clear it itself just before jumping, which made it
+     * blind to an application that started and then crashed. */
+    reflex_hal_boot_mark_stable();
     REFLEX_LOGI(REFLEX_BOOT_TAG, "system_stable=confirmed");
     reflex_task_delete(NULL);
 }

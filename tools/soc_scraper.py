@@ -127,6 +127,8 @@ LITERALS = [
     ("REFLEX_LEDC_LS_SIG_OUT0_IDX","LEDC_LS_SIG_OUT0_IDX", 0,         "GPIO matrix signal index; lives in gpio_sig_map, not the SVD"),
     ("REFLEX_IO_MUX_MCU_SEL_V",    "MCU_SEL",              0x7,        "IO_MUX function-select field mask (3 bits)"),
     ("REFLEX_SOC_SYSTIMER_FIXED_DIVIDER", "SOC_SYSTIMER_FIXED_DIVIDER", 1, "capability flag from soc_caps.h"),
+    ("REFLEX_INTR_SRC_SYSTIMER_TARGET1", "ETS_SYSTIMER_TARGET1_INTR_SOURCE", 58,
+     "interrupt-matrix source number; an enum position in soc/interrupts.h, not SVD data"),
 ]
 
 
@@ -249,6 +251,7 @@ def render_bridge(bridge):
         "#include \"soc/spi_mem_reg.h\"",
         "#include \"soc/timer_group_reg.h\"",
         "#include \"soc/wdt_periph.h\"",
+        "#include \"soc/interrupts.h\"",
         "",
     ]
     for name, idf in bridge:

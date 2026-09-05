@@ -27,6 +27,7 @@
 #include "soc/spi_mem_reg.h"
 #include "soc/timer_group_reg.h"
 #include "soc/wdt_periph.h"
+#include "soc/interrupts.h"
 
 _Static_assert(REFLEX_LP_WDT_SWD_CONFIG_REG == (uint32_t)(LP_WDT_SWD_CONFIG_REG),
                "REFLEX_LP_WDT_SWD_CONFIG_REG diverges from LP_WDT_SWD_CONFIG_REG");
@@ -125,6 +126,8 @@ _Static_assert(REFLEX_IO_MUX_MCU_SEL_V == (uint32_t)(MCU_SEL),
                "REFLEX_IO_MUX_MCU_SEL_V diverges from MCU_SEL");
 _Static_assert(REFLEX_SOC_SYSTIMER_FIXED_DIVIDER == (uint32_t)(SOC_SYSTIMER_FIXED_DIVIDER),
                "REFLEX_SOC_SYSTIMER_FIXED_DIVIDER diverges from SOC_SYSTIMER_FIXED_DIVIDER");
+_Static_assert(REFLEX_INTR_SRC_SYSTIMER_TARGET1 == (uint32_t)(ETS_SYSTIMER_TARGET1_INTR_SOURCE),
+               "REFLEX_INTR_SRC_SYSTIMER_TARGET1 diverges from ETS_SYSTIMER_TARGET1_INTR_SOURCE");
 
 /* Silence the unused-translation-unit warning. */
 const int reflex_soc_bridge_ok = 1;

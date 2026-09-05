@@ -125,6 +125,21 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
                                    reflex_intr_handle_t *out_handle);
 reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle);
 
+/**
+ * @brief Tell the bootloader this boot reached a stable state.
+ *
+ * Boot0 counts consecutive boot attempts in an always-on scratch register and
+ * halts after REFLEX_BOOT_FAIL_MAX. It used to clear that counter immediately
+ * before jumping to the application — treating "the image loaded" as "the boot
+ * succeeded" — which meant an application that panicked a millisecond later
+ * reset the counter on every attempt and the protection could never engage.
+ * Observed: eleven boot-panic cycles in eight seconds with no halt.
+ *
+ * Clearing therefore belongs here, once the system has actually stayed up.
+ * No-op on targets without Boot0.
+ */
+void reflex_hal_boot_mark_stable(void);
+
 /* --- Log --- */
 
 #define REFLEX_LOG_LEVEL_ERROR   1

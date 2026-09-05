@@ -11,8 +11,19 @@
 #include "reflex_rom_esp32c6.h"
 #include "esp_intr_alloc.h"
 
-/* SYSTIMER TARGET1 interrupt source number for C6 */
-#define SYSTIMER_TARGET1_INTR_SOURCE 38
+/* SYSTIMER TARGET1's interrupt-matrix source number.
+ *
+ * This said 38, which is wrong: ETS_SYSTIMER_TARGET1_INTR_SOURCE is 58 on the
+ * C6, and 38 is a different peripheral. Routing 38 would have mapped some
+ * other device's interrupt as the scheduler tick — the tick would never fire
+ * and that device's interrupt would be hijacked. Never caught because this
+ * file was in no build and had never run.
+ *
+ * The value now comes from the SVD-backed header, where `make soc-bridge`
+ * proves it against ESP-IDF's own enum rather than trusting a number typed
+ * into a comment. */
+#include "reflex_soc_esp32c6.h"
+#define SYSTIMER_TARGET1_INTR_SOURCE REFLEX_INTR_SRC_SYSTIMER_TARGET1
 
 static void __attribute__((section(".iram1"))) systimer_tick_isr(void *arg) {
     (void)arg;

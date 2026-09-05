@@ -533,8 +533,17 @@ void __attribute__((noreturn)) call_start_cpu0(void)
     uint32_t entry = load_image(part_offset);
     if (entry == 0) halt("image load failed");
 
-    /* 5. Clear fail counter — we're about to jump */
-    clear_fail_count();
+    /* The fail counter is deliberately NOT cleared here.
+     *
+     * It used to be, with the reasoning "we're about to jump" — but jumping is
+     * not succeeding. An application that panics a millisecond after entry
+     * cleared the counter on every attempt, so the protection above could
+     * never reach BOOT_FAIL_MAX and the board looped indefinitely. Measured:
+     * eleven boot-panic cycles in eight seconds, no halt.
+     *
+     * The application clears it once it has stayed up for REFLEX_STABILITY_MS,
+     * via reflex_hal_boot_mark_stable(). Anything that dies before then counts
+     * as a failed boot, which is what the counter was for. */
 
     esp_rom_printf("[%s] jumping to 0x%08lx\n", TAG, (unsigned long)entry);
 

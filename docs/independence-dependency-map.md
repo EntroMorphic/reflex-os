@@ -267,6 +267,37 @@ nothing to run, which looks exactly like a hang; and its own comment claimed a
 BSS clear as step 1 that the code does not do and should not. The same
 discarded-return pattern in `reflex_kernel_test.c` is fixed too.
 
+### Taking C2 to the tick (2026-09-04, on hardware)
+
+The routing item turned out to be already written and unused.
+`reflex_hal_intr_alloc` does the interrupt-matrix mapping, the PLIC priority
+and the `mie` bit, and registers through the ROM vector table via
+`intr_handler_set` — so it coexists with ESP-IDF's `mtvec` and needs no
+takeover. Nothing in the firmware called it. `reflex_sched_tick_start` and
+`_stop` now do: the tick is routed by Reflex's own plumbing rather than by
+`esp_intr_alloc`, which is the whole distinction C2 was about.
+
+**The interrupt source number was wrong.** `reflex_kernel_test.c` hardcoded 38.
+`ETS_SYSTIMER_TARGET1_INTR_SOURCE` is **58** on the C6 — 38 is a different
+peripheral, so routing it would have mapped some other device's interrupt as
+the scheduler tick, and the tick would never have fired. Never caught because
+the file was in no build. The number now lives in the SVD-backed header where
+`make soc-bridge` proves it against ESP-IDF's own enum.
+
+**The tick is written and routed but not proven to fire**, because of what
+running the configuration actually revealed:
+
+> `CONFIG_REFLEX_KERNEL_SCHEDULER=y` **panics at boot.** Guru Meditation, stack
+> protection fault in task `main` during the VM self-check — stack pointer
+> `0x40816e20` against bounds `0x40816e30`–`0x40817430`, sixteen bytes under.
+> CI has built this configuration green for its whole existence; it had never
+> been run. The shell is never reached, so `kernel tick` could not be executed.
+
+That is now the blocker, and it is a better problem to have than the one this
+section described before: the tick's plumbing exists and is Reflex's own, and
+what stands in front of it is a stack overflow with an address and a task name
+rather than three unknowns.
+
 ### What C2 still owes, precisely
 
 There are two tick paths and only one works. `reflex_kernel_test.c` routes

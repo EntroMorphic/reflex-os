@@ -76,6 +76,8 @@ reflex_err_t reflex_hal_intr_alloc(int s, int f, reflex_intr_handler_t h, void *
     return REFLEX_OK;
 }
 
+void reflex_hal_boot_mark_stable(void) {}
+
 reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t h) {
     (void)h;
     return REFLEX_OK;

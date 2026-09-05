@@ -152,6 +152,22 @@ void reflex_sched_set_priority(reflex_tcb_t *t, int priority);
 /** @return The task's priority, or 0 for NULL. */
 int reflex_sched_get_priority(const reflex_tcb_t *t);
 
+/* ---- Scheduler tick ----
+ *
+ * Routes SYSTIMER TARGET1 to the CPU and starts the 1 kHz tick, using Reflex's
+ * own interrupt plumbing (`reflex_hal_intr_alloc`) rather than ESP-IDF's
+ * allocator. That is the difference between a scheduler that ticks and a
+ * scheduler that ticks *because the framework we are replacing arranged it*.
+ *
+ * Separate from reflex_sched_start so the tick can be proved on hardware
+ * without also handing the machine to a scheduler that nothing yet starts.
+ * Target-only: it programs registers.
+ */
+#ifndef REFLEX_HOST_BUILD
+reflex_err_t reflex_sched_tick_start(void);
+void reflex_sched_tick_stop(void);
+#endif
+
 /* ---- Trap-side tick routing (reflex_trap.c) ----
  *
  * Which CPU interrupt line the scheduler tick arrives on is decided by the

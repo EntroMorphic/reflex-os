@@ -107,5 +107,7 @@
 #define REFLEX_IO_MUX_MCU_SEL_V 0x00000007u
 /* literal — capability flag from soc_caps.h */
 #define REFLEX_SOC_SYSTIMER_FIXED_DIVIDER 0x00000001u
+/* literal — interrupt-matrix source number; an enum position in soc/interrupts.h, not SVD data */
+#define REFLEX_INTR_SRC_SYSTIMER_TARGET1 0x0000003Au
 
 #endif /* REFLEX_SOC_ESP32C6_H */

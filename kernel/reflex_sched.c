@@ -30,6 +30,7 @@
 
 #include "reflex_sched.h"
 #include "reflex_kqueue.h"
+#include "reflex_hal.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -185,6 +186,50 @@ static reflex_tcb_t *pick_next(void) {
     int start = s_current ? (int)(s_current - s_tasks) + 1 : 0;
     int idx = reflex_sched_select(s_tasks, REFLEX_SCHED_MAX_TASKS, start);
     return (idx < 0) ? NULL : &s_tasks[idx];
+}
+#endif /* !REFLEX_HOST_BUILD */
+
+#ifndef REFLEX_HOST_BUILD
+/* Defined below, next to the scheduler loop that also uses it. */
+static void setup_systimer_tick(void);
+
+/* Handle for the routed systimer interrupt, so it can be given back. */
+static reflex_intr_handle_t s_tick_intr = NULL;
+
+static void sched_tick_isr(void *arg) {
+    (void)arg;
+    reflex_sched_tick();
+    reflex_sched_ack_tick();
+}
+
+reflex_err_t reflex_sched_tick_start(void) {
+    if (s_tick_intr) return REFLEX_OK; /* already running */
+
+    /* Program the comparator first, then route. The other order leaves a
+     * window where the line is live and the comparator is not yet armed. */
+    setup_systimer_tick();
+
+    reflex_err_t rc = reflex_hal_intr_alloc(REFLEX_INTR_SRC_SYSTIMER_TARGET1, 0, sched_tick_isr,
+                                            NULL, &s_tick_intr);
+    if (rc != REFLEX_OK) {
+        /* Leave the peripheral disabled rather than raising an interrupt with
+         * nowhere to go: an unrouted level interrupt stays asserted. */
+        REFLEX_REG(SYSTIMER_INT_ENA) &= ~(1u << 1);
+        s_tick_intr = NULL;
+        return rc;
+    }
+    return REFLEX_OK;
+}
+
+void reflex_sched_tick_stop(void) {
+    /* Peripheral first, for the same reason: never leave a routed line with an
+     * armed source and no handler. */
+    REFLEX_REG(SYSTIMER_INT_ENA) &= ~(1u << 1);
+    REFLEX_REG(SYSTIMER_INT_CLR) = (1u << 1);
+    if (s_tick_intr) {
+        reflex_hal_intr_free(s_tick_intr);
+        s_tick_intr = NULL;
+    }
 }
 #endif /* !REFLEX_HOST_BUILD */
 

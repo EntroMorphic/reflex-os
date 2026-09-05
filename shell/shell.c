@@ -950,7 +950,60 @@ static void shell_cmd_led(int argc, char *argv[]) {
     else { printf("led <on|off|status>\n"); outcome(SHELL_USAGE); }
 }
 
+#if CONFIG_REFLEX_KERNEL_SCHEDULER
+#include "reflex_sched.h"
+
+/* Prove the Reflex-routed scheduler tick on hardware, without starting the
+ * scheduler.
+ *
+ * The tick is the piece C2 was missing: reflex_sched_start could never wake a
+ * blocked task because SYSTIMER TARGET1 was enabled at the peripheral and
+ * routed nowhere. reflex_sched_tick_start routes it through Reflex's own
+ * interrupt plumbing — not esp_intr_alloc — so what this measures is Reflex
+ * delivering its own interrupt.
+ *
+ * Bounded on purpose: it starts the tick, samples the counter across a known
+ * wall-clock interval, and stops it again. Nothing is handed to the scheduler,
+ * so a tick that misfires costs a wrong number rather than a board that stops
+ * answering. */
+static void shell_cmd_kernel_tick(void) {
+    uint32_t before = reflex_sched_get_tick();
+    reflex_err_t rc = reflex_sched_tick_start();
+    if (rc != REFLEX_OK) {
+        printf("kernel tick: routing failed rc=0x%x\n", rc);
+        outcome(SHELL_FAILED);
+        return;
+    }
+
+    uint64_t t0 = reflex_hal_time_us();
+    reflex_task_delay_ms(500);
+    uint64_t elapsed_us = reflex_hal_time_us() - t0;
+
+    uint32_t after = reflex_sched_get_tick();
+    reflex_sched_tick_stop();
+
+    uint32_t ticks = after - before;
+    /* Report the measured rate rather than a pass/fail: a tick at the wrong
+     * frequency is a different bug from a tick that never fires, and the
+     * number says which. */
+    unsigned hz = elapsed_us ? (unsigned)((uint64_t)ticks * 1000000u / elapsed_us) : 0;
+    printf("kernel tick: %lu ticks in %lu us -> %u Hz (target %u)\n", (unsigned long)ticks,
+           (unsigned long)elapsed_us, hz, (unsigned)REFLEX_SCHED_TICK_HZ);
+    if (ticks == 0) {
+        printf("kernel tick: no ticks — routed but not firing\n");
+        outcome(SHELL_FAILED);
+    }
+}
+#endif
+
 static void shell_cmd_kernel(int argc, char *argv[]) {
+#if CONFIG_REFLEX_KERNEL_SCHEDULER
+    if (argc >= 2 && strcmp(argv[1], "tick") == 0) {
+        if (extra_args(argc, 2)) return;
+        shell_cmd_kernel_tick();
+        return;
+    }
+#endif
     (void)argc; (void)argv;
     goose_cell_t *agg = goonies_resolve_cell("sys.kernel.disposition");
     const char *pname = goose_purpose_get_name();

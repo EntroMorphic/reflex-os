@@ -145,6 +145,13 @@ reflex_err_t reflex_hal_gpio_connect_out(uint32_t out_pin, uint32_t signal,
     return REFLEX_OK;
 }
 
+/* Boot0's boot-attempt counter lives in LP_AON STORE0 and survives a software
+ * reset, which is the whole point: it is how one boot tells the next that the
+ * last one did not get far. Zeroing it is what "this boot is good" means. */
+void reflex_hal_boot_mark_stable(void) {
+    REFLEX_REG(REFLEX_LP_AON_STORE0_REG) = 0;
+}
+
 void reflex_hal_reboot(void) {
     extern void software_reset(void);  /* ROM function at 0x40000090 */
     software_reset();
