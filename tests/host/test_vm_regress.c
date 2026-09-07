@@ -17,6 +17,7 @@
 #include "reflex_types.h"
 #include "reflex_ternary.h"
 #include "reflex_vm.h"
+#include "reflex_vm_task.h"
 #include "reflex_cache.h"
 #include "reflex_vm_loader.h"
 
@@ -289,11 +290,63 @@ static void test_word18_no_clobber(void)
     printf("ok\n");
 }
 
+/* --- VM task service init --------------------------------------------------
+ *
+ * Regression: reflex_service_register calls the init hook synchronously, and
+ * reflex_vm_task_service_init called reflex_vm_task_runtime_init, whose whole
+ * body is memset(runtime, 0, sizeof *runtime). main.c installed the system
+ * VM's soft cache and *then* registered the service, so the pointer was zeroed
+ * before the VM ever ran: the system VM executed in direct-MMU mode with every
+ * TLD/TST/TFLUSH/TINV cache semantic skipped and no diagnostic. A NULL cache is
+ * a supported mode, so nothing was unsafe — it was a shipped feature that was
+ * never once active. */
+static void test_vm_task_service_init_keeps_cache(void) {
+    printf("[vmtask]  ");
+
+    static reflex_cache_t cache;
+    static reflex_vm_task_runtime_t runtime;
+
+    reflex_cache_init(&cache);
+    reflex_vm_task_runtime_init(&runtime);
+    runtime.vm.cache = (struct reflex_cache *)&cache;
+
+    /* The exact order main.c uses: configure, then register. */
+    extern int mock_service_init_calls;
+    int before = mock_service_init_calls;
+    CHECK("register_service succeeded",
+          reflex_vm_task_register_service(&runtime, "test-vm") == REFLEX_OK);
+    CHECK("register_service ran the init hook synchronously",
+          mock_service_init_calls == before + 1);
+    CHECK("cache survives service init", runtime.vm.cache == (struct reflex_cache *)&cache);
+
+    /* Calling the hook directly must behave the same way. */
+    runtime.vm.cache = (struct reflex_cache *)&cache;
+    CHECK("service_init ok", reflex_vm_task_service_init(&runtime) == REFLEX_OK);
+    CHECK("cache still installed after a direct init",
+          runtime.vm.cache == (struct reflex_cache *)&cache);
+
+    /* And it must still clear everything else, or it is no longer an init. */
+    runtime.running = true;
+    runtime.handle = (reflex_task_handle_t)0x1234;
+    CHECK("service_init ok (2)", reflex_vm_task_service_init(&runtime) == REFLEX_OK);
+    CHECK("init still zeroes runtime state", !runtime.running && runtime.handle == NULL);
+    CHECK("cache preserved across that too", runtime.vm.cache == (struct reflex_cache *)&cache);
+
+    /* A runtime with no cache must stay NULL rather than acquire one. */
+    static reflex_vm_task_runtime_t plain;
+    reflex_vm_task_runtime_init(&plain);
+    CHECK("service_init ok (3)", reflex_vm_task_service_init(&plain) == REFLEX_OK);
+    CHECK("no cache stays no cache", plain.vm.cache == NULL);
+
+    printf("ok\n");
+}
+
 int test_vm_regress(void)
 {
     test_cache();
     test_loader_branch_target();
     test_word18_no_clobber();
+    test_vm_task_service_init_keeps_cache();
     return s_fail;
 }
 

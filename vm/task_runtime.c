@@ -155,6 +155,11 @@ reflex_err_t reflex_vm_task_start_binary(reflex_vm_task_runtime_t *runtime,
 #define REFLEX_VM_TASK_STOP_TIMEOUT_MS 2000
 #define REFLEX_VM_TASK_STOP_POLL_MS    10
 
+/* Yield window after the task retires, so the idle task can reclaim its TCB and
+ * stack before a caller reuses the runtime. Longer than one tick at any
+ * supported tick rate. */
+#define REFLEX_VM_TASK_REAP_MS 20
+
 reflex_err_t reflex_vm_task_stop(reflex_vm_task_runtime_t *runtime)
 {
     REFLEX_RETURN_ON_FALSE(runtime != NULL, REFLEX_ERR_INVALID_ARG, "vm_task", "runtime is required");
@@ -167,13 +172,18 @@ reflex_err_t reflex_vm_task_stop(reflex_vm_task_runtime_t *runtime)
      * DELAY syscall to cause it; before the negative-delay fix in
      * vm/syscall.c a single instruction could park the task for ~49 days.
      *
-     * Severity note, corrected after checking rather than assuming: this is
-     * reachable only through reflex_vm_task_service_stop, which is invoked
-     * only by reflex_service_stop_all — and nothing calls that. It is absent
-     * from reflex_os.elf entirely. So the hang was real in the code and not
-     * in any running system, because no shutdown path is ever initiated. An
-     * earlier version of this comment claimed it meant "system shutdown never
-     * completing", which overstated it.
+     * Reachability, re-checked on 2026-09-07 and no longer what this comment
+     * used to say. It claimed the path was invoked only by
+     * reflex_service_stop_all, that nothing calls that, and that it was absent
+     * from reflex_os.elf entirely. That is now false in the running system:
+     * reflex_service_watchdog_tick calls svc->stop followed by svc->start for
+     * any service reporting FAULTED, and goose_supervisor_pulse calls the
+     * watchdog every REFLEX_SUPERVISOR_WATCHDOG_DIV pulses — 1 Hz at the 10 Hz
+     * supervisor. reflex_vm_task_service_status reports FAULTED whenever
+     * vm.status is FAULTED, so this runs on every VM fault, not never.
+     *
+     * The bounded wait therefore matters: an unbounded spin here would have
+     * hung the supervisor pulse, and with it the whole substrate.
      *
      * Timing out is reported rather than papered over: the task is still alive
      * and still owns its stack, which the caller needs to know. */
@@ -189,6 +199,29 @@ reflex_err_t reflex_vm_task_stop(reflex_vm_task_runtime_t *runtime)
         return REFLEX_ERR_TIMEOUT;
     }
 
+    /* The handle clear says the entry function finished its loop; it does not
+     * say the task's memory is back. reflex_vm_task_entry clears the handle and
+     * then calls reflex_task_delete(NULL), and vTaskDelete on the *calling*
+     * task defers the TCB and stack teardown to the idle task. The watchdog
+     * restart path — stop() immediately followed by start() — therefore
+     * observed a retired task and created its replacement while the previous
+     * stack was still allocated, holding two VM stacks at once on a board with
+     * no memory to spare for it.
+     *
+     * Yielding for longer than a tick lets the idle task, which is the lowest
+     * priority runnable thing here, actually run and reap. This is a mitigation
+     * and not a guarantee: under sustained load the idle task may still not
+     * have run by the time this returns. Closing the window properly means not
+     * self-deleting at all, which is a change to task teardown that should be
+     * made against hardware rather than reasoned into place — see P0-M4 in
+     * docs/implementation-status.md.
+     *
+     * Safe regardless of ordering, because the entry function touches nothing
+     * in *runtime after clearing the handle, so a restart that overlaps a
+     * not-yet-reaped task cannot corrupt the runtime it reuses. The cost is
+     * memory, not correctness. */
+    reflex_task_delay_ms(REFLEX_VM_TASK_REAP_MS);
+
     return REFLEX_OK;
 }
 
@@ -201,7 +234,25 @@ reflex_err_t reflex_vm_task_service_init(void *ctx)
 {
     reflex_vm_task_runtime_t *runtime = (reflex_vm_task_runtime_t *)ctx;
     REFLEX_RETURN_ON_FALSE(runtime != NULL, REFLEX_ERR_INVALID_ARG, "vm_task", "runtime required");
+
+    /* The soft cache is caller configuration, not runtime state, and must
+     * survive this hook.
+     *
+     * reflex_service_register calls init synchronously, so a caller that
+     * installs a cache and then registers the service — which is the only
+     * sensible order, since registration is what makes the runtime live — had
+     * the pointer zeroed by the memset inside runtime_init before the VM ever
+     * ran. main.c did exactly that: the system VM was given a cache and then
+     * silently demoted to direct-MMU mode, so every TLD/TST/TFLUSH/TINV cache
+     * semantic was skipped with no diagnostic. Not unsafe (a NULL cache is a
+     * supported mode) but a shipped feature that was never once active.
+     *
+     * Preserving it here rather than reordering main.c is deliberate: the
+     * ordering fix would work today and break silently the next time someone
+     * moved two adjacent lines. */
+    struct reflex_cache *cache = runtime->vm.cache;
     reflex_vm_task_runtime_init(runtime);
+    runtime->vm.cache = cache;
     return REFLEX_OK;
 }
 

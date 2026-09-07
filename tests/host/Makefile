@@ -5,7 +5,7 @@
 
 CC ?= cc
 CFLAGS = -Wall -Wextra -O2 -g -DREFLEX_RTC_DATA_ATTR= -DREFLEX_HOST_BUILD
-INCLUDES = -I../../include -I../../vm/include -I../../kernel -I../stub_headers -I../../components/goose/include -I../../shell/include
+INCLUDES = -I../../include -I../../vm/include -I../../kernel -I../stub_headers -I../../components/goose/include -I../../shell/include -I../../core/include
 
 SRCS = test_main.c \
        test_scheduler.c \
@@ -26,6 +26,7 @@ SRCS = test_main.c \
        ../../components/goose/goose_policy.c \
        ../../vm/cache.c \
        ../../vm/loader.c \
+       ../../vm/task_runtime.c \
        ../../vm/mmu.c \
        ../../platform/reflex_log_format.c \
        ../../components/goose/goose_lattice.c \

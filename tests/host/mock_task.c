@@ -108,3 +108,39 @@ reflex_mutex_t reflex_mutex_init(void) {
 
 void reflex_critical_enter(reflex_mutex_t *m) { (void)m; }
 void reflex_critical_exit(reflex_mutex_t *m) { (void)m; }
+
+/* --- VM task runtime dependencies ------------------------------------------
+ *
+ * vm/task_runtime.c is linked into the host suite so the service-lifecycle
+ * hooks can be tested directly. Its remaining callees belong to translation
+ * units that pull in the whole GOOSE fabric (interpreter.c) or the ESP-IDF
+ * service manager, neither of which the host build carries. The tests that use
+ * them exercise the runtime's own bookkeeping, not program execution, so these
+ * stand in.
+ *
+ * reflex_service_register mirrors the real one in core/service_manager.c on the
+ * one point that matters here: it calls the init hook synchronously, which is
+ * what made the system VM's cache pointer disappear before first use. */
+#include "reflex_vm.h"
+#include "reflex_service.h"
+
+int mock_service_init_calls = 0;
+
+reflex_err_t reflex_service_register(const reflex_service_desc_t *service) {
+    if (service == NULL) return REFLEX_ERR_INVALID_ARG;
+    if (service->init != NULL) {
+        mock_service_init_calls++;
+        return service->init(service->context);
+    }
+    return REFLEX_OK;
+}
+
+reflex_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps) {
+    (void)vm;
+    (void)max_steps;
+    return REFLEX_OK;
+}
+
+void reflex_vm_use_default_syscalls(reflex_vm_state_t *vm) {
+    (void)vm;
+}

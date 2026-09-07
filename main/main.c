@@ -175,6 +175,8 @@ void app_main(void)
     reflex_cache_init(&system_cache);
     reflex_vm_task_runtime_init(&system_vm);
     system_vm.vm.cache = (struct reflex_cache*)&system_cache;
+    /* register_service runs the service init hook synchronously; it preserves
+     * vm.cache precisely so this order works. See reflex_vm_task_service_init. */
     reflex_vm_task_register_service(&system_vm, "system-vm");
     
     /* A degraded service set is not a reason to abandon the substrate.
