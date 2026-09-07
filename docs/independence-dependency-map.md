@@ -335,16 +335,44 @@ the file was in no build. The number now lives in the SVD-backed header where
 **The tick is written and routed but not proven to fire**, because of what
 running the configuration actually revealed:
 
-> `CONFIG_REFLEX_KERNEL_SCHEDULER=y` **panics at boot.** Guru Meditation, stack
-> protection fault in task `main` during the VM self-check — stack pointer
-> `0x40816e20` against bounds `0x40816e30`–`0x40817430`, sixteen bytes under.
-> CI has built this configuration green for its whole existence; it had never
-> been run. The shell is never reached, so `kernel tick` could not be executed.
+> ~~`CONFIG_REFLEX_KERNEL_SCHEDULER=y` **panics at boot.**~~ **Fixed 2026-09-07.**
+> The panic was not a stack-size problem and not in the scheduler at all. The
+> stack dump's repeating seven-frame pattern was unbounded recursion inside the
+> 802.15.4 radio backend:
+>
+> ```
+> esp_ieee802154_transmit_failed      platform/esp32c6/reflex_radio_802154.c
+>   -> esp_ieee802154_receive
+>     -> ieee802154_receive -> rx_init -> stop_current_operation
+>       -> ieee802154_ll_clear_events -> ieee802154_inner_transmit_failed
+>         -> esp_ieee802154_transmit_failed        (back to the start)
+> ```
+>
+> Both TX callbacks called `esp_ieee802154_receive()` to put the radio back
+> into RX, and the driver signals transmit-failed from inside its own event
+> dispatch — so re-entering the driver from that callback made it signal again.
+> The driver already returns to RX by itself: `next_operation()` calls
+> `enable_rx()` when the `rx_when_idle` PIB flag is set, and that flag defaults
+> to false, which is exactly what the manual re-arm was compensating for.
+> `esp_ieee802154_set_rx_when_idle(true)` at init removes the re-entrancy
+> rather than guarding it. Cost nothing at compile time, which is why CI built
+> this configuration green for its entire existence without running it.
 
-That is now the blocker, and it is a better problem to have than the one this
-section described before: the tick's plumbing exists and is Reflex's own, and
-what stands in front of it is a stack overflow with an address and a task name
-rather than three unknowns.
+**The configuration now boots**, and the shell is reachable, so the tick is
+measurable for the first time:
+
+```
+reflex> kernel tick
+kernel tick: 0 ticks in 490684 us -> 0 Hz (target 1000)
+kernel tick: no ticks — routed but not firing
+```
+
+That is the blocker now, and it is a far better one than a panic: `make hw-test`
+reports **171/171** on this configuration, the 802.15.4 radio transmits with
+`aura_fail=0`, and dropping the Wi-Fi stack frees **120 KB of RAM** (heap free
+289,748 against 169,880 on the ESP-NOW build). What stands in front of the tick
+is now a single measurable question — the interrupt is routed and does not
+fire — rather than a device that never reaches its own shell.
 
 ### What C2 still owes, precisely
 

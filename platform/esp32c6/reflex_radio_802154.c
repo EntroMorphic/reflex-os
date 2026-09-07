@@ -96,16 +96,45 @@ void esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_info_t *fr
     }
 }
 
-/* Called by the driver on TX complete — re-enter RX mode. */
+/* TX completion callbacks.
+ *
+ * These must not call esp_ieee802154_receive(). Both used to, to put the radio
+ * back into RX after a transmit, and that recursed until the stack was gone:
+ *
+ *   esp_ieee802154_transmit_failed        (this file)
+ *     -> esp_ieee802154_receive
+ *       -> ieee802154_receive
+ *         -> rx_init
+ *           -> stop_current_operation     (aborts the in-flight TX)
+ *             -> ieee802154_ll_clear_events
+ *               -> ieee802154_inner_transmit_failed
+ *                 -> esp_ieee802154_transmit_failed   <- back here
+ *
+ * The driver signals transmit-failed from inside its own event dispatch, and
+ * re-entering the driver from that callback makes it signal again. Read off a
+ * board as a repeating seven-frame pattern in the stack dump, ending in a
+ * stack-protection panic and then Boot0's loop protection halting the device.
+ * It cost nothing at compile time, which is why CI built this configuration
+ * green for its entire existence without ever running it.
+ *
+ * The driver already returns to RX on its own: next_operation() calls
+ * enable_rx() when the rx_when_idle PIB flag is set. That flag defaults to
+ * false, which is what the manual re-arm was compensating for. Setting it once
+ * in reflex_radio_init is both the idiomatic answer and the one that removes
+ * the re-entrancy rather than guarding it.
+ *
+ * The callbacks stay, because the driver declares them weak and calls them
+ * unconditionally; they simply have nothing to do now. */
 void esp_ieee802154_transmit_done(const uint8_t *frame, const uint8_t *ack,
                                   esp_ieee802154_frame_info_t *ack_frame_info) {
-    (void)frame; (void)ack; (void)ack_frame_info;
-    esp_ieee802154_receive();
+    (void)frame;
+    (void)ack;
+    (void)ack_frame_info;
 }
 
 void esp_ieee802154_transmit_failed(const uint8_t *frame, esp_ieee802154_tx_error_t error) {
-    (void)frame; (void)error;
-    esp_ieee802154_receive();
+    (void)frame;
+    (void)error;
 }
 
 reflex_err_t reflex_radio_init(void) {
@@ -118,6 +147,11 @@ reflex_err_t reflex_radio_init(void) {
     esp_ieee802154_set_short_address(s_local_addr);
     esp_ieee802154_set_channel(REFLEX_154_CHANNEL);
     esp_ieee802154_set_promiscuous(true);
+    /* Return to RX automatically after every TX. Without this the radio idles
+     * (and sleeps) after transmitting, which is what the TX callbacks above
+     * used to compensate for by re-entering the driver — see the comment there
+     * for why that recursed. */
+    esp_ieee802154_set_rx_when_idle(true);
     esp_ieee802154_receive();
 
     REFLEX_LOGI(TAG, "802.15.4 radio: ch=%d panid=0x%04x addr=0x%04x",
