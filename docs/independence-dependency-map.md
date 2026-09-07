@@ -465,6 +465,23 @@ tested twice, once on the 802.15.4 build where the tick has never fired, and
 again on the default build where `pri=2` over `thresh=1` still delivered nothing
 on a re-arm.
 
+**Bisected 2026-09-07: the fault is on the comparator side, not the interrupt
+line.** `reflex_sched_tick_stop` released the CPU interrupt line on every stop
+and `tick_start` re-claimed it, so the allocate/free cycle was the obvious
+suspect. Claiming the line once and keeping it across arm/disarm — leaving only
+the SYSTIMER comparator to start and stop — changes nothing: arming 1 still runs
+at 1000 Hz and armings 2 through 6 still deliver exactly one tick each. That
+change was reverted, because its whole justification was the hypothesis it
+disproved.
+
+So `reflex_hal_intr_alloc` and `reflex_hal_intr_free` are exonerated, and what
+remains is `setup_systimer_tick` and the SYSTIMER teardown. The symptom is now
+sharper too: with the line held, every re-arming delivers exactly **one** tick
+rather than zero or one. One tick means the comparator fires and does not
+reload — in period mode it should re-arm itself — which points at
+`SYSTIMER_TARGET1_CONF` or the `COMP1_LOAD` latch not taking effect on a second
+arming.
+
 Two of those changes were kept, each on its own merits and neither as a fix,
 both labelled as such in the code: `reflex_hal_intr_free` now clears
 `PLIC_MXINT_CLEAR` for the line it releases, because handing back an asserting
