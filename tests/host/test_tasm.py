@@ -224,6 +224,88 @@ def test_examples_compile():
     print(f"PASS: test_examples_compile ({count} programs)")
 
 
+def _assemble_str(src, suffix='.rfxv'):
+    """Assemble a source string, returning the output bytes."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.tasm', delete=False) as f:
+        f.write(src)
+        f.flush()
+        outfile = f.name + suffix
+    try:
+        tasm.assemble(f.name, outfile)
+        with open(outfile, 'rb') as out:
+            return out.read()
+    finally:
+        os.unlink(f.name)
+        if os.path.exists(outfile):
+            os.unlink(outfile)
+
+
+def _assemble_expect_error(src, needle):
+    """Assemble a source string expected to raise, asserting the message."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.tasm', delete=False) as f:
+        f.write(src)
+        f.flush()
+        outfile = f.name + '.rfxv'
+    try:
+        try:
+            tasm.assemble(f.name, outfile)
+        except ValueError as e:
+            assert needle in str(e), f"expected {needle!r} in {str(e)!r}"
+            return str(e)
+        raise AssertionError(f"expected ValueError containing {needle!r}, got success")
+    finally:
+        os.unlink(f.name)
+        if os.path.exists(outfile):
+            os.unlink(outfile)
+
+
+def test_bare_entry_directive():
+    """`.entry` with no label raised IndexError instead of a diagnostic."""
+    _assemble_expect_error(".entry\nTHALT\n", ".entry requires a label")
+    _assemble_expect_error(".entry a b\nTHALT\n", ".entry takes one label")
+    print("PASS: test_bare_entry_directive")
+
+
+def test_duplicate_label_rejected():
+    """Duplicate labels silently overwrote, moving every branch target."""
+    msg = _assemble_expect_error(
+        "start:\n    TNOP\nstart:\n    THALT\n", "duplicate label")
+    assert "'start'" in msg, msg
+    assert "Line 3" in msg, f"should name the second definition, got {msg!r}"
+    print("PASS: test_duplicate_label_rejected")
+
+
+def test_error_reports_source_line():
+    """Diagnostics indexed the instruction list, not the source.
+
+    A fault on source line 5 was reported as "Line 1" once a comment, a blank
+    line and a label sat above it."""
+    msg = _assemble_expect_error(
+        "; comment\n\nstart:\n    TNOP\n    TBOGUS r0\n", "Unknown opcode")
+    assert "Line 5" in msg, f"expected source line 5, got {msg!r}"
+
+    # Same for an operand fault, which is raised from a nested helper.
+    msg = _assemble_expect_error(
+        "; a\n; b\n\n    TLDI r0, 100000\n", "out of range")
+    assert "Line 4" in msg, f"expected source line 4, got {msg!r}"
+    print("PASS: test_error_reports_source_line")
+
+
+def test_empty_label_rejected():
+    """A bare ':' produced a label with an empty name."""
+    _assemble_expect_error(":\n    THALT\n", "empty label")
+    print("PASS: test_empty_label_rejected")
+
+
+def test_valid_program_still_assembles():
+    """The guards must not reject what the assembler always accepted."""
+    data = _assemble_str(".entry main\nmain:\n    TLDI r0, 5\n    THALT\n")
+    assert len(data) == 16 + 8, f"expected 24 bytes, got {len(data)}"
+    entry_ip = struct.unpack_from('<H', data, 10)[0]
+    assert entry_ip == 0, entry_ip
+    print("PASS: test_valid_program_still_assembles")
+
+
 if __name__ == "__main__":
     test_encode_nop()
     test_tldi()
@@ -234,4 +316,9 @@ if __name__ == "__main__":
     test_goose_opcodes()
     test_checksum()
     test_examples_compile()
+    test_bare_entry_directive()
+    test_duplicate_label_rejected()
+    test_error_reports_source_line()
+    test_empty_label_rejected()
+    test_valid_program_still_assembles()
     print("\nAll tests passed.")

@@ -19,6 +19,8 @@ jobs:
           python-version: '3.11'
       - name: Run TASM compiler tests
         run: python3 tests/host/test_tasm.py
+      - name: Run LoomScript compiler tests
+        run: python3 tests/host/test_loomc.py
 
   # Gates the lines a change touches, not the whole tree. `make format-check`
   # reports tree-wide and currently fails by design: the repository predates

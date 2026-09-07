@@ -42,6 +42,13 @@ test:
 tasm-test:
 	python3 tests/host/test_tasm.py
 
+# loomc is the producer side of goose_weave_loom's trust boundary; a fragment
+# that is wrong here is only caught on the device, if at all.
+loomc-test:
+	python3 tests/host/test_loomc.py
+
+tools-test: tasm-test loomc-test
+
 # Shell validation against a flashed board. Non-destructive: never provisions
 # or clears an Aura key, never reboots, restores role/vitals/purpose.
 #   make hw-test PORT=/dev/cu.usbmodem1101

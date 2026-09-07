@@ -236,7 +236,10 @@ Closed in the 2026-09-07 P0 audit remediation (see [`P0-07SEP26.md`](P0-07SEP26.
 - ~~P0-H2 LoomScript payload fields copied from the wire unvalidated~~: `orientation` (a multiplicand, so a non-trit propagates states outside the ternary set) and `coupling` (`RADIO` honoured, giving a 100 Hz permanent transmit loop from one upload). Now whitelisted to `{-1,0,+1}` × `SOFTWARE` via `goose_policy_loom_route_acceptable`, pinned by `[loomacc]`, with `_Static_assert`s binding the mirrored constants. `trans_count` is refused rather than silently dropped.
 - ~~P0-H3 `goose_supervisor_rebalance` mutated routes with no loom lock~~: now `goose_loom_try_lock` with timeout-and-skip, released before `goose_process_transitions` because the lock is non-recursive. Dual-core (`platform/esp32`) only; benign on the single-core C6.
 
-Open from the 2026-09-07 P0 audit: P0-H4, P0-M3, P0-M4, P0-M5, and the low-severity table.
+- ~~P0-H4 `loomc.py` crashed on malformed input and reported success on a typo'd verb~~: rewritten to tokenise properly and refuse rather than guess; every failure exits non-zero. Byte-identical output on both repository examples. Pinned by the new `tests/host/test_loomc.py`, run by `make loomc-test` and CI.
+- ~~P0-M5 `tasm.py` robustness cluster~~: all five reproduced and fixed — bare `.entry`, duplicate labels, error line numbers indexing the instruction list rather than the source, `--upload` with no port writing a file named `--upload`, and the serial fd leak plus fixed-sleep race in `upload()`. Five regression tests added.
+
+Open from the 2026-09-07 P0 audit: P0-M3, P0-M4, and the low-severity table.
 
 Related, observed while fixing P0-H3 and not part of it: `goose_supervisor_check_equilibrium` also reads route state with no loom lock, from the same unlocked `goose_supervisor_pulse` path. Its reads are guarded by the `cached_version` check rather than by the lock, which is the substrate's established staleness discipline, so this is recorded as exposure on dual-core rather than as a defect.
 

@@ -32,8 +32,15 @@ idf.py build
 
 ```bash
 make test                    # C host tests — no hardware needed
-make tasm-test               # TASM compiler tests
+make tools-test              # TASM + LoomScript compiler tests
+make format-check            # clang-format, on the lines this branch changed
 ```
+
+`make format-check` gates the *lines* changed since the merge-base, not the
+whole tree, so a one-line fix in a file that predates the gate does not demand
+reformatting the whole file as the price of the edit. `make format-check-all`
+reports the remaining whole-tree debt, and is expected to fail until the tree
+converges.
 
 With a board attached, the shell can be validated end to end. This is
 non-destructive: it never provisions or clears an Aura key, never reboots, and
