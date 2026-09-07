@@ -66,6 +66,16 @@ SANCTUARY_CELL = "agency.io_mux.date"
 READY_TIMEOUT_S = 25.0
 
 
+class BoardNotReady(Exception):
+    """A board never reached a usable shell.
+
+    Deliberately not SystemExit. This suite takes several ports on one command
+    line and validates them in turn, so killing the process on the first
+    unresponsive board would skip every board after it and print no summary at
+    all. One dead board is one recorded failure, not the end of the run.
+    """
+
+
 class Board:
     def __init__(self, port, baud=115200):
         self.port = port
@@ -121,10 +131,11 @@ class Board:
             else:
                 consecutive = 0
             time.sleep(0.5)
-        raise SystemExit(
-            f"{self.port}: no shell response within {READY_TIMEOUT_S:g}s. "
-            f"If the board was just flashed, it may still be booting; if it is "
-            f"halted by Boot0 loop protection, power-cycle it."
+        raise BoardNotReady(
+            f"no shell response within {READY_TIMEOUT_S:g}s. Either the board "
+            f"is still booting, is halted by Boot0 loop protection and needs a "
+            f"power cycle, or is running firmware older than the `#R:` outcome "
+            f"marker this suite requires."
         )
 
     def _send(self, cmd, timeout):
@@ -583,7 +594,17 @@ def main():
         sys.exit(__doc__)
     r = Results()
     for port in ports:
-        validate(port, r)
+        try:
+            validate(port, r)
+        except (BoardNotReady, serial.SerialException) as e:
+            # Recorded against this port and the run continues, so a dead board
+            # costs one failure rather than every result after it. SerialException
+            # is caught alongside: a port that does not exist raises from
+            # serial.Serial() before readiness is ever consulted, and aborting
+            # there skips every later board just as surely.
+            # validate() has already printed the port header before the
+            # failure point, so printing it again here would double it.
+            r.check(f"{port} reachable", False, str(e))
     tail = f", {r.skipped} skipped" if r.skipped else ""
     print(f"\n=== {r.passed} passed, {r.failed} failed{tail} ===")
     return 1 if r.failed else 0
