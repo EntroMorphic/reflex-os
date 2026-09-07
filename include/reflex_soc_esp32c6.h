@@ -131,6 +131,6 @@
  * console RX: the ESP-IDF driver cannot be left installed alongside direct FIFO reads, and polling
  * cannot replace it because the shell idles 50ms while a 64-byte FIFO fills in 5.5ms at 115200 baud
  */
-#define REFLEX_INTR_SRC_USB_SERIAL_JTAG 0x00000027u
+#define REFLEX_INTR_SRC_USB_SERIAL_JTAG 0x00000030u
 
 #endif /* REFLEX_SOC_ESP32C6_H */

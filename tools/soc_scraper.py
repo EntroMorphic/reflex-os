@@ -143,7 +143,7 @@ LITERALS = [
     ("REFLEX_SOC_SYSTIMER_FIXED_DIVIDER", "SOC_SYSTIMER_FIXED_DIVIDER", 1, "capability flag from soc_caps.h"),
     ("REFLEX_INTR_SRC_SYSTIMER_TARGET1", "ETS_SYSTIMER_TARGET1_INTR_SOURCE", 58,
      "interrupt-matrix source number; an enum position in soc/interrupts.h, not SVD data"),
-    ("REFLEX_INTR_SRC_USB_SERIAL_JTAG", "ETS_USB_SERIAL_JTAG_INTR_SOURCE", 39,
+    ("REFLEX_INTR_SRC_USB_SERIAL_JTAG", "ETS_USB_SERIAL_JTAG_INTR_SOURCE", 48,
      "interrupt-matrix source number; enum position in soc/interrupts.h. Needed to own console RX: the ESP-IDF driver cannot be left installed alongside direct FIFO reads, and polling cannot replace it because the shell idles 50ms while a 64-byte FIFO fills in 5.5ms at 115200 baud"),
 ]
 
@@ -255,6 +255,7 @@ def render_bridge(bridge):
         "#include \"soc/soc_caps.h\"",
         "#include \"soc/reg_base.h\"",
         "#include \"soc/systimer_reg.h\"",
+        "#include \"soc/usb_serial_jtag_reg.h\"",
         "#include \"soc/gpio_sig_map.h\"",
         "#include \"soc/io_mux_reg.h\"",
         "#include \"soc/lp_wdt_reg.h\"",

@@ -67,7 +67,16 @@ n=$(grep -c '_Static_assert' tools/soc_assert_bridge.c || echo 0)
 # repository already had to fix — a check that cannot fail.
 if [ "$NATIVE" = "1" ]; then
     # compile_commands.json records container paths; /work is this checkout.
-    sed -i "s#/work/#$PWD/#g" "$WORK/run.sh"
+    #
+    # Written with a temp file rather than `sed -i`, which is not portable:
+    # GNU sed treats the next word as the script, BSD sed (macOS) treats it as
+    # a backup suffix and then fails with "invalid command code". That made
+    # this native path — the one that needs no Docker, and therefore the only
+    # one a maintainer on macOS can run — fail before it compiled anything, so
+    # the bridge had never actually been executed on this machine.
+    sed "s#/work/#$PWD/#g" "$WORK/run.sh" > "$WORK/run.native.sh"
+    mv "$WORK/run.native.sh" "$WORK/run.sh"
+    chmod +x "$WORK/run.sh"
     run_bridge() { "$WORK/run.sh" 2>&1; }
 else
     run_bridge() { docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp \

@@ -15,6 +15,7 @@
 #include "soc/soc_caps.h"
 #include "soc/reg_base.h"
 #include "soc/systimer_reg.h"
+#include "soc/usb_serial_jtag_reg.h"
 #include "soc/gpio_sig_map.h"
 #include "soc/io_mux_reg.h"
 #include "soc/lp_wdt_reg.h"
