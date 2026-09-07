@@ -827,6 +827,21 @@ static void shell_cmd_status(int argc, char *argv[]) {
      * is enough for the circuit breaker but useless for spotting a slow leak —
      * the thresholds sit at 8K/16K against ~300K free, so a leak is invisible
      * until it is already critical. Soak runs need the raw number. */
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
+    /* Console input loss, printed only when it has happened.
+     *
+     * Reflex owns console RX now, so a full receive ring is Reflex's own
+     * dropped byte rather than a driver's. Silent when healthy — a counter
+     * that is always on screen at zero teaches people to stop reading it —
+     * and impossible to miss when it is not. */
+    {
+        uint32_t dropped = reflex_hal_console_dropped();
+        if (dropped) {
+            printf("console: %lu byte(s) DROPPED — receive ring overran\n",
+                   (unsigned long)dropped);
+        }
+    }
+#endif
     printf("heap free=%lu min_free=%lu\n",
            (unsigned long)esp_get_free_heap_size(),
            (unsigned long)esp_get_minimum_free_heap_size());
@@ -1687,9 +1702,21 @@ void reflex_shell_run(void) {
          * end of every line — appended to the buffer, dispatched as part of
          * the command, and matching no verb. Treat CR as end-of-line and
          * swallow a following LF. */
-        if (ch == '\r') ch = '\n';
-        else if (ch == '\n' && s_last_was_cr) { s_last_was_cr = false; continue; }
-        s_last_was_cr = (ch == '\n');
+        bool this_was_cr = (ch == '\r');
+        if (this_was_cr) {
+            ch = '\n';
+        } else if (ch == '\n' && s_last_was_cr) {
+            /* The LF half of a CRLF pair the CR already ended the line for. */
+            s_last_was_cr = false;
+            continue;
+        }
+        /* Track whether the *raw byte* was CR, not whether the result was LF.
+         * Setting this from the converted value marked every line ending as a
+         * pending CR, so the next command's bare LF was swallowed as the second
+         * half of a CRLF pair that never existed — every second command lost
+         * its newline. Measured as 86 passed / 84 failed, an almost exact half,
+         * which is what a one-in-two failure looks like. */
+        s_last_was_cr = this_was_cr;
 #endif
         if (ch == '\n') {
             /* Echo the newline before dispatching. Without it the command's

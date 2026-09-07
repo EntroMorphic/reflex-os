@@ -550,25 +550,41 @@ static volatile uint8_t s_usj_rx_ring[USJ_RX_RING_SIZE];
 static volatile uint32_t s_usj_rx_head; /* written by the ISR only  */
 static volatile uint32_t s_usj_rx_tail; /* written by the task only */
 static volatile uint32_t s_usj_rx_dropped;
+/* Set by the ISR when it stopped draining because the ring was full, cleared
+ * by the consumer when it re-enables the interrupt. */
+static volatile bool s_usj_rx_stalled;
 static reflex_intr_handle_t s_usj_intr;
 
 static void usj_rx_isr(void *arg) {
     (void)arg;
-    /* Drain the whole FIFO, not one byte: the interrupt says a packet landed,
-     * and leaving bytes behind would need another packet to shake them loose. */
+    /* Drain only while the ring has room, and stop otherwise — do not discard.
+     *
+     * Draining unconditionally and dropping on a full ring loses data under
+     * exactly the load that matters, and it does so for a reason worth stating:
+     * emptying the FIFO is what ACKs the USB packet. A receiver that always
+     * drains always ACKs, so the host never slows down, and a 913-character
+     * line arrives faster than a shell echoing byte by byte can consume it.
+     * Measured that way: 962 bytes dropped in one validation run.
+     *
+     * The ESP-IDF driver this replaces was not merely buffering — it was
+     * providing flow control. Leaving bytes in the hardware FIFO makes the
+     * endpoint stop accepting more, and the host blocks. That is the property
+     * to preserve, and a bigger ring would not have provided it.
+     *
+     * The interrupt is masked rather than left pending: it is level-triggered,
+     * so returning without draining and without masking would re-enter
+     * immediately and wedge the core. reflex_hal_console_read re-enables it
+     * once the consumer has made room. */
     while (REFLEX_REG(REFLEX_USJ_EP1_CONF_REG) & REFLEX_USJ_OUT_EP_DATA_AVAIL) {
-        uint8_t ch = (uint8_t)REFLEX_REG(REFLEX_USJ_EP1_REG);
         uint32_t head = s_usj_rx_head;
         uint32_t next = (head + 1u) & (USJ_RX_RING_SIZE - 1u);
         if (next == s_usj_rx_tail) {
-            /* Full. Drop the newest and count it — silently overwriting the
-             * oldest would corrupt a line already half-read by the shell, and
-             * dropping without counting is the kind of quiet loss this
-             * subsystem exists to stop. */
-            s_usj_rx_dropped++;
-            continue;
+            /* Full: leave the rest in the FIFO and let the host wait. */
+            REFLEX_REG(REFLEX_USJ_INT_ENA_REG) &= ~REFLEX_USJ_OUT_RECV_PKT_INT;
+            s_usj_rx_stalled = true;
+            break;
         }
-        s_usj_rx_ring[head] = ch;
+        s_usj_rx_ring[head] = (uint8_t)REFLEX_REG(REFLEX_USJ_EP1_REG);
         s_usj_rx_head = next;
     }
     REFLEX_REG(REFLEX_USJ_INT_CLR_REG) = REFLEX_USJ_OUT_RECV_PKT_INT;
@@ -595,9 +611,23 @@ reflex_err_t reflex_hal_console_init(void) {
 bool reflex_hal_console_read(uint8_t *out) {
     if (!out) return false;
     uint32_t tail = s_usj_rx_tail;
-    if (tail == s_usj_rx_head) return false;
+    if (tail == s_usj_rx_head) {
+        /* Empty, but the ISR may have masked itself on a full ring and the
+         * consumer has since drained it. Re-arm here rather than only on a
+         * successful read, or a ring drained exactly to empty would never be
+         * refilled and the console would stop for good. */
+        if (s_usj_rx_stalled) {
+            s_usj_rx_stalled = false;
+            REFLEX_REG(REFLEX_USJ_INT_ENA_REG) |= REFLEX_USJ_OUT_RECV_PKT_INT;
+        }
+        return false;
+    }
     *out = s_usj_rx_ring[tail];
     s_usj_rx_tail = (tail + 1u) & (USJ_RX_RING_SIZE - 1u);
+    if (s_usj_rx_stalled) {
+        s_usj_rx_stalled = false;
+        REFLEX_REG(REFLEX_USJ_INT_ENA_REG) |= REFLEX_USJ_OUT_RECV_PKT_INT;
+    }
     return true;
 }
 
