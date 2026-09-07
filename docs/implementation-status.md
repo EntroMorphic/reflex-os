@@ -209,6 +209,22 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 
 ## Known Gaps (docs lead, code trails)
 
+### Adoption gaps (usability, not correctness) — see [`adoption-gaps.md`](adoption-gaps.md)
+
+Assessed 2026-09-07 at commit `9609a08`. These are what stand between the current
+substrate and something a hobbyist or a lab can build on. None is a correctness
+defect; all are open. Three of the six are exposure of capability that already
+exists rather than new construction, which is why the distance is shorter than the
+list looks.
+
+- **A1 — nothing a user creates survives a reboot.** `vm loadhex` is RAM-only; `vm run` reaches only firmware-embedded programs; storage is NVS key-value with no filesystem and no program store. BLOCKING.
+- **A2 — `vm run` wedges the board.** Runs synchronously in the shell task (`shell/shell.c:1332`), so `vm stop` and `reboot` cannot be read; recovery is a physical reset. BLOCKING. The fix is already built: `vm/task_runtime.c` is a task-backed VM runtime, registered as `system_vm` in `main.c` and idle because its image is NULL.
+- **A3 — peripherals are not reachable.** The HAL is 19 functions (GPIO, temp, time, interrupts); no I2C, SPI, ADC, PWM. `goose_fabric_set_agency` can bind a cell to any GPIO or atlas register, but is C-only — no shell verb exposes it. BLOCKING for "control hardware".
+- **A4 — neither language can express a real program.** TASM has no `CALL`/`RET` (so no subroutines), no multiply, and four syscalls none of which touch hardware. LoomScript has one verb. SEVERE.
+- **A5 — programs cap near 500 bytes**, bounded by the 1023-character shell line; no chunking or OTA. SEVERE.
+- **A6 — no program-level debugging and no way to share a program.** IMPORTANT.
+
+
 Closed in the current remediation sweep:
 
 - ~~Plasticity rule~~: replaced with reward-gated co-activation Hebbian in `goose_supervisor_learn_sync` (Phase 3).
