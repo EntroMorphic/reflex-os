@@ -274,9 +274,12 @@ reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
 #define PLIC_MXINT_CLEAR      (PLIC_MX_BASE + 0x08)
 #define PLIC_MXINT_PRI(n)     (PLIC_MX_BASE + 0x10 + (n) * 4)
 #define PLIC_MXINT_THRESH     (PLIC_MX_BASE + 0x90)
+/* C6 PLIC priorities run 1..7; 0 means never delivered. */
+#define REFLEX_PLIC_PRIO_MAX 7u
 
-/* CPU interrupt bitmap allocator. Bits 0-9 reserved for ESP-IDF/ROM.
- * CPU interrupt 10 is verified safe on C6 with ESP-IDF 5.5. */
+/* CPU interrupt bitmap allocator. Bits 0-9 are reserved for ESP-IDF and the
+ * ROM. Above that, availability is read from PLIC_MXINT_ENABLE at allocation
+ * time rather than assumed — see reflex_hal_intr_alloc. */
 #define REFLEX_INTR_MIN       10
 #define REFLEX_INTR_MAX       31
 static uint32_t s_intr_alloc_bitmap = 0;
@@ -314,7 +317,18 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
     if (!handler)
         return REFLEX_ERR_INVALID_ARG;
 
-    /* Allocate a free CPU interrupt number */
+    /* Allocate a free CPU interrupt number.
+     *
+     * This scans Reflex's own bitmap only. An attempt was made to also skip
+     * lines whose PLIC_MXINT_ENABLE bit is set, on the reasoning that a set bit
+     * means somebody else has the line live — and it broke the working case.
+     * The tick runs at a clean 1000 Hz on the default build using line 10, and
+     * PLIC-aware allocation moves off line 10 and delivers nothing at all. So a
+     * set enable bit does not mean what it looks like it means here, and the
+     * original note that "CPU interrupt 10 is verified safe on C6 with ESP-IDF
+     * 5.5" is empirical and load-bearing rather than an assumption waiting to
+     * be improved. Reverted; the finding is recorded in
+     * docs/independence-dependency-map.md so it is not re-attempted blind. */
     int cpu_int = -1;
     for (int i = REFLEX_INTR_MIN; i <= REFLEX_INTR_MAX; i++) {
         if (!(s_intr_alloc_bitmap & (1U << i))) {
@@ -331,7 +345,11 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
     /* Route peripheral source → CPU interrupt via interrupt matrix */
     REFLEX_REG(INTMTX_BASE + 4 * source) = cpu_int;
 
-    /* Set priority (1 = lowest non-zero) */
+    /* Priority 1. Deriving this from the live PLIC threshold was tried — the
+     * PLIC delivers only above MXINT_THRESH, and a board measured pri=1 against
+     * thresh=1 — and it did not help: pri=2 over thresh=1 still delivered
+     * nothing on the 802.15.4 build, and the change is not what makes the
+     * default build work. Left at the value that does. */
     REFLEX_REG(PLIC_MXINT_PRI(cpu_int)) = 1;
 
     /* Install the vector before the line can deliver anything.

@@ -389,19 +389,48 @@ and distinguishes none; those registers distinguish all of them. The first
 version of that readback ran *after* `reflex_sched_tick_stop()` and therefore
 described the teardown — corrected, and the comment says so.
 
-**Open: the rate is not yet right, and the behaviour across periods is not
-understood.** The systimer counts at 16 MHz, not at the 40 MHz crystal — the
-divider is fixed at 2.5, which Reflex's own generated header already records as
-`REFLEX_SOC_SYSTIMER_FIXED_DIVIDER`. One measurement matched that arithmetic
-exactly: period 40000 gave **200 ticks in 499167 us, 400 Hz** against a target
-of 1000, which is 1/2.5. But the derived period does not produce the derived
-rate — periods 32000 and 16000 each gave exactly one tick per arming, three runs
-apiece. A minimum-period floor does not fit a discontinuity between 32000 and
-40000, and neither does the acknowledgement racing the next match at 2 ms. What
-is established is that the interrupt is delivered at all, which it never was
-before. What the rate does across periods is the next question.
+**The tick fires, intermittently, at the right rate.** Best measurement on the
+default build: `497 ticks in 496930 us -> 1000 Hz (target 1000)`, and separately
+`500 ticks in 499157 us -> 1001 Hz`. The period derives from a 16 MHz counter,
+not the 40 MHz crystal — the divider is fixed at 2.5, which Reflex's generated
+header already recorded as `REFLEX_SOC_SYSTIMER_FIXED_DIVIDER` and which the
+calculation never used. When it fires, it fires at the target.
 
-The earlier blocker, for the record:
+**Open: delivery is intermittent and not understood.** The same firmware image
+measured 1000 Hz on one boot and 0 Hz on the next, several times. An earlier
+reading of this — that the first arming after boot works and re-arming does not
+— fitted four consecutive runs and then failed to reproduce; it is recorded here
+as a discarded hypothesis rather than a finding, because it was drawn from
+single samples. Any future work on this needs repeated runs across power cycles
+before drawing a conclusion. That is the lesson from this pass, and it applies
+to everything above it.
+
+Three things were tried against the intermittency and all three were reverted
+after measurement, which is why the code does not contain them:
+
+- **PLIC-aware line allocation.** `s_intr_alloc_bitmap` records only Reflex's
+  own claims, so it cannot know what ESP-IDF holds, and ESP-IDF's claims differ
+  per configuration. Reading `PLIC_MXINT_ENABLE` and skipping live lines looks
+  obviously right and *broke the working case*: the tick runs on line 10 and
+  moving off it delivered nothing at all. So a set enable bit does not mean
+  what it appears to, and the original note that "CPU interrupt 10 is verified
+  safe on C6 with ESP-IDF 5.5" is load-bearing empirical knowledge rather than
+  an assumption waiting to be improved.
+- **Priority derived from the live threshold.** The PLIC delivers only above
+  `MXINT_THRESH`, and a board measured `pri=1` against `thresh=1`. Setting
+  `pri=2` changed nothing.
+- **Reordering the arming sequence.** Enabling the comparator before latching
+  `COMP1_LOAD` dropped a working arming to a single tick. ESP-IDF's
+  configure-latch-enable order is correct and is what the code now uses.
+
+What the readback establishes on the 802.15.4 build, where it has never fired:
+the source is asserting *and latched* (`raw` and `st` both show TARGET1), the
+line is routed, PLIC-enabled, above threshold, with `mie` and `mstatus.MIE` set,
+and the CPU does not take it. Everything downstream of delivery is verified
+correct, which leaves the ROM vector entry installed by `intr_handler_set` or
+ESP-IDF's dispatcher declining a line its own allocator has no record of.
+
+The earlier blocker, for the record:The earlier blocker, for the record:The earlier blocker, for the record:
 
 ```
 reflex> kernel tick
@@ -521,6 +550,28 @@ direct register write (`usj_write_bytes`), and only RX uses the driver.
 ---
 
 ## 6. Honest limits
+
+- **Board-to-board 802.15.4 receive is not verified, and cannot be with the
+  current harness.** Transmit is: `tx_discover` advances and `aura_fail` stays
+  0. Receive is not, because observing it needs two C6s running undisturbed
+  while a third party reads their counters — and opening a USB-JTAG port
+  *resets* a C6, which both zeroes the counters and invalidates the file
+  descriptor that was just opened. Every attempt to hold a port open and watch
+  discovery destroyed the state it was measuring. The classic ESP32 does not
+  have this problem (it is behind an external USB-serial bridge) but cannot
+  speak 802.15.4, so it cannot be the second node.
+
+  The change that prompted the question — `esp_ieee802154_set_rx_when_idle(true)`
+  replacing a manual re-arm in the TX callbacks — can only *enable* the
+  receiver: `next_operation()` calls `enable_rx()`, and `reflex_radio_init`
+  still calls `esp_ieee802154_receive()` explicitly at startup. So the risk is
+  understood and low. It is not the same as measured, and is recorded here as
+  unmeasured rather than assumed.
+
+  Closing this needs either a second observation channel (a UART bridge on a
+  C6's GPIO pins, kept separate from USB-JTAG) or counters that survive a reset.
+  It blocks any future claim about mesh behaviour on the independence path.
+
 
 - **The dependency analysis** is a property of builds and link maps — exactly
   the right evidence for a dependency question and exactly the wrong evidence

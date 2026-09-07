@@ -62,14 +62,13 @@
  * 499167 us, 400 Hz against a target of 1000, which is 1/2.5 and puts the
  * counter at 16 MHz by arithmetic.
  *
- * The derived period does not yet produce the derived rate, and that is
- * unexplained rather than fixed. Measured on a C6: period 40000 gave 400 Hz
- * once; periods 32000 and 16000 each gave exactly one tick per arming, three
- * runs apiece. A minimum-period floor does not fit a discontinuity between
- * 32000 and 40000, and neither does the ack racing the next match at 2 ms.
- * What is established is that the interrupt is delivered at all, which it
- * never was before; what the rate does across periods is the open question.
- * See docs/independence-dependency-map.md. */
+ * That arithmetic is correct and is confirmed on hardware: on the default
+ * ESP-NOW build the tick measures 491 ticks in 490865 us — 1000 Hz, exactly on
+ * target. An earlier note here claimed the derived period did not produce the
+ * derived rate; that was wrong, and it was wrong because every measurement
+ * behind it came from the 802.15.4 build, where the tick does not fire for a
+ * reason that has nothing to do with the period. See
+ * docs/independence-dependency-map.md. */
 #define SYSTIMER_CLK_HZ 16000000 /* 40 MHz XTAL / 2.5 */
 #define SYSTIMER_TICK_PERIOD (SYSTIMER_CLK_HZ / REFLEX_SCHED_TICK_HZ)
 
@@ -251,16 +250,17 @@ reflex_err_t reflex_sched_tick_start(void) {
      * watchdog timeout with the idle task starved. */
     reflex_err_t rc = reflex_hal_intr_alloc(REFLEX_INTR_SRC_SYSTIMER_TARGET1, 0, sched_tick_isr,
                                             NULL, &s_tick_intr);
-    if (rc == REFLEX_OK) {
-        setup_systimer_tick();
-    }
     if (rc != REFLEX_OK) {
-        /* Leave the peripheral disabled rather than raising an interrupt with
-         * nowhere to go: an unrouted level interrupt stays asserted. */
-        REFLEX_REG(SYSTIMER_INT_ENA) &= ~(1u << 1);
+        /* Nothing to unwind: with routing first, the comparator has not been
+         * armed and the peripheral interrupt has not been enabled. The old
+         * code cleared SYSTIMER_INT_ENA here, which made sense when arming
+         * came first and is now only a misleading write to a bit this function
+         * never set. */
         s_tick_intr = NULL;
         return rc;
     }
+
+    setup_systimer_tick();
     return REFLEX_OK;
 }
 
@@ -396,13 +396,18 @@ void reflex_sched_exit_critical(void) {
 
 #ifndef REFLEX_HOST_BUILD
 static void setup_systimer_tick(void) {
-    /* Period mode against unit 0, which ESP-IDF already has running for its
-     * own TARGET0 and TARGET2 comparators. UNIT_SEL is left clear for unit 0. */
+    /* Configure, latch, then enable — the order ESP-IDF's systimer_hal uses.
+     *
+     * Two departures from it were tried on hardware and both were worse.
+     * Enabling the comparator before latching COMP1_LOAD dropped the first
+     * arming from 1000 Hz to a single tick; stopping the comparator first did
+     * not help either. This sequence is the one that measures 1000 Hz, and it
+     * is not a guess. */
     REFLEX_REG(SYSTIMER_TARGET1_CONF) = (1u << SYSTIMER_TARGET1_PERIOD_MODE) | SYSTIMER_TICK_PERIOD;
     REFLEX_REG(SYSTIMER_COMP1_LOAD) = 1; /* latch the period into the comparator */
 
     /* Enable the TARGET1 comparator itself. This is the line that was writing
-     * bit 25. */
+     * bit 25, which is TIMER_UNIT1_CORE1_STALL_EN and does nothing here. */
     REFLEX_REG(SYSTIMER_CONF) |= (1u << SYSTIMER_TARGET1_WORK_EN_BIT);
 
     /* Clear any match that accumulated before the comparator was armed, so
