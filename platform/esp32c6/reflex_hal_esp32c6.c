@@ -484,9 +484,13 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
 
 /* --- Logging via USB-JTAG CDC-ACM FIFO (direct register write) --- */
 
-#define USJ_BASE      0x6000F000
-#define USJ_EP1_DATA  (USJ_BASE + 0x00)
-#define USJ_EP1_CONF  (USJ_BASE + 0x04)
+/* Addresses come from the generated SoC header, not from literals here. They
+ * were hand-written as USJ_BASE + 0x00 / + 0x04, which is the same register map
+ * transcribed a second time — and `make soc-bridge` cannot prove a literal it
+ * cannot see. They are now scraped from the SVD (where the peripheral is called
+ * USB_DEVICE) and _Static_assert'ed against ESP-IDF's macros. */
+#define USJ_EP1_DATA REFLEX_USJ_EP1_REG
+#define USJ_EP1_CONF REFLEX_USJ_EP1_CONF_REG
 /* EP1_CONF bits, per soc/usb_serial_jtag_reg.h. */
 #define USJ_WR_DONE           (1U << 0)   /* W:  flush the IN endpoint      */
 #define USJ_IN_EP_DATA_FREE   (1U << 1)   /* RO: space left in the FIFO     */

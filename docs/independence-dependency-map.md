@@ -51,7 +51,7 @@ touch the second kind.
 | **B** | Deep sleep entry; heap reporting | Sleep constants owned; entry still borrowed. Heap belongs to F |
 | **C** | FreeRTOS as the scheduler | C0-C2 done, **tick proven on hardware at 1000 Hz**. C3 written and linked, blocked on nothing starting the scheduler and on `mtvec` ownership. See §5 |
 | **D** | Radio (802.15.4 or ESP-NOW) | 802.15.4 is one component and creates no tasks |
-| **E** | Console RX, peripheral drivers | TX already owned. **Unblocked but unstarted** — C1 built the queue primitive RX was waiting on |
+| **E** | Console RX, peripheral drivers | TX already owned; the USB-JTAG register constants are now Reflex's own. **RX design settled, ISR not yet written** — see below |
 | **F** | Build system, startup, heap, linker/memory layout, image format | Untouched. The real dependency |
 
 Tier A is retired in commits `4548445` and `8d707d1`; Tier B is partly retired
@@ -539,6 +539,40 @@ reports **171/171** on this configuration, the 802.15.4 radio transmits with
 289,748 against 169,880 on the ESP-NOW build). What stands in front of the tick
 is now a single measurable question — the interrupt is routed and does not
 fire — rather than a device that never reaches its own shell.
+
+### Tier E: what owning console RX actually requires (2026-09-07)
+
+"RX needs a queue primitive" understated it. C1 built the queue, and that is
+necessary but not sufficient — the design is now settled and the constraints
+are measured rather than assumed:
+
+- **The ESP-IDF driver cannot be left installed.** It owns the OUT-endpoint
+  FIFO once `usb_serial_jtag_driver_install` runs, so reading `EP1` directly
+  alongside it races the driver for the same bytes. Owning RX means not
+  installing it.
+- **Polling cannot replace it.** The shell idles with `reflex_task_delay_ms(50)`
+  when no byte is waiting. At 115200 baud a 64-byte FIFO fills in about 5.5ms,
+  so a line arriving during an idle window overruns it several times over
+  before the shell looks. This is not a prediction: it is what the CHANGELOG
+  records happening before the driver was installed, and it is why the driver
+  was installed.
+- **So RX must be interrupt-driven into a ring**, which is now possible because
+  `reflex_hal_intr_alloc` works — the same path the scheduler tick is measured
+  on at 1000 Hz. Source 39, `SERIAL_OUT_RECV_PKT` (bit 2 of INT_RAW/ST/ENA/CLR),
+  with `SERIAL_OUT_EP_DATA_AVAIL` (bit 2 of EP1_CONF) gating the drain.
+- **stdio TX must move too.** `printf` reaches the wire through the VFS driver
+  path, not through `reflex_hal_write_raw`'s direct register writes, so
+  dropping the driver means routing stdio at the same time. That is why the
+  Tier E include count does not fall until both halves land.
+
+**Done:** the register constants are Reflex's own. The SVD calls the peripheral
+`USB_DEVICE` where IDF calls it `USB_SERIAL_JTAG` — the mapping table records
+exactly that kind of divergence — and the C6 HAL's hand-written `USJ_BASE +
+0x00 / + 0x04` literals now come from the generated header instead, so
+`make soc-bridge` can prove them. The header went from 47 to 57 constants, each
+`_Static_assert`ed against the ESP-IDF macro it replaces.
+
+**Not done:** the ISR, the ring, and the stdio move.
 
 ### What C3 owes, measured 2026-09-07
 

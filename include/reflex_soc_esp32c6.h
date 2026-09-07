@@ -87,6 +87,24 @@
 #define REFLEX_LP_AON_STORE1_REG 0x600B1004u
 /* SYSTIMER base — peripheral base, not a register */
 #define REFLEX_DR_REG_SYSTIMER_BASE 0x6000A000u
+/* USB_DEVICE base — peripheral base; SVD name is USB_DEVICE */
+#define REFLEX_DR_REG_USB_SERIAL_JTAG_BASE 0x6000F000u
+/* USB_DEVICE.EP1 @ base+0x0 — FIFO data register, both directions */
+#define REFLEX_USJ_EP1_REG 0x6000F000u
+/* USB_DEVICE.EP1_CONF @ base+0x4 */
+#define REFLEX_USJ_EP1_CONF_REG 0x6000F004u
+/* USB_DEVICE.INT_RAW @ base+0x8 */
+#define REFLEX_USJ_INT_RAW_REG 0x6000F008u
+/* USB_DEVICE.INT_ST @ base+0xC */
+#define REFLEX_USJ_INT_ST_REG 0x6000F00Cu
+/* USB_DEVICE.INT_ENA @ base+0x10 */
+#define REFLEX_USJ_INT_ENA_REG 0x6000F010u
+/* USB_DEVICE.INT_CLR @ base+0x14 */
+#define REFLEX_USJ_INT_CLR_REG 0x6000F014u
+/* USB_DEVICE.EP1_CONF.SERIAL_OUT_EP_DATA_AVAIL bit 2 — host-to-device byte waiting */
+#define REFLEX_USJ_OUT_EP_DATA_AVAIL 0x00000004u
+/* USB_DEVICE.INT_ENA.SERIAL_OUT_RECV_PKT_INT_ENA bit 2 — same bit across RAW/ST/ENA/CLR */
+#define REFLEX_USJ_OUT_RECV_PKT_INT 0x00000004u
 /* SPI0.SPI_MEM_MMU_POWER_CTRL.SPI_MMU_PAGE_SIZE width 2 — field value mask */
 #define REFLEX_SPI_MEM_MMU_PAGE_SIZE 0x00000003u
 /* SPI0.SPI_MEM_MMU_POWER_CTRL.SPI_MMU_PAGE_SIZE bit 3 — field shift */
@@ -109,5 +127,10 @@
 #define REFLEX_SOC_SYSTIMER_FIXED_DIVIDER 0x00000001u
 /* literal — interrupt-matrix source number; an enum position in soc/interrupts.h, not SVD data */
 #define REFLEX_INTR_SRC_SYSTIMER_TARGET1 0x0000003Au
+/* literal — interrupt-matrix source number; enum position in soc/interrupts.h. Needed to own
+ * console RX: the ESP-IDF driver cannot be left installed alongside direct FIFO reads, and polling
+ * cannot replace it because the shell idles 50ms while a 64-byte FIFO fills in 5.5ms at 115200 baud
+ */
+#define REFLEX_INTR_SRC_USB_SERIAL_JTAG 0x00000027u
 
 #endif /* REFLEX_SOC_ESP32C6_H */

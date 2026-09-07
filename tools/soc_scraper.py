@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Generate Reflex's own ESP32-C6 SoC register header from the vendor SVD.
 
-Reflex reaches ESP-IDF's `soc/*_reg.h` headers for exactly 52 constants. They
+Reflex reaches ESP-IDF's `soc/*_reg.h` headers for a bounded set of
+constants (47 before the USB-serial-JTAG additions). They
 are silicon facts, not ESP-IDF code, and every one of the register addresses
 and bit positions is already present in `tools/esp32c6.svd` — the same file
 `goose_scraper.py` reads to build the 12,738-node shadow atlas. Owning them is
@@ -102,6 +103,19 @@ REGS = [
 
     # --- systimer base (kernel scheduler + HAL time source) ---
     ("REFLEX_DR_REG_SYSTIMER_BASE",     "DR_REG_SYSTIMER_BASE",     "SYSTIMER", None, None, "peripheral base, not a register"),
+
+    # --- USB-serial-JTAG console (Tier E: owning console RX) ---
+    # The SVD calls this peripheral USB_DEVICE; IDF calls it USB_SERIAL_JTAG.
+    # Same base, different name, which is exactly what this table is for.
+    ("REFLEX_DR_REG_USB_SERIAL_JTAG_BASE", "DR_REG_USB_SERIAL_JTAG_BASE", "USB_DEVICE", None, None, "peripheral base; SVD name is USB_DEVICE"),
+    ("REFLEX_USJ_EP1_REG",              "USB_SERIAL_JTAG_EP1_REG",      "USB_DEVICE", "EP1",      None, "FIFO data register, both directions"),
+    ("REFLEX_USJ_EP1_CONF_REG",         "USB_SERIAL_JTAG_EP1_CONF_REG", "USB_DEVICE", "EP1_CONF", None, ""),
+    ("REFLEX_USJ_INT_RAW_REG",          "USB_SERIAL_JTAG_INT_RAW_REG",  "USB_DEVICE", "INT_RAW",  None, ""),
+    ("REFLEX_USJ_INT_ST_REG",           "USB_SERIAL_JTAG_INT_ST_REG",   "USB_DEVICE", "INT_ST",   None, ""),
+    ("REFLEX_USJ_INT_ENA_REG",          "USB_SERIAL_JTAG_INT_ENA_REG",  "USB_DEVICE", "INT_ENA",  None, ""),
+    ("REFLEX_USJ_INT_CLR_REG",          "USB_SERIAL_JTAG_INT_CLR_REG",  "USB_DEVICE", "INT_CLR",  None, ""),
+    ("REFLEX_USJ_OUT_EP_DATA_AVAIL",    "USB_SERIAL_JTAG_SERIAL_OUT_EP_DATA_AVAIL", "USB_DEVICE", "EP1_CONF", "SERIAL_OUT_EP_DATA_AVAIL", "host-to-device byte waiting"),
+    ("REFLEX_USJ_OUT_RECV_PKT_INT",     "USB_SERIAL_JTAG_SERIAL_OUT_RECV_PKT_INT_ENA", "USB_DEVICE", "INT_ENA", "SERIAL_OUT_RECV_PKT_INT_ENA", "same bit across RAW/ST/ENA/CLR"),
 ]
 
 # Value masks: (1 << bitWidth) - 1 rather than a single bit.
@@ -129,6 +143,8 @@ LITERALS = [
     ("REFLEX_SOC_SYSTIMER_FIXED_DIVIDER", "SOC_SYSTIMER_FIXED_DIVIDER", 1, "capability flag from soc_caps.h"),
     ("REFLEX_INTR_SRC_SYSTIMER_TARGET1", "ETS_SYSTIMER_TARGET1_INTR_SOURCE", 58,
      "interrupt-matrix source number; an enum position in soc/interrupts.h, not SVD data"),
+    ("REFLEX_INTR_SRC_USB_SERIAL_JTAG", "ETS_USB_SERIAL_JTAG_INTR_SOURCE", 39,
+     "interrupt-matrix source number; enum position in soc/interrupts.h. Needed to own console RX: the ESP-IDF driver cannot be left installed alongside direct FIFO reads, and polling cannot replace it because the shell idles 50ms while a 64-byte FIFO fills in 5.5ms at 115200 baud"),
 ]
 
 
