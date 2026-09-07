@@ -49,7 +49,7 @@ touch the second kind.
 | **A1** | 47 register constants from `soc/*` headers | **Owned.** Generated from the SVD, proved against ESP-IDF |
 | **A2** | 14 mask-ROM entry points | **Owned.** Declared by Reflex, addresses verified |
 | **B** | Deep sleep entry; heap reporting | Sleep constants owned; entry still borrowed. Heap belongs to F |
-| **C** | FreeRTOS as the scheduler | C0-C3 written and linked; **blocked on the boot panic and the tick.** See §5 |
+| **C** | FreeRTOS as the scheduler | C0-C2 done, **tick proven on hardware at 1000 Hz**. C3 written and linked, blocked on nothing starting the scheduler and on `mtvec` ownership. See §5 |
 | **D** | Radio (802.15.4 or ESP-NOW) | 802.15.4 is one component and creates no tasks |
 | **E** | Console RX, peripheral drivers | TX already owned. **Unblocked but unstarted** — C1 built the queue primitive RX was waiting on |
 | **F** | Build system, startup, heap, linker/memory layout, image format | Untouched. The real dependency |
@@ -469,18 +469,30 @@ on a re-arm.
 conflated more than once, including in a fix that was tested against the wrong
 one:**
 
-| | default (ESP-NOW) build | 802.15.4 build |
+| | default (ESP-NOW) build | **802.15.4 (independence path)** |
 |---|---|---|
-| cold arming | **works** — 1000 Hz, 5/5 and 6/6 | **has never fired, once** |
-| re-arming | fails: one tick or none | n/a |
+| cold arming | works — 1000 Hz, 5/5 and 6/6 | **works — 1000-1001 Hz, 6/6** |
+| re-arming | fails: one tick or none | fails: one tick |
 
-*TICK-A* is the re-arm failure on the default build. *TICK-B* is total
-non-delivery on the 802.15.4 build, where not even a cold arming has ever
-worked. Everything below concerns TICK-A unless it says otherwise, and the
-independence path needs **TICK-B**, which is barely explored. A fix for one
-proves nothing about the other — the threshold-derived priority was first
-tested only against TICK-B, on a configuration that could not have shown a
-result either way.
+**TICK-B is closed.** The Reflex-routed scheduler tick fires at 1000 Hz on the
+independence configuration — ESP32-C6 with `CONFIG_REFLEX_RADIO_802154` and
+`CONFIG_REFLEX_KERNEL_SCHEDULER` — through Reflex's own interrupt matrix, PLIC,
+`mie` and ROM vector programming, with no `esp_intr_alloc` anywhere in the path.
+Six verified cold starts, 6/6, 1000-1001 Hz.
+
+It was never a separate defect. Earlier it appeared to be one because the test
+that should have shown the threshold-derived priority working was run against a
+build that *also* carried PLIC-aware line allocation, which moves off CPU line
+10 and breaks delivery outright. One change masked the other, and the conclusion
+drawn — that the priority fix did nothing — was wrong. Two variables, one
+experiment.
+
+**TICK-A remains**, on both builds: the first arming after a cold boot runs at
+1000 Hz and every subsequent arming delivers one tick. It does not block the
+scheduler, which arms once at start and never re-arms, so it is a correctness
+debt rather than a gate on Tier C. Bisection has exonerated interrupt-line
+management (claiming the line once and keeping it changes nothing) and left
+`setup_systimer_tick` and the SYSTIMER teardown.
 
 **Bisected 2026-09-07: the fault is on the comparator side, not the interrupt
 line.** `reflex_sched_tick_stop` released the CPU interrupt line on every stop
