@@ -201,6 +201,48 @@ static void test_loader_branch_target(void)
     back.instruction_count = 3;
     CHECK("in-range branch still accepted", reflex_vm_validate_image(&back) == REFLEX_OK);
 
+    /* Same defect class, two checks away: reflex_vm_loader_syscall_valid
+     * declared int16_t, so the selector was validated at 16 bits and
+     * dispatched at 17. 0x10003 truncates to 3 (SYSCALL_DELAY) and passes,
+     * while the interpreter would dispatch 65539. */
+    static const reflex_vm_instruction_t sys_trunc_prog[] = {
+        {.opcode = REFLEX_VM_OPCODE_TSYS, .dst = 0, .src_a = 0, .src_b = 0, .imm = 0x10003},
+        {.opcode = REFLEX_VM_OPCODE_THALT},
+    };
+    reflex_vm_image_t sys_trunc = img;
+    sys_trunc.instructions = sys_trunc_prog;
+    sys_trunc.instruction_count = 2;
+    CHECK("syscall selector 0x10003 rejected (not truncated to DELAY)",
+          reflex_vm_validate_image(&sys_trunc) != REFLEX_OK);
+
+    /* The negative counterpart: -65536 has zero low 16 bits, so a 16-bit
+     * check reads it as SYSCALL_LOG. */
+    static const reflex_vm_instruction_t sys_neg_prog[] = {
+        {.opcode = REFLEX_VM_OPCODE_TSYS, .dst = 0, .src_a = 0, .src_b = 0, .imm = -65536},
+        {.opcode = REFLEX_VM_OPCODE_THALT},
+    };
+    reflex_vm_image_t sys_neg = img;
+    sys_neg.instructions = sys_neg_prog;
+    sys_neg.instruction_count = 2;
+    CHECK("syscall selector -65536 rejected (not truncated to LOG)",
+          reflex_vm_validate_image(&sys_neg) != REFLEX_OK);
+
+    /* And every real selector must still load, so the check is not simply
+     * rejecting everything. */
+    static const reflex_vm_instruction_t sys_ok_prog[] = {
+        {.opcode = REFLEX_VM_OPCODE_TSYS,
+         .dst = 0,
+         .src_a = 0,
+         .src_b = 0,
+         .imm = REFLEX_VM_SYSCALL_DELAY},
+        {.opcode = REFLEX_VM_OPCODE_THALT},
+    };
+    reflex_vm_image_t sys_ok = img;
+    sys_ok.instructions = sys_ok_prog;
+    sys_ok.instruction_count = 2;
+    CHECK("in-range syscall selector still accepted",
+          reflex_vm_validate_image(&sys_ok) == REFLEX_OK);
+
     printf("ok\n");
 }
 

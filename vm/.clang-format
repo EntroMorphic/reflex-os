@@ -1,0 +1,13 @@
+# vm/ attaches braces everywhere except after a function definition, which is
+# how all 76 function definitions in this subtree are already written. The root
+# config's blanket Attach described the majority of the repo (shell/, kernel/,
+# platform/, components/) but not this corner, so every edit here was offered a
+# choice between matching its file and passing the formatter.
+#
+# This states the local convention rather than reformatting the subtree to the
+# global one. core/ and storage/ are Allman in the same way and want the same
+# file when they are next touched.
+BasedOnStyle: InheritParentConfig
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true

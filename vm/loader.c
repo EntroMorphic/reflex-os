@@ -20,7 +20,17 @@ static bool reflex_vm_loader_register_valid(uint8_t index)
     return index < REFLEX_VM_REGISTER_COUNT;
 }
 
-static bool reflex_vm_loader_syscall_valid(int16_t imm)
+/* Takes the immediate at its real width, for the same reason as
+ * reflex_vm_loader_target_in_range below.
+ *
+ * This declared `int16_t imm` while reflex_vm_instruction_t::imm is int32_t,
+ * so the selector was validated at 16 bits and dispatched at 17. A selector
+ * of 0x10003 truncates to 3 (REFLEX_VM_SYSCALL_DELAY), passes here, and then
+ * reaches the interpreter as 65539 — which the default handler rejects as
+ * REFLEX_ERR_NOT_SUPPORTED and turns into a run-time fault. A hole in
+ * defence-in-depth rather than a live escape, but the loader exists to reject
+ * a bad image up front instead of relying on the layer below. */
+static bool reflex_vm_loader_syscall_valid(int32_t imm)
 {
     return imm >= REFLEX_VM_SYSCALL_LOG && imm <= REFLEX_VM_SYSCALL_DELAY;
 }

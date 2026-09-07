@@ -214,6 +214,72 @@ static void test_snapshot_count(void) {
     printf("ok\n");
 }
 
+/* --- Mesh replay-cache slot ------------------------------------------------
+ *
+ * Regression: replay_slot_index blended the trailing MAC bytes in at bit
+ * positions 8-23 and then masked the low 6 bits, so the slot was exactly
+ * `nonce & 63` for every sender and the MAC was discarded entirely. Two peers
+ * with colliding nonce low bits shared a slot, letting one evict the other's
+ * entry and reopen the replay window. */
+static void test_replay_slot(void) {
+    printf("[replay]  ");
+    const uint32_t SLOTS = 64;
+
+    uint8_t a[6] = {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
+    uint8_t b[6] = {0x02, 0x11, 0x22, 0x33, 0x44, 0x56}; /* differs in last byte  */
+    uint8_t c[6] = {0x02, 0x11, 0x22, 0x99, 0x44, 0x55}; /* differs in byte 3 only */
+
+    /* The property the old hash could not satisfy: the same nonce from
+     * different senders must not always collide. */
+    CHECK("same nonce, different MAC -> different slot",
+          goose_policy_replay_slot(0xDEADBEEFu, a, SLOTS) !=
+              goose_policy_replay_slot(0xDEADBEEFu, b, SLOTS));
+
+    /* Bytes 0-3 were ignored outright by the old hash. */
+    CHECK("MAC bytes outside the trailing pair affect the slot",
+          goose_policy_replay_slot(0xDEADBEEFu, a, SLOTS) !=
+              goose_policy_replay_slot(0xDEADBEEFu, c, SLOTS));
+
+    /* Determinism: the cache is a lookup, not a sampler. */
+    CHECK("slot is stable for a fixed (mac, nonce)",
+          goose_policy_replay_slot(0x1234u, a, SLOTS) ==
+              goose_policy_replay_slot(0x1234u, a, SLOTS));
+
+    /* Nonce must still matter, or the cache degenerates the other way. */
+    CHECK("same MAC, different nonce -> different slot",
+          goose_policy_replay_slot(1u, a, SLOTS) != goose_policy_replay_slot(2u, a, SLOTS));
+
+    /* Range, including a non-power-of-two count, since the constant is
+     * tunable and the implementation no longer masks. */
+    int in_range = 1;
+    for (uint32_t n = 0; n < 4096; n++) {
+        if (goose_policy_replay_slot(n, a, SLOTS) >= SLOTS) in_range = 0;
+        if (goose_policy_replay_slot(n, a, 100u) >= 100u) in_range = 0;
+    }
+    CHECK("slot always within the cache", in_range);
+
+    /* Degenerate inputs must not divide by zero or dereference NULL. */
+    CHECK("zero slot count is floored, not a division by zero",
+          goose_policy_replay_slot(7u, a, 0u) == 0u);
+    CHECK("NULL mac is handled", goose_policy_replay_slot(7u, NULL, SLOTS) == 0u);
+
+    /* Spread: with the old hash, 64 senders sharing a nonce landed in one
+     * slot. Require that they now occupy a substantial fraction of the ring. */
+    int occupied[64] = {0};
+    int distinct = 0;
+    for (uint32_t i = 0; i < 64; i++) {
+        uint8_t m[6] = {0x02, 0x11, 0x22, 0x33, (uint8_t)i, 0x55};
+        uint32_t slot = goose_policy_replay_slot(0xABCDu, m, SLOTS);
+        if (!occupied[slot]) {
+            occupied[slot] = 1;
+            distinct++;
+        }
+    }
+    CHECK("64 peers sharing a nonce spread across the ring", distinct > 32);
+
+    printf("ok\n");
+}
+
 /* Matches the harness convention: suites return their failure count. The
  * pass count is exposed separately because the runner's total otherwise
  * under-reports, counting only test_main's own assertions. */
@@ -222,6 +288,7 @@ int test_policy(void) {
     test_disposition();
     test_mesh_window();
     test_snapshot_count();
+    test_replay_slot();
     return s_fail;
 }
 

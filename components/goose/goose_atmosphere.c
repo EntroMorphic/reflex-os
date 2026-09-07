@@ -11,6 +11,7 @@
 #include "reflex_task.h"
 #include "reflex_tuning.h"
 #include "goose_telemetry.h"
+#include "goose_policy.h"
 #include <string.h>
 
 #define TAG "GOOSE_ATMOSPHERE"
@@ -137,11 +138,12 @@ goose_mesh_stats_t goose_atmosphere_get_stats(void) {
  * 3 packets from cooperating peers to flip posture. */
 
 /* Replay cache: reject packets whose (src_mac, nonce) pair has been seen
- * within REFLEX_REPLAY_WINDOW_US. 64-slot direct-mapped ring hashed over nonce
- * and the trailing MAC bytes so two peers with colliding nonce low bits
- * land in different slots. Entries older than the window are treated as
- * empty and overwritten; entries within the window match only on exact
- * (mac, nonce) equality. */
+ * within REFLEX_REPLAY_WINDOW_US. 64-slot direct-mapped ring hashed over the
+ * nonce and the full sender MAC — see goose_policy_replay_slot, which lives in
+ * goose_policy.c so the host suite exercises the firmware's own hash rather
+ * than a restatement of it. Entries older than the window are treated as empty
+ * and overwritten; entries within the window match only on exact (mac, nonce)
+ * equality. */
 /* Replay constants now live in reflex_tuning.h:
  * REFLEX_REPLAY_CACHE_SLOTS, REFLEX_REPLAY_WINDOW_US */
 
@@ -153,11 +155,7 @@ typedef struct {
 static replay_entry_t replay_cache[REFLEX_REPLAY_CACHE_SLOTS];
 
 static inline uint32_t replay_slot_index(uint32_t nonce, const uint8_t *mac) {
-    /* Blend nonce bits with the last two MAC bytes (least likely to be
-     * shared across peers on a local mesh) so cross-peer slot collisions
-     * are rare even when nonce low bits align. */
-    uint32_t h = nonce ^ ((uint32_t)mac[4] << 16) ^ ((uint32_t)mac[5] << 8);
-    return h & (REFLEX_REPLAY_CACHE_SLOTS - 1);
+    return goose_policy_replay_slot(nonce, mac, REFLEX_REPLAY_CACHE_SLOTS);
 }
 
 static bool replay_seen_or_record(const uint8_t *src_mac, uint32_t nonce, uint64_t now_us) {

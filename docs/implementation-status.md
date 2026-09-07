@@ -227,6 +227,16 @@ Accepted design decisions (audited, instrumented, benign):
 - ~~Route-only snapshots~~: full cell state is stateless by design (re-woven from atlas on boot). Current scope is correct.
 - ~~Alloc-under-lock~~: ~40µs worst case, `LOOM_CONTENTION_FAULT` never fired. Sub-threshold, instrumented.
 
+Closed in the 2026-09-07 P0 audit remediation (see [`P0-07SEP26.md`](P0-07SEP26.md)):
+
+- ~~P0-H1 VM loader syscall selector truncation~~: `reflex_vm_loader_syscall_valid` took `int16_t` while `reflex_vm_instruction_t::imm` is `int32_t`, so the selector was validated at 16 bits and dispatched at 17 — the same defect class already fixed for branch targets, two checks away. `0x10003` truncated to `SYSCALL_DELAY` and passed. Now `int32_t`, with both truncation directions regression-pinned in `tests/host/test_vm_regress.c`. The audit's second claim (that wire selectors >= 4 were wrongly *rejected*) does not hold — no such selector exists; `reflex_vm_syscall_t` stops at `DELAY = 3`.
+- ~~P0-M1 mesh replay cache ignored the sender MAC~~: the slot was exactly `nonce & 63` for every peer, contradicting [`../SECURITY.md`](../SECURITY.md) §4. Hash moved to `goose_policy_replay_slot` (host-testable, covers the full MAC, mixes every input bit into the index) and pinned by `[replay]` in `tests/host/test_policy.c`.
+- ~~P0-M2 `make format-check` could not fail~~: `clang-format`'s exit status was consumed by a pipe to `head` and the success message printed unconditionally, so the CI gate had been green by construction since it was written. Now line-scoped against the merge-base (`make format-check`), with whole-tree debt reported separately (`make format-check-all`) and `clang-format` pinned in CI.
+
+Open from the 2026-09-07 P0 audit: P0-H2, P0-H3, P0-H4, P0-M3, P0-M4, P0-M5, and the low-severity table.
+
+**Formatting debt: 98 of 127 hand-written files do not match `.clang-format`.** Not a defect, but a consequence worth recording: the gate that should have prevented it never ran. The gate now holds changed lines only, so the tree converges as code is rewritten rather than through one mass reformat that would rewrite brace style across the codebase.
+
 Closed in the 2026-08-12 audit remediation (see [`audit-2026-08-12.md`](audit-2026-08-12.md)):
 
 - ~~Warm-boot vital collapse~~: `goose_fabric_alloc_cell` returned NULL for an already-occupied coord, and `fabric_cells[]` is RTC-retained, so after any deep-sleep wake the metabolic vitals, temp vital and LED service all received NULL. The circuit breaker fell through to its literal defaults and reported "thriving" unconditionally, disabling every metabolic gate in the supervisor pulse. Added `goose_fabric_ensure_cell` for idempotent seeding; `alloc_cell` keeps NULL-on-collision for genuine clash detection. Hardware-verified across a `sleep 5` round trip.

@@ -100,3 +100,29 @@ int goose_policy_mesh_state(goose_mesh_window_t *w, uint32_t delta,
 uint16_t goose_policy_snap_entry_count(size_t route_count, size_t max_routes) {
     return (uint16_t)(route_count < max_routes ? route_count : max_routes);
 }
+
+uint32_t goose_policy_replay_slot(uint32_t nonce, const uint8_t *mac, uint32_t slot_count) {
+    /* FNV-1a over all six MAC bytes, folded with the nonce and finished with a
+     * Fibonacci multiply and a shift-xor, so no input bit is confined to a bit
+     * position the caller's reduction discards.
+     *
+     * The bug this replaces was not a weak hash but a hash that dropped one of
+     * its two inputs entirely: the MAC contributed only to bits 8-23 of a value
+     * that was then masked to 6 bits. Mixing downward is the whole point. */
+    if (mac == NULL || slot_count == 0) {
+        return 0;
+    }
+
+    uint32_t h = 2166136261u; /* FNV offset basis */
+    for (int i = 0; i < 6; i++) {
+        h ^= (uint32_t)mac[i];
+        h *= 16777619u; /* FNV prime */
+    }
+    h ^= nonce;
+    h *= 0x9E3779B1u;
+    h ^= h >> 16;
+
+    /* Modulo rather than a mask: the slot count is tunable and nothing
+     * constrains it to a power of two. */
+    return h % slot_count;
+}

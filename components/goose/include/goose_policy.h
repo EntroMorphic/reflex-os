@@ -111,4 +111,26 @@ int goose_policy_mesh_state(goose_mesh_window_t *w, uint32_t delta,
  */
 uint16_t goose_policy_snap_entry_count(size_t route_count, size_t max_routes);
 
+/* ---- Mesh replay-cache slot ----------------------------------------------- */
+
+/**
+ * @brief Direct-mapped replay-cache slot for a (sender MAC, nonce) pair.
+ *
+ * The slot must depend on the *whole* pair. The previous in-place version
+ * blended the trailing MAC bytes in at bit positions 8-23 and then masked the
+ * low 6 bits, so every sender hashed to exactly `nonce & 63` and the MAC had
+ * no effect at all. Nonces are derived from a monotonic microsecond clock, so
+ * a second peer whose uptime happens to lead by a multiple of the slot count —
+ * or any key-holder choosing a nonce — evicts a victim's entry and reopens the
+ * replay window that guard exists to close.
+ *
+ * Every input bit is therefore mixed down into the low bits the caller uses.
+ *
+ * @param nonce       packet nonce
+ * @param mac         six-byte sender address
+ * @param slot_count  cache size; any value, need not be a power of two
+ * @return slot index in [0, slot_count), or 0 if slot_count is 0
+ */
+uint32_t goose_policy_replay_slot(uint32_t nonce, const uint8_t *mac, uint32_t slot_count);
+
 #endif /* GOOSE_POLICY_H */
