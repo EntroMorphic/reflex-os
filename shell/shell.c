@@ -994,6 +994,12 @@ static void shell_cmd_kernel_tick(void) {
      * making from the outside. */
     reflex_intr_route_t route;
     reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &route);
+    /* The whole PLIC enable mask, captured live like the rest. Owning mtvec
+     * means servicing every line live at that moment, so the population count
+     * of this word is the concrete size of the hand-off Tier C has to make.
+     * Sampled here rather than after teardown, which would exclude Reflex's own
+     * line and quietly report a different number than the one that matters. */
+    uint32_t plic_live = REFLEX_REG(0x20001000u); /* PLIC_MXINT_ENABLE */
     uint32_t st_ena = REFLEX_REG(REFLEX_DR_REG_SYSTIMER_BASE + 0x64);
     uint32_t st_raw = REFLEX_REG(REFLEX_DR_REG_SYSTIMER_BASE + 0x68);
     uint32_t st_st = REFLEX_REG(REFLEX_DR_REG_SYSTIMER_BASE + 0x70);
@@ -1029,6 +1035,14 @@ static void shell_cmd_kernel_tick(void) {
                (int)route.level_triggered);
         printf("  csr:    mie_bit=%d mip_pending=%d mstatus.MIE=%d\n", (int)route.mie_enabled,
                (int)route.mip_pending, (int)route.global_ie);
+        {
+            unsigned n = 0;
+            for (unsigned b = 0; b < 32; b++) {
+                if (plic_live & (1u << b)) n++;
+            }
+            printf("  plic live mask=0x%08lx (%u lines, incl. this one)\n",
+                   (unsigned long)plic_live, n);
+        }
         printf("  systimer: ena=0x%08lx raw=0x%08lx st=0x%08lx (TARGET1=bit1)\n",
                (unsigned long)st_ena, (unsigned long)st_raw, (unsigned long)st_st);
     }

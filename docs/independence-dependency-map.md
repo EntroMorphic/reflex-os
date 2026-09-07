@@ -540,6 +540,46 @@ reports **171/171** on this configuration, the 802.15.4 radio transmits with
 is now a single measurable question — the interrupt is routed and does not
 fire — rather than a device that never reaches its own shell.
 
+### What C3 owes, measured 2026-09-07
+
+With the tick proven, C3's blockers were re-read rather than assumed, and the
+first one was a live defect rather than a missing call:
+
+1. **`reflex_sched_start` armed the tick without routing it.** *Fixed.* It
+   called `setup_systimer_tick()` directly — enabling the comparator and the
+   peripheral interrupt and stopping there, with nothing mapping the source
+   through the interrupt matrix. That is the exact hazard that stops the core:
+   SYSTIMER_TARGET1's matrix entry holds its reset value of 0, so the
+   comparator asserts onto CPU line 0, level-triggered, and nothing makes
+   progress. Starting the scheduler would have hit it on the first tick. It now
+   calls `reflex_sched_tick_start`, so the scheduler's tick and the
+   diagnostic's tick are the same measured code path.
+
+2. **The stack switch in `reflex_sched_start` is undefined behaviour.** Not
+   fixed; the file's own `@warning` states the mechanism. Assigning `sp` with
+   inline asm part-way through a C function leaves the compiler believing it
+   owns the frame. Correct-by-construction means an assembly trampoline that
+   sets `sp` and enters the task without ever returning into a C frame built on
+   the old stack. It cannot be validated until the scheduler starts, which is
+   blocked on (3).
+
+3. **`mtvec` ownership, now quantified.** Taking the trap vector means
+   servicing every interrupt line live at that moment, and that is not one:
+
+   ```
+   reflex> kernel tick
+     plic live mask=0x0b001f24 (10 lines, incl. this one)
+   ```
+
+   **Nine of those ten belong to ESP-IDF** — lines 2, 5, 8, 9, 11, 12, 24, 25
+   and 27 on the 802.15.4 build; the tenth is Reflex's tick on line 10. A
+   hand-off has to quiesce or re-home all nine: the console, the radio, the
+   timer and whatever else is behind them. That is the concrete size of the
+   job, and it is why the map has always said this means owning startup
+   outright rather than patching a vector mid-boot.
+
+4. **Nothing calls `reflex_sched_start`.** True, and the least of the four.
+
 ### What C2 still owes, precisely
 
 There are two tick paths and only one works. `reflex_kernel_test.c` routes

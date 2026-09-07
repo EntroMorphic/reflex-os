@@ -442,7 +442,30 @@ reflex_err_t reflex_sched_init(void) {
 reflex_err_t reflex_sched_start(void) { return REFLEX_OK; }
 #else
 reflex_err_t reflex_sched_start(void) {
-    setup_systimer_tick();
+    /* Route the tick, do not merely arm it.
+     *
+     * This called setup_systimer_tick() directly, which enables the comparator
+     * and the peripheral interrupt and stops there — nothing maps the source
+     * through the interrupt matrix, sets a PLIC priority, or enables the mie
+     * bit. Until reflex_hal_intr_alloc writes it, SYSTIMER_TARGET1's matrix
+     * entry holds its reset value of 0, so the comparator asserts onto CPU
+     * interrupt line 0. Level-triggered, so it stays asserted and the core
+     * stops making progress; observed exactly that way from the shell path as
+     * a task watchdog timeout with the idle task starved.
+     *
+     * reflex_sched_tick_start does the routing first and then arms, and that
+     * path is measured: 6/6 verified cold starts at 1000-1001 Hz on both the
+     * default and the 802.15.4 builds. Sharing it means the scheduler's tick
+     * and the diagnostic's tick are the same code, so `kernel tick` actually
+     * exercises what the scheduler will use.
+     *
+     * A failure here is fatal to the scheduler rather than cosmetic: with no
+     * tick, the loop below runs its first task and parks on wfi the moment
+     * everything blocks, with nothing left to wake it. */
+    reflex_err_t tick_rc = reflex_sched_tick_start();
+    if (tick_rc != REFLEX_OK) {
+        return tick_rc;
+    }
     s_started = true;
 
     /* The scheduler loop: pick a task, run it until it yields,
