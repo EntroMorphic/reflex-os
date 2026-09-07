@@ -100,6 +100,13 @@ void reflex_hal_intr_describe(int source, reflex_intr_route_t *out) {
     if (out) memset(out, 0, sizeof(*out));
 }
 
+/* The classic ESP32 has no USB-serial-JTAG; its console is a UART behind
+ * ESP-IDF's driver, which shell.c still uses on that target. Declared here so
+ * the interface is whole, and honest about not implementing it. */
+reflex_err_t reflex_hal_console_init(void) { return REFLEX_ERR_NOT_SUPPORTED; }
+bool reflex_hal_console_read(uint8_t *out) { (void)out; return false; }
+uint32_t reflex_hal_console_dropped(void) { return 0; }
+
 reflex_err_t reflex_hal_mac_read(uint8_t mac[6]) {
     return (reflex_err_t)esp_read_mac(mac, ESP_MAC_WIFI_STA);
 }

@@ -13,8 +13,6 @@
 #include "driver/rmt_tx.h"
 #include "driver/rmt_encoder.h"
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
-#include "driver/usb_serial_jtag.h"
-#include "driver/usb_serial_jtag_vfs.h"
 #else
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
@@ -1636,17 +1634,29 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
 void reflex_shell_run(void) {
     char line[REFLEX_SHELL_LINE_MAX]; size_t len = 0; bool overflowed = false;
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
-    if (!usb_serial_jtag_is_driver_installed()) {
-        usb_serial_jtag_driver_config_t c = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
-        /* The default RX buffer is 256 bytes, which is what the old `len < 255`
-         * input bound was really sized to. Raising the line limit without this
-         * silently *drops* characters mid-line: a 600-character `vm loadhex`
-         * arrived short and was rejected as odd-length hex. Size the transport
-         * to the line buffer so a full line cannot overrun it. */
-        c.rx_buffer_size = REFLEX_SHELL_LINE_MAX * 2;
-        usb_serial_jtag_driver_install(&c);
+    bool s_last_was_cr = false;
+#endif
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
+    /* Reflex owns console receive on this target.
+     *
+     * This installed ESP-IDF's USB-serial-JTAG driver and read through it. The
+     * driver was needed because the shell idles 50ms between polls while the
+     * 64-byte FIFO fills in about 5.5ms at 115200 baud, so a line arriving in
+     * an idle window was truncated before the shell ever saw it — silently,
+     * because the overflow guard cannot trip on characters that never arrived.
+     *
+     * An interrupt solves that without the driver: the ISR drains the FIFO into
+     * Reflex's own ring as packets land, so the idle delay costs latency and
+     * never a byte. Installing the driver alongside would race it for the same
+     * FIFO, so it is not installed at all.
+     *
+     * Transmit is untouched. printf still reaches the wire through the console
+     * VFS that ESP-IDF's startup registers, which is not this driver, and
+     * REFLEX_LOG* and telemetry already bypass stdio entirely through
+     * reflex_hal_write_raw's direct register writes. */
+    if (reflex_hal_console_init() != REFLEX_OK) {
+        printf("console: RX interrupt unavailable; input will not work\n");
     }
-    usb_serial_jtag_vfs_use_driver(); usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF); usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
 #else
     /* UART console. Without a driver-managed ring buffer, getchar() reads
      * straight out of the 128-byte hardware FIFO, and a line longer than the
@@ -1662,12 +1672,25 @@ void reflex_shell_run(void) {
     printf("reflex> "); fflush(stdout);
     while (1) {
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
-        uint8_t ch; int r = usb_serial_jtag_read_bytes(&ch, 1, 50);
+        uint8_t ch; int r = reflex_hal_console_read(&ch) ? 1 : 0;
 #else
         int ch = getchar(); int r = (ch != EOF) ? 1 : 0;
 #endif
 
         if (r <= 0) { reflex_task_delay_ms(50); continue; }
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
+        /* Raw bytes now, so line endings are ours to normalise.
+         *
+         * The removed usb_serial_jtag_vfs_set_rx_line_endings(CRLF) was doing
+         * this: with the driver gone the ISR delivers exactly what the host
+         * sent, and a host sending CRLF would otherwise leave a bare CR at the
+         * end of every line — appended to the buffer, dispatched as part of
+         * the command, and matching no verb. Treat CR as end-of-line and
+         * swallow a following LF. */
+        if (ch == '\r') ch = '\n';
+        else if (ch == '\n' && s_last_was_cr) { s_last_was_cr = false; continue; }
+        s_last_was_cr = (ch == '\n');
+#endif
         if (ch == '\n') {
             /* Echo the newline before dispatching. Without it the command's
              * echo and its response share a line on the wire

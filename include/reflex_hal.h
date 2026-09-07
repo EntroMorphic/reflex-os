@@ -165,6 +165,38 @@ static inline uint32_t reflex_intr_priority_for(uint32_t threshold) {
 
 void reflex_hal_intr_describe(int source, reflex_intr_route_t *out);
 
+/**
+ * @brief Start Reflex's own console receiver.
+ *
+ * Routes the console peripheral's receive interrupt and begins filling an
+ * internal ring. Required before reflex_hal_console_read returns anything, and
+ * must be called *instead of* installing a vendor console driver: the driver
+ * takes the receive FIFO, and a direct read would race it for the same bytes.
+ *
+ * @return REFLEX_OK, or the interrupt allocation failure.
+ */
+reflex_err_t reflex_hal_console_init(void);
+
+/**
+ * @brief Take one received byte, if any is waiting.
+ *
+ * Non-blocking by design. The interrupt captures bytes as they arrive, so a
+ * caller that polls slowly loses latency rather than data — which is the whole
+ * point of owning this path.
+ *
+ * @return true if a byte was written to @p out.
+ */
+bool reflex_hal_console_read(uint8_t *out);
+
+/**
+ * @brief Bytes discarded because the receive ring was full.
+ *
+ * Non-zero means the console lost input. Counted rather than silently
+ * overwritten, because a shell that drops characters mid-line and dispatches
+ * the remainder is the failure this subsystem exists to prevent.
+ */
+uint32_t reflex_hal_console_dropped(void);
+
 void reflex_hal_random_fill(uint8_t *buf, size_t len);
 /** @brief Read the factory MAC. Doubles as this board's mesh identity, so it
  *  is what self-arc suppression and the peer table compare against. */

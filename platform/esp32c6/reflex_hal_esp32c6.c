@@ -523,6 +523,86 @@ static void usj_write_bytes(const char *data, int len) {
     REFLEX_REG(USJ_EP1_CONF) |= USJ_WR_DONE;
 }
 
+/* --- Console RX: Reflex's own, interrupt-driven ---------------------------
+ *
+ * Tier E. The ESP-IDF USB-serial-JTAG driver owned this: it installed an RX
+ * ring and the shell read one byte at a time through usb_serial_jtag_read_bytes.
+ * Owning RX means not installing that driver, because it takes the OUT-endpoint
+ * FIFO and a direct read would race it for the same bytes.
+ *
+ * Polling cannot replace it. The shell idles for 50ms when no byte is waiting,
+ * and at 115200 baud the 64-byte FIFO fills in about 5.5ms — so a line arriving
+ * during an idle window overruns it several times before anyone looks. That is
+ * not a prediction: it is what happened before the driver was installed, and
+ * why it was installed.
+ *
+ * An interrupt decouples arrival from polling. The ISR drains the FIFO into
+ * this ring whenever the hardware says a packet landed, so the shell's idle
+ * delay costs latency and never a byte.
+ *
+ * Single producer (the ISR), single consumer (the shell task), on a single
+ * core: a plain head/tail ring needs no lock, provided each index is written by
+ * exactly one side and both are volatile so neither is cached across the
+ * boundary. */
+#define USJ_RX_RING_SIZE 2048u /* > REFLEX_SHELL_LINE_MAX, power of two */
+
+static volatile uint8_t s_usj_rx_ring[USJ_RX_RING_SIZE];
+static volatile uint32_t s_usj_rx_head; /* written by the ISR only  */
+static volatile uint32_t s_usj_rx_tail; /* written by the task only */
+static volatile uint32_t s_usj_rx_dropped;
+static reflex_intr_handle_t s_usj_intr;
+
+static void usj_rx_isr(void *arg) {
+    (void)arg;
+    /* Drain the whole FIFO, not one byte: the interrupt says a packet landed,
+     * and leaving bytes behind would need another packet to shake them loose. */
+    while (REFLEX_REG(REFLEX_USJ_EP1_CONF_REG) & REFLEX_USJ_OUT_EP_DATA_AVAIL) {
+        uint8_t ch = (uint8_t)REFLEX_REG(REFLEX_USJ_EP1_REG);
+        uint32_t head = s_usj_rx_head;
+        uint32_t next = (head + 1u) & (USJ_RX_RING_SIZE - 1u);
+        if (next == s_usj_rx_tail) {
+            /* Full. Drop the newest and count it — silently overwriting the
+             * oldest would corrupt a line already half-read by the shell, and
+             * dropping without counting is the kind of quiet loss this
+             * subsystem exists to stop. */
+            s_usj_rx_dropped++;
+            continue;
+        }
+        s_usj_rx_ring[head] = ch;
+        s_usj_rx_head = next;
+    }
+    REFLEX_REG(REFLEX_USJ_INT_CLR_REG) = REFLEX_USJ_OUT_RECV_PKT_INT;
+}
+
+reflex_err_t reflex_hal_console_init(void) {
+    if (s_usj_intr) return REFLEX_OK;
+    s_usj_rx_head = s_usj_rx_tail = s_usj_rx_dropped = 0;
+
+    /* Clear before enabling, so a packet that arrived during boot does not
+     * deliver immediately into a handler that has not been routed yet. */
+    REFLEX_REG(REFLEX_USJ_INT_CLR_REG) = REFLEX_USJ_OUT_RECV_PKT_INT;
+
+    reflex_err_t rc = reflex_hal_intr_alloc(REFLEX_INTR_SRC_USB_SERIAL_JTAG, 0,
+                                            usj_rx_isr, NULL, &s_usj_intr);
+    if (rc != REFLEX_OK) {
+        s_usj_intr = NULL;
+        return rc;
+    }
+    REFLEX_REG(REFLEX_USJ_INT_ENA_REG) |= REFLEX_USJ_OUT_RECV_PKT_INT;
+    return REFLEX_OK;
+}
+
+bool reflex_hal_console_read(uint8_t *out) {
+    if (!out) return false;
+    uint32_t tail = s_usj_rx_tail;
+    if (tail == s_usj_rx_head) return false;
+    *out = s_usj_rx_ring[tail];
+    s_usj_rx_tail = (tail + 1u) & (USJ_RX_RING_SIZE - 1u);
+    return true;
+}
+
+uint32_t reflex_hal_console_dropped(void) { return s_usj_rx_dropped; }
+
 void reflex_hal_write_raw(const char *data, int len) {
     usj_write_bytes(data, len);
 }
