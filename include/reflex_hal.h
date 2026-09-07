@@ -125,6 +125,39 @@ typedef struct {
  * @param source Peripheral source number (REFLEX_INTR_SRC_*).
  * @param out    Filled in; zeroed on a platform that cannot report this.
  */
+/** Lowest PLIC priority that will actually be delivered at @p threshold.
+ *
+ * The controller forwards an interrupt only when its priority is strictly
+ * greater than the threshold, and the threshold is not a constant — it is
+ * whatever the rest of the system is running at. Hardcoding a priority of 1
+ * therefore works or does not depending on configuration, which is not a
+ * property anyone should have to discover on a board.
+ *
+ * Pure arithmetic, kept here rather than inline in the C6 HAL so the rule is
+ * exercised by the host suite. It was added during debugging and kept "on its
+ * own merits", which is exactly the kind of change that should not sit in a
+ * hardware abstraction layer untested.
+ *
+ * @param threshold current controller threshold
+ * @return a priority in [1, REFLEX_INTR_PRIORITY_MAX], above @p threshold
+ *         where that is representable
+ */
+#define REFLEX_INTR_PRIORITY_MAX 7u
+
+static inline uint32_t reflex_intr_priority_for(uint32_t threshold) {
+    uint32_t prio = threshold + 1u;
+    if (threshold >= REFLEX_INTR_PRIORITY_MAX) {
+        /* Saturate rather than wrap. A threshold at or above the maximum means
+         * nothing this layer allocates can be delivered; returning the maximum
+         * is the closest honest answer and keeps the value in range. */
+        return REFLEX_INTR_PRIORITY_MAX;
+    }
+    if (prio < 1u) {
+        return 1u; /* 0 is "never delivered" and is never a useful answer */
+    }
+    return prio;
+}
+
 void reflex_hal_intr_describe(int source, reflex_intr_route_t *out);
 
 void reflex_hal_random_fill(uint8_t *buf, size_t len);

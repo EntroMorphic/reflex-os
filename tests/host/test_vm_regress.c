@@ -18,6 +18,7 @@
 #include "reflex_ternary.h"
 #include "reflex_vm.h"
 #include "reflex_vm_task.h"
+#include "reflex_hal.h"
 #include "reflex_cache.h"
 #include "reflex_vm_loader.h"
 
@@ -341,12 +342,60 @@ static void test_vm_task_service_init_keeps_cache(void) {
     printf("ok\n");
 }
 
+/* --- Interrupt priority rule ------------------------------------------------
+ *
+ * The C6 controller forwards an interrupt only when its priority is strictly
+ * above the threshold, and the threshold is whatever the rest of the system is
+ * running at. A hardcoded priority of 1 therefore works or does not depending
+ * on configuration — measured on a board as pri=1 against thresh=1 with the
+ * source asserting and the core never offered the interrupt.
+ *
+ * This rule was added during debugging and kept "on its own merits", which is
+ * exactly the kind of change that should not sit untested in a hardware
+ * abstraction layer. It is pure arithmetic, so it can be. */
+static void test_intr_priority_rule(void) {
+    printf("[intrpri] ");
+
+    /* Strictly above the threshold, which is the whole point. */
+    int above = 1;
+    for (uint32_t t = 0; t < REFLEX_INTR_PRIORITY_MAX; t++) {
+        if (!(reflex_intr_priority_for(t) > t)) above = 0;
+    }
+    CHECK("priority always exceeds a representable threshold", above);
+
+    CHECK("threshold 0 -> 1", reflex_intr_priority_for(0) == 1);
+    CHECK("threshold 1 -> 2", reflex_intr_priority_for(1) == 2);
+    CHECK("threshold 6 -> 7", reflex_intr_priority_for(6) == REFLEX_INTR_PRIORITY_MAX);
+
+    /* At and past the maximum the rule saturates rather than wrapping. A
+     * wrapped value would be 0, which the controller reads as "never
+     * delivered" — the failure this function exists to avoid, produced by the
+     * function itself. */
+    CHECK("threshold at max saturates",
+          reflex_intr_priority_for(REFLEX_INTR_PRIORITY_MAX) == REFLEX_INTR_PRIORITY_MAX);
+    CHECK("threshold past max saturates",
+          reflex_intr_priority_for(REFLEX_INTR_PRIORITY_MAX + 5) == REFLEX_INTR_PRIORITY_MAX);
+    CHECK("UINT32_MAX threshold does not wrap to 0",
+          reflex_intr_priority_for(0xFFFFFFFFu) == REFLEX_INTR_PRIORITY_MAX);
+
+    /* Never 0 and never out of range, for any input at all. */
+    int in_range = 1;
+    for (uint32_t t = 0; t < 64; t++) {
+        uint32_t p = reflex_intr_priority_for(t);
+        if (p < 1u || p > REFLEX_INTR_PRIORITY_MAX) in_range = 0;
+    }
+    CHECK("result always in [1, max]", in_range);
+
+    printf("ok\n");
+}
+
 int test_vm_regress(void)
 {
     test_cache();
     test_loader_branch_target();
     test_word18_no_clobber();
     test_vm_task_service_init_keeps_cache();
+    test_intr_priority_rule();
     return s_fail;
 }
 

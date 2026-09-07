@@ -465,6 +465,23 @@ tested twice, once on the 802.15.4 build where the tick has never fired, and
 again on the default build where `pri=2` over `thresh=1` still delivered nothing
 on a re-arm.
 
+**There are two distinct tick failures. They are not the same bug and have been
+conflated more than once, including in a fix that was tested against the wrong
+one:**
+
+| | default (ESP-NOW) build | 802.15.4 build |
+|---|---|---|
+| cold arming | **works** — 1000 Hz, 5/5 and 6/6 | **has never fired, once** |
+| re-arming | fails: one tick or none | n/a |
+
+*TICK-A* is the re-arm failure on the default build. *TICK-B* is total
+non-delivery on the 802.15.4 build, where not even a cold arming has ever
+worked. Everything below concerns TICK-A unless it says otherwise, and the
+independence path needs **TICK-B**, which is barely explored. A fix for one
+proves nothing about the other — the threshold-derived priority was first
+tested only against TICK-B, on a configuration that could not have shown a
+result either way.
+
 **Bisected 2026-09-07: the fault is on the comparator side, not the interrupt
 line.** `reflex_sched_tick_stop` released the CPU interrupt line on every stop
 and `tick_start` re-claimed it, so the allocate/free cycle was the obvious
@@ -634,8 +651,12 @@ direct register write (`usj_write_bytes`), and only RX uses the driver.
   understood and low. It is not the same as measured, and is recorded here as
   unmeasured rather than assumed.
 
-  Closing this needs either a second observation channel (a UART bridge on a
-  C6's GPIO pins, kept separate from USB-JTAG) or counters that survive a reset.
+  Concretely, closing this needs one of: a UART bridge wired to two spare C6
+  GPIOs and used as the observation channel while USB-JTAG stays untouched;
+  mesh counters persisted to NVS so they survive the reset a connection causes;
+  or a third C6 in promiscuous mode acting as a passive sniffer, since the
+  problem is only that *reading* a node disturbs it. The first is the least
+  work and the most reusable.
   It blocks any future claim about mesh behaviour on the independence path.
 
 

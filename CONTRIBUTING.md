@@ -50,6 +50,31 @@ restores the session role, vitals overrides and purpose.
 make hw-test PORT=/dev/cu.usbmodem1101
 ```
 
+## Measuring on hardware
+
+Reflex OS has enough intermittent, configuration-dependent behaviour that a
+single reading is not evidence. These rules were written after a session that
+produced six confident conclusions from single samples, every one of which had
+to be retracted.
+
+- **Repeat before concluding.** `make tick-measure PORT=... RUNS=n` exists
+  because the scheduler tick was characterised three ways from single runs and
+  all three were wrong. Compare distributions.
+- **Verify the state you think you set.** A harness that assumed opening a
+  USB-JTAG port resets a C6 measured re-arming for hours while reporting cold
+  starts. It does not reset; `reboot` does, and the harness now reads uptime
+  back to prove it.
+- **Test a fix against a configuration that can show a result.** A change was
+  rejected after being tested only on the 802.15.4 build, where the thing it
+  was fixing has never worked in any form. That proved nothing either way.
+- **A diagnostic that only prints on failure cannot describe success.** The
+  interrupt routing readback printed only when the tick failed, so a claim
+  about the working case entered the record unmeasured. It prints on both now.
+- **Opening a board's port is not free.** On a C6 it may reset the board and
+  will invalidate the descriptor across a reboot; on the classic ESP32, behind
+  a USB-serial bridge, it does not. Do not compare counters across a
+  connection without checking uptime.
+
 ## Project Conventions
 
 - Use ASCII by default unless a file already requires otherwise.

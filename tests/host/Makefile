@@ -45,7 +45,19 @@ OUT = build/reflex_test
 test: $(OUT)
 	@./$(OUT)
 
-$(OUT): $(SRCS)
+# Headers are prerequisites too.
+#
+# This rule listed only $(SRCS), so a change confined to a header did not
+# trigger a rebuild and the suite silently re-ran the previous binary. Caught by
+# mutating reflex_intr_priority_for — a static inline in a header — and watching
+# the test that pins it report a pass. The same class of defect as a format gate
+# that cannot fail: a check that does not run is indistinguishable from one that
+# passes.
+HDRS := $(shell find ../../include ../../vm/include ../../components/goose/include \
+                    ../../shell/include ../../kernel ../../core/include \
+                    ../stub_headers . -name '*.h' 2>/dev/null)
+
+$(OUT): $(SRCS) $(HDRS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(SRCS) -lm
 

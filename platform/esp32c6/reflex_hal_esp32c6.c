@@ -366,10 +366,7 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
      * printing on success as well as failure, a working arming reads pri=2
      * thresh=1 — the same as a failing one. The threshold is 1 in both cases,
      * so this change is correctness rather than the explanation of anything. */
-    uint32_t thresh = REFLEX_REG(PLIC_MXINT_THRESH);
-    uint32_t prio = thresh + 1;
-    if (prio > REFLEX_PLIC_PRIO_MAX) prio = REFLEX_PLIC_PRIO_MAX;
-    REFLEX_REG(PLIC_MXINT_PRI(cpu_int)) = prio;
+    REFLEX_REG(PLIC_MXINT_PRI(cpu_int)) = reflex_intr_priority_for(REFLEX_REG(PLIC_MXINT_THRESH));
 
     /* Install the vector before the line can deliver anything.
      *
