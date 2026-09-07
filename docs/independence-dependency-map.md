@@ -389,56 +389,48 @@ and distinguishes none; those registers distinguish all of them. The first
 version of that readback ran *after* `reflex_sched_tick_stop()` and therefore
 described the teardown — corrected, and the comment says so.
 
-**Measured baseline, 2026-09-07, default build, 8 cold starts
-(`make tick-measure PORT=...`): the tick fired on 1 of 8, and that one delivered
-a single tick.** That is the honest number, and it is much worse than the
-anecdotes that preceded it — two runs in this session read 1000 Hz and 1001 Hz,
-and those were the outliers, not the behaviour. Any claim about this tick needs
-a distribution; `tools/measure_tick.py` exists because three separate readings
-were drawn from single samples in one session and all three were wrong.
+**The tick works. Verified: 5/5 and 6/6 cold starts at 1000-1001 Hz against a
+1000 Hz target**, on the default build, measured with `make tick-measure`.
 
-**When it fires, it fires at the right rate.** Best measurement on the
-default build: `497 ticks in 496930 us -> 1000 Hz (target 1000)`, and separately
-`500 ticks in 499157 us -> 1001 Hz`. The period derives from a 16 MHz counter,
-not the 40 MHz crystal — the divider is fixed at 2.5, which Reflex's generated
-header already recorded as `REFLEX_SOC_SYSTIMER_FIXED_DIVIDER` and which the
-calculation never used. When it fires, it fires at the target.
+An earlier baseline in this file said the tick fired on 1 of 8 cold starts. That
+was wrong, and the reason is worth more than the number: **opening a C6's
+USB-JTAG port does not reset the board.** Checked directly, six consecutive
+opens read uptime 925.9, 934.5, 943.1, 951.7, 960.4 and 969.0 seconds —
+monotonic, no reset. The harness had assumed otherwise, so every "cold start" it
+reported was a re-arming on a continuously running board. It now reboots through
+the shell and *verifies* coldness by reading uptime back before arming, and
+refuses to count a run it cannot confirm.
 
-**Open: delivery is intermittent and not understood.** The same firmware image
-measured 1000 Hz on one boot and 0 Hz on the next, several times. An earlier
-reading of this — that the first arming after boot works and re-arming does not
-— fitted four consecutive runs and then failed to reproduce; it is recorded here
-as a discarded hypothesis rather than a finding, because it was drawn from
-single samples. Any future work on this needs repeated runs across power cycles
-before drawing a conclusion. That is the lesson from this pass, and it applies
-to everything above it.
+**The real defect is re-arming, and it is precisely isolated.** On one boot:
 
-Three things were tried against the intermittency and all three were reverted
-after measurement, which is why the code does not contain them:
+```
+arming 1:  500 ticks in 499193 us -> 1001 Hz
+arming 2:    1 tick
+arming 3:    1 tick
+arming 4:    1 tick
+arming 5:    0 ticks
+```
 
-- **PLIC-aware line allocation.** `s_intr_alloc_bitmap` records only Reflex's
-  own claims, so it cannot know what ESP-IDF holds, and ESP-IDF's claims differ
-  per configuration. Reading `PLIC_MXINT_ENABLE` and skipping live lines looks
-  obviously right and *broke the working case*: the tick runs on line 10 and
-  moving off it delivered nothing at all. So a set enable bit does not mean
-  what it appears to, and the original note that "CPU interrupt 10 is verified
-  safe on C6 with ESP-IDF 5.5" is load-bearing empirical knowledge rather than
-  an assumption waiting to be improved.
-- **Priority derived from the live threshold.** The PLIC delivers only above
-  `MXINT_THRESH`, and a board measured `pri=1` against `thresh=1`. Setting
-  `pri=2` changed nothing.
-- **Reordering the arming sequence.** Enabling the comparator before latching
-  `COMP1_LOAD` dropped a working arming to a single tick. ESP-IDF's
-  configure-latch-enable order is correct and is what the code now uses.
+The routing readback on a failing re-arm is *identical* to the working case —
+`src=58 -> cpu_int=10`, PLIC enabled, `pri=1 thresh=1`, `mie` and `mstatus.MIE`
+set — and the SYSTIMER source is asserting and latched, `raw=0x2 st=0x2`.
+Everything is correct and nothing is delivered. So the state that
+`reflex_sched_tick_stop` and `reflex_hal_intr_free` fail to restore is not
+visible in any register the readback covers yet.
 
-What the readback establishes on the 802.15.4 build, where it has never fired:
-the source is asserting *and latched* (`raw` and `st` both show TARGET1), the
-line is routed, PLIC-enabled, above threshold, with `mie` and `mstatus.MIE` set,
-and the CPU does not take it. Everything downstream of delivery is verified
-correct, which leaves the ROM vector entry installed by `intr_handler_set` or
-ESP-IDF's dispatcher declining a line its own allocator has no record of.
+Four hypotheses have been tested against it on hardware and all four rejected:
+PLIC-aware line allocation (broke the working case outright), priority derived
+from the live threshold, reordering the arming sequence (dropped a working
+arming to one tick), and clearing the PLIC pending bit on both the alloc and
+free paths. The free-side pending clear was kept because handing back an
+asserting line is wrong on its own merits; it explains nothing.
 
-The earlier blocker, for the record:The earlier blocker, for the record:The earlier blocker, for the record:
+That is the next question, and it is a good one: a first arming works perfectly
+and every subsequent one does not, with no observable difference in the
+hardware state that has been looked at so far. The readback needs extending —
+the PLIC in-service/claim registers are the obvious gap.
+
+The earlier blocker, for the record:The earlier blocker, for the record:The earlier blocker, for the record:The earlier blocker, for the record:
 
 ```
 reflex> kernel tick

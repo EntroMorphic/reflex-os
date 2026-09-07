@@ -77,6 +77,8 @@ independence-check:
 
 # Measure the Reflex scheduler tick across repeated cold starts. Delivery is
 # intermittent, so a single run proves nothing — this reports the distribution.
+# Each cold start is performed with `reboot` and verified by reading uptime
+# back; opening the port does NOT reset a C6, which an earlier version assumed.
 # Requires a flashed board: make tick-measure PORT=/dev/cu.usbmodemXXXX
 tick-measure:
 	@test -n "$(PORT)" || { echo "Usage: make tick-measure PORT=/dev/cu.usbmodemXXXX [RUNS=10]"; exit 1; }

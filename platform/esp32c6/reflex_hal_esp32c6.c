@@ -417,9 +417,21 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
     if (cpu_int < REFLEX_INTR_MIN || cpu_int > REFLEX_INTR_MAX)
         return REFLEX_ERR_INVALID_ARG;
 
-    /* Disable with interrupts off to prevent RMW race */
+    /* Disable with interrupts off to prevent RMW race, then drop whatever was
+     * pending on the line. Handing a line back while it is still asserting
+     * leaves the next owner with a pending interrupt it never caused and
+     * cannot acknowledge, so this is worth doing on its own merits —
+     * PLIC_MXINT_CLEAR was defined in this file and written by nothing.
+     *
+     * It is not the fix for the re-arm failure. That was the hypothesis, and
+     * clearing pending on both the free and alloc paths changed nothing: the
+     * first arming after a cold boot still runs at 1000 Hz and every re-arming
+     * still delivers one tick or none. The alloc-side clear was removed again
+     * as unjustified; this one stays because handing back an asserting line is
+     * wrong regardless of what it failed to explain. */
     __asm__ volatile ("csrci mstatus, 0x8");
     REFLEX_REG(PLIC_MXINT_ENABLE) &= ~(1U << cpu_int);
+    REFLEX_REG(PLIC_MXINT_CLEAR) = (1U << cpu_int);
     __asm__ volatile ("csrsi mstatus, 0x8");
 
     /* Clear interrupt matrix routing */
