@@ -1020,8 +1020,8 @@ static void shell_cmd_kernel_tick(void) {
         printf("  plic:   enabled=%d pri=%lu thresh=%lu level=%d\n", (int)route.plic_enabled,
                (unsigned long)route.plic_priority, (unsigned long)route.plic_threshold,
                (int)route.level_triggered);
-        printf("  csr:    mie_bit=%d mstatus.MIE=%d\n", (int)route.mie_enabled,
-               (int)route.global_ie);
+        printf("  csr:    mie_bit=%d mip_pending=%d mstatus.MIE=%d\n", (int)route.mie_enabled,
+               (int)route.mip_pending, (int)route.global_ie);
         printf("  systimer: ena=0x%08lx raw=0x%08lx st=0x%08lx (TARGET1=bit1)\n",
                (unsigned long)st_ena, (unsigned long)st_raw, (unsigned long)st_st);
         outcome(SHELL_FAILED);

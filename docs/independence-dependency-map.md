@@ -411,19 +411,44 @@ arming 4:    1 tick
 arming 5:    0 ticks
 ```
 
-The routing readback on a failing re-arm is *identical* to the working case —
-`src=58 -> cpu_int=10`, PLIC enabled, `pri=1 thresh=1`, `mie` and `mstatus.MIE`
-set — and the SYSTIMER source is asserting and latched, `raw=0x2 st=0x2`.
-Everything is correct and nothing is delivered. So the state that
-`reflex_sched_tick_stop` and `reflex_hal_intr_free` fail to restore is not
-visible in any register the readback covers yet.
+The readback was extended with `mip`, the CSR that says whether the core itself
+sees the interrupt pending, and that is decisive:
 
-Four hypotheses have been tested against it on hardware and all four rejected:
-PLIC-aware line allocation (broke the working case outright), priority derived
-from the live threshold, reordering the arming sequence (dropped a working
-arming to one tick), and clearing the PLIC pending bit on both the alloc and
-free paths. The free-side pending clear was kept because handing back an
-asserting line is wrong on its own merits; it explains nothing.
+```
+intmtx: src=58 -> cpu_int=10
+plic:   enabled=1 pri=1 thresh=1 level=1
+csr:    mie_bit=1 mip_pending=0 mstatus.MIE=1
+systimer: ena=0x00000007 raw=0x00000002 st=0x00000002 (TARGET1=bit1)
+```
+
+**`mip_pending=0` while the source is asserting and latched.** The core never
+sees the interrupt at all, so nothing downstream is masking it — `mstatus.MIE`,
+`mie` and the trap path are all irrelevant to this failure. The interrupt
+controller is simply not forwarding an asserted, routed, enabled line.
+
+That narrows it to the forwarding stage and rules out most of what was
+previously suspected. Two candidates remain and neither is currently
+observable: an in-service or claim state latched by the first tick and never
+released, and something in the interrupt-matrix or controller state that
+`reflex_hal_intr_free` does not restore. Neither has a register in the readback
+yet; extending it there is the next step.
+
+Five hypotheses have been tested on hardware and all five rejected as the
+cause: PLIC-aware line allocation (broke the working case outright), reordering
+the arming sequence (dropped a working arming to one tick), clearing the PLIC
+pending bit on the alloc path, and priority derived from the live threshold —
+tested twice, once on the 802.15.4 build where the tick has never fired, and
+again on the default build where `pri=2` over `thresh=1` still delivered nothing
+on a re-arm.
+
+Two of those changes were kept, each on its own merits and neither as a fix,
+both labelled as such in the code: `reflex_hal_intr_free` now clears
+`PLIC_MXINT_CLEAR` for the line it releases, because handing back an asserting
+line leaves the next owner an interrupt it cannot acknowledge; and priority now
+derives from the live threshold, because the controller forwards only *above*
+it and `pri=1` against `thresh=1` violates that rule even though a cold arming
+happens to run at `thresh=0`. Cold starts remain 5/5 at 1000-1001 Hz with both
+in place.
 
 That is the next question, and it is a good one: a first arming works perfectly
 and every subsequent one does not, with no observable difference in the

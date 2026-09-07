@@ -274,6 +274,8 @@ reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
 #define PLIC_MXINT_CLEAR      (PLIC_MX_BASE + 0x08)
 #define PLIC_MXINT_PRI(n)     (PLIC_MX_BASE + 0x10 + (n) * 4)
 #define PLIC_MXINT_THRESH     (PLIC_MX_BASE + 0x90)
+/* C6 PLIC priorities run 1..7; the controller forwards only above THRESH. */
+#define REFLEX_PLIC_PRIO_MAX 7u
 /* C6 PLIC priorities run 1..7; 0 means never delivered. */
 #define REFLEX_PLIC_PRIO_MAX 7u
 
@@ -345,12 +347,22 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
     /* Route peripheral source → CPU interrupt via interrupt matrix */
     REFLEX_REG(INTMTX_BASE + 4 * source) = cpu_int;
 
-    /* Priority 1. Deriving this from the live PLIC threshold was tried — the
-     * PLIC delivers only above MXINT_THRESH, and a board measured pri=1 against
-     * thresh=1 — and it did not help: pri=2 over thresh=1 still delivered
-     * nothing on the 802.15.4 build, and the change is not what makes the
-     * default build work. Left at the value that does. */
-    REFLEX_REG(PLIC_MXINT_PRI(cpu_int)) = 1;
+    /* Priority must exceed the live threshold, or the PLIC never forwards.
+     *
+     * Measured on a failing re-arm: the SYSTIMER source asserting and latched
+     * (raw=0x2 st=0x2), routed to the line, PLIC-enabled, mie set,
+     * mstatus.MIE set — and mip_pending=0. The core never sees the interrupt,
+     * so nothing downstream is masking it; the PLIC is not forwarding. With
+     * pri=1 against thresh=1 that is exactly the expected behaviour, because
+     * the comparison is strict.
+     *
+     * The threshold is not a constant. It is whatever the rest of the system
+     * is running at, so reading it and sitting one above keeps this correct in
+     * any configuration rather than working by luck in one. */
+    uint32_t thresh = REFLEX_REG(PLIC_MXINT_THRESH);
+    uint32_t prio = thresh + 1;
+    if (prio > REFLEX_PLIC_PRIO_MAX) prio = REFLEX_PLIC_PRIO_MAX;
+    REFLEX_REG(PLIC_MXINT_PRI(cpu_int)) = prio;
 
     /* Install the vector before the line can deliver anything.
      *
@@ -404,6 +416,13 @@ void reflex_hal_intr_describe(int source, reflex_intr_route_t *out) {
         uint32_t mie;
         __asm__ volatile("csrr %0, mie" : "=r"(mie));
         out->mie_enabled = (mie >> (16 + cpu_int)) & 1u;
+        /* mip is the decisive one for "asserting but never delivered": it says
+         * whether the core itself sees the interrupt pending. Set means the
+         * PLIC forwarded it and something is masking the trap; clear means the
+         * PLIC is not forwarding despite the source asserting. */
+        uint32_t mip;
+        __asm__ volatile("csrr %0, mip" : "=r"(mip));
+        out->mip_pending = (mip >> (16 + cpu_int)) & 1u;
     }
     out->plic_threshold = REFLEX_REG(PLIC_MXINT_THRESH);
 

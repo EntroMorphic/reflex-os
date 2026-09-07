@@ -115,6 +115,7 @@ typedef struct {
     bool plic_enabled;       /**< PLIC enable bit for that line.               */
     bool level_triggered;    /**< True if level-triggered, false if edge.      */
     bool mie_enabled;        /**< `mie` CSR bit for that line.                 */
+    bool mip_pending;        /**< `mip` CSR bit — does the CPU see it pending?  */
     bool global_ie;          /**< `mstatus.MIE` — interrupts enabled at all.   */
 } reflex_intr_route_t;
 
