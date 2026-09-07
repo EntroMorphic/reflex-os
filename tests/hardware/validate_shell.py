@@ -134,6 +134,7 @@ class Results:
     def __init__(self):
         self.passed = 0
         self.failed = 0
+        self.skipped = 0
 
     def check(self, desc, cond, got=""):
         if cond:
@@ -142,6 +143,28 @@ class Results:
         else:
             self.failed += 1
             print(f"  FAIL  {desc}\n          got: {got!r}")
+
+    def skip(self, desc, why):
+        """Record a check that does not apply to this target.
+
+        Counted and printed, never silent. A check that quietly disappears on
+        one target is indistinguishable from a check that passes, which is the
+        failure mode this suite exists to catch elsewhere."""
+        self.skipped += 1
+        print(f"  SKIP  {desc}\n          {why}")
+
+
+def board_catalog_size(b):
+    """How many MMIO registers this board's shadow atlas actually carries.
+
+    `atlas verify` reports `ok=N/M`; M is the catalog size. A C6 answers
+    12738/12738, and a target built with goose_shadow_atlas_stub.c answers 0/0.
+    Returns 0 when the count cannot be read, which routes the caller to skip
+    rather than to assert against a catalog whose size is unknown.
+    """
+    out = b.raw("atlas verify")
+    m = re.search(r"ok=\d+/(\d+)", out)
+    return int(m.group(1)) if m else 0
 
 
 # (command, role required) — every denial the policy table promises.
@@ -319,15 +342,34 @@ def validate(port, r):
                 original.strip() == b.raw("config get log_level").strip(), original)
 
     print("--- ternary outcome marker ---")
-    # Confirm the sanctuary probe still resolves before asserting what it
-    # returns. If the catalog is regenerated and this name moves or changes
-    # address, `goonies read` answers notfound and the guard assertion below
-    # fails — which would look like the Sanctuary Guard regressing when in
-    # fact the probe went stale. Distinguish the two here.
-    probe = b.raw(f"goonies find {SANCTUARY_CELL}")
-    if "not" in probe.lower() and "found" in probe.lower():
-        r.check(f"TEST PROBLEM: sanctuary probe {SANCTUARY_CELL} no longer resolves "
-                f"— pick another guarded catalog name", False, probe)
+    # Three states have to be told apart here, and the suite previously
+    # collapsed the last two.
+    #
+    #   1. The probe resolves          -> assert the Sanctuary Guard.
+    #   2. The catalog exists but this name does not -> TEST PROBLEM: the
+    #      catalog was regenerated and the probe went stale. `goonies read`
+    #      answers notfound, which reads as the guard regressing when in fact
+    #      the test needs a new name.
+    #   3. This target has no catalog at all -> not applicable.
+    #
+    # State 3 is real, not hypothetical: the shadow atlas is generated from
+    # tools/esp32c6.svd, and components/goose/CMakeLists.txt deliberately
+    # substitutes goose_shadow_atlas_stub.c on every other target so they do
+    # not claim C6 hardware knowledge. On the classic ESP32 mesh peer the
+    # catalog is empty by design, notfound is the honest answer, and reporting
+    # a failure there blames the firmware for the test's assumption.
+    catalog_size = board_catalog_size(b)
+    if catalog_size == 0:
+        r.skip(f"Sanctuary Guard via {SANCTUARY_CELL}",
+               "this target has no scraped MMIO catalog (atlas reports 0 entries), "
+               "so no shadow register exists to guard — see "
+               "components/goose/CMakeLists.txt")
+    else:
+        probe = b.raw(f"goonies find {SANCTUARY_CELL}")
+        if "not" in probe.lower() and "found" in probe.lower():
+            r.check(f"TEST PROBLEM: sanctuary probe {SANCTUARY_CELL} no longer resolves "
+                    f"in a catalog of {catalog_size} entries "
+                    f"— pick another guarded catalog name", False, probe)
 
     # The marker is the SDK's contract now, so each outcome class is asserted
     # against a command known to produce it.
@@ -347,8 +389,8 @@ def validate(port, r):
         # The Sanctuary Guard is the other policy guard SHELL_GUARD names, and
         # it reported `+1,ok` while refusing: an agent could not tell a
         # rejected MMIO read from a successful one. Asserted here for the same
-        # reason the sys.* guard is.
-        (f"goonies read {SANCTUARY_CELL}", (-1, "guard")),
+        # reason the sys.* guard is — but only where a catalog exists to guard.
+        *([(f"goonies read {SANCTUARY_CELL}", (-1, "guard"))] if catalog_size else []),
         ("tapestry signal no.such.cell 1", (-1, "notfound")),
         ("no_such_command_xyz", (-1, "notfound")),
         # Rejections in the mesh peer parser. A 17-character string with the
@@ -485,7 +527,8 @@ def main():
     r = Results()
     for port in ports:
         validate(port, r)
-    print(f"\n=== {r.passed} passed, {r.failed} failed ===")
+    tail = f", {r.skipped} skipped" if r.skipped else ""
+    print(f"\n=== {r.passed} passed, {r.failed} failed{tail} ===")
     return 1 if r.failed else 0
 
 

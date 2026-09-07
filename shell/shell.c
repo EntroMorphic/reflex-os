@@ -813,12 +813,17 @@ static void shell_cmd_status(int argc, char *argv[]) {
            (unsigned)goose_mmio_sync_peer_count());
     uint32_t hold_count = goose_loom_hold_count();
     uint32_t avg_hold = hold_count > 0 ? (uint32_t)(goose_loom_hold_total_us() / hold_count) : 0;
-    printf("loom lock_holds=%lu max_us=%lu avg_us=%lu evictions=%lu cells=%lu\n",
-           (unsigned long)hold_count,
-           (unsigned long)goose_loom_hold_max_us(),
-           (unsigned long)avg_hold,
-           (unsigned long)goose_fabric_get_eviction_count(),
-           (unsigned long)goonies_get_count());
+    /* The peak carries its site and the uptime at which it happened. Reading
+     * `max_us=1062` alone, nobody can tell a one-off boot-time bulk operation
+     * from a recurring steady state — and two identical C6s on identical
+     * firmware were measured at 331us and 1062us with no way to explain the
+     * difference. `max_us=1062@0.4s(alloc)` answers it on sight. */
+    printf("loom lock_holds=%lu max_us=%lu@%lu.%03lus(%s) avg_us=%lu evictions=%lu cells=%lu\n",
+           (unsigned long)hold_count, (unsigned long)goose_loom_hold_max_us(),
+           (unsigned long)(goose_loom_hold_max_at_us() / 1000000ULL),
+           (unsigned long)((goose_loom_hold_max_at_us() / 1000ULL) % 1000ULL),
+           goose_loom_hold_max_site(), (unsigned long)avg_hold,
+           (unsigned long)goose_fabric_get_eviction_count(), (unsigned long)goonies_get_count());
     /* Free heap in bytes. perception.heap.pressure only carries a trit, which
      * is enough for the circuit breaker but useless for spotting a slow leak —
      * the thresholds sit at 8K/16K against ~300K free, so a leak is invisible

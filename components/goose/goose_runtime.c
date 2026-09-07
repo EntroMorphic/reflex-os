@@ -238,9 +238,31 @@ static uint32_t s_lock_hold_max_us = 0;
 static uint64_t s_lock_hold_total_us = 0;
 static uint32_t s_lock_hold_count = 0;
 
+/* Who held the lock for s_lock_hold_max_us, and when.
+ *
+ * The peak on its own is not actionable. Measured on three boards at 006b8e2 it
+ * read 1062us, 331us and 919us against a 300us timeout — two of those being
+ * identical C6s on identical firmware, differing threefold with no way to tell
+ * whether the outlier was one boot-time bulk operation or a recurring steady
+ * state. A bare maximum cannot answer that; a maximum that names its site and
+ * its timestamp can, and both are already to hand at the moment it is set.
+ *
+ * The site string is copied rather than kept as a pointer: it points into
+ * goose_field_t::name, and a field can be freed while this record outlives it.
+ * The copy happens at unlock, where the field is still guaranteed alive. */
+static const char *s_lock_holder = "none";
+static char s_lock_hold_max_site[16] = "none";
+static uint64_t s_lock_hold_max_at_us = 0;
+
 uint32_t goose_loom_hold_max_us(void)   { return s_lock_hold_max_us; }
 uint64_t goose_loom_hold_total_us(void) { return s_lock_hold_total_us; }
 uint32_t goose_loom_hold_count(void)    { return s_lock_hold_count; }
+const char *goose_loom_hold_max_site(void) {
+    return s_lock_hold_max_site;
+}
+uint64_t goose_loom_hold_max_at_us(void) {
+    return s_lock_hold_max_at_us;
+}
 
 bool goose_loom_try_lock(goose_field_t *field) {
     static uint32_t s_contention_count = 0;
@@ -265,6 +287,7 @@ bool goose_loom_try_lock(goose_field_t *field) {
     uint64_t end = reflex_hal_time_us();
     if (field) field->stats.lock_contention_us += (uint32_t)(end - start);
     s_lock_acquire_us = end;  /* record for hold duration measurement */
+    s_lock_holder = field ? field->name : "alloc";
     return true;
 }
 
@@ -272,7 +295,13 @@ void goose_loom_unlock(void) {
     uint32_t held = (uint32_t)(reflex_hal_time_us() - s_lock_acquire_us);
     s_lock_hold_total_us += held;
     s_lock_hold_count++;
-    if (held > s_lock_hold_max_us) s_lock_hold_max_us = held;
+    if (held > s_lock_hold_max_us) {
+        s_lock_hold_max_us = held;
+        s_lock_hold_max_at_us = s_lock_acquire_us;
+        strncpy(s_lock_hold_max_site, s_lock_holder ? s_lock_holder : "?",
+                sizeof(s_lock_hold_max_site) - 1);
+        s_lock_hold_max_site[sizeof(s_lock_hold_max_site) - 1] = '\0';
+    }
     __atomic_clear(&loom_authority, __ATOMIC_RELEASE);
 }
 

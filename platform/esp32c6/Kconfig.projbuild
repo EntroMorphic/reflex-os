@@ -15,8 +15,21 @@ menu "Reflex OS"
     endchoice
     config REFLEX_KERNEL_SCHEDULER
         bool "Enable Reflex kernel supervisor and port assembly"
+        depends on IDF_TARGET_ESP32C6
         default n
         help
+            C6 only. kernel/reflex_sched.c, reflex_startup.c, reflex_trap.c and
+            reflex_vectors.S are added to the build by
+            platform/esp32c6/CMakeLists.txt and by nothing else, while the
+            shell's `kernel tick` command is guarded by this symbol alone. On
+            any other target the command therefore compiled and then failed to
+            link with `undefined reference to reflex_sched_tick_stop` — 200
+            objects into the build, naming a symbol rather than the choice that
+            caused it. sdkconfig.defaults sets this =y, so an ESP32 build that
+            omitted SDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32 inherited it and
+            hit exactly that. Refusing the combination at configure time is the
+            honest place to say no.
+
             Activates the Reflex kernel layer on top of FreeRTOS:
             - Wraps rtos_int_enter/exit with our port assembly
             - Creates the kernel supervisor task (purpose-modulated

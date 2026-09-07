@@ -169,6 +169,7 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 
 ## Hardware-Validated Behaviors
 
+- **Loom peak hold is eviction-driven, not boot-driven** (2026-09-07, C6). `status` now carries the site and timestamp of the peak. Fresh boot `max_us=321@0.082s(alloc)`, held flat across a full 171-check `hw-test` run (6,757 holds). Three `bonsai bloat` passes then drove it to `568@75.712s(alloc)` at 163 evictions and `1534@83.042s(alloc)` at 463, unchanged by the third pass at 763. The site is `alloc` in every case.
 - **The 2026-09-07 P0 remediation, on three boards.** Firmware built clean for both targets (esp32c6 1.74MB, esp32 903KB, zero warnings) at commit `006b8e2`, flashed to two ESP32-C6s and one classic dual-core ESP32 ("the V3"). `make hw-test`: **171/171** on each C6, **170/171** on the V3 (the single failure is a test-portability issue, not firmware — see Known Gaps). Six targeted P0 probes pass on all three: a TSYS selector of `0x10003` is refused at load while `DELAY` still loads (P0-H1); a `.loom` fragment is refused for `GOOSE_COUPLING_RADIO`, for an `orientation` of 7, and for a non-zero `trans_count`, while the SOFTWARE fragment `loomc.py` actually emits is still accepted (P0-H2). **P0-H3 was written specifically for dual-core and this is its first run on dual-core silicon.**
 - **QUERY egress throttle, measured live (P0-L3).** Two `mesh query` commands 50ms apart: the first reports `rc=0x0` / `#R:+1,ok`, the second `throttled (10Hz egress limit)` / `#R:-1,guard`. `mesh stat` then reads `tx_query=1 query_throttled=1` — the suppressed query is counted but never reaches the radio, confirming the gate sits ahead of the transmit counter.
 - **`loom evictions` reads the previously dead eviction ring**: after two `bonsai bloat` passes the window reports `total=461 recent=8 distinct=8` with every victim in the `logic.*` shadow namespace — confirming directly that only shadow-paged cells are ever chosen and seeds never are. The empty state reports `total=0 (none yet)`. The anomaly branch was verified by mutation rather than left unexercised: forcing the ring to record a constant name produced `distinct=1` and the expected `ANOMALY` line, then the mutation was reverted.
@@ -211,45 +212,13 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 
 ## Known Gaps (docs lead, code trails)
 
-### Found during hardware validation, 2026-09-07
+### Found during hardware validation, 2026-09-07 — all three closed
 
-- **`tests/hardware/validate_shell.py` is not target-aware.** Its Sanctuary Guard check asserts `goonies read agency.io_mux.date` -> `#R:-1,guard`, but the shadow atlas is generated from `tools/esp32c6.svd` and `components/goose/CMakeLists.txt` deliberately substitutes `goose_shadow_atlas_stub.c` on every other target — so on the classic ESP32 that name does not exist and the honest answer is `#R:-1,notfound`. Both are refusals and nothing is unsafe; the assertion is C6-specific and the suite had only ever been run on C6s. The check needs a target-appropriate name or a skip, so `make hw-test` can pass cleanly against the ESP32 mesh peer.
-- **Peak loom hold exceeds the timeout budget on all three boards.** `LOOM_LOCK_TIMEOUT_US` is 300us and the telemetry-under-lock analysis cites a recorded steady-state peak of 353us. Measured at commit `006b8e2`: C6-a **1062us** (60,141 holds), C6-b **331us** (71,118 holds), V3 **919us** (24,597 holds). Every figure is stable — unchanged across tens of thousands of subsequent holds — and average hold is 2-4us, so these are early/boot-time peaks rather than a steady-state regression. Two identical C6s on identical firmware differing 3x (331 vs 1062) points at a rare event, likely boot ordering, rather than a systematic one. No contention faults and `evictions=0` throughout, so no observed harm; recorded because the numbers contradict the budget the lock discipline is reasoned against, and nobody had measured the peak on the classic ESP32 before.
-- **Enabling `CONFIG_REFLEX_KERNEL_SCHEDULER` on the esp32 target fails at link, not at configure.** `sdkconfig.defaults` sets it `=y`, and building the ESP32 without `SDKCONFIG_DEFAULTS=sdkconfig.defaults.esp32` inherits it — but `kernel/reflex_sched.c` is added only by `platform/esp32c6/CMakeLists.txt`, so `shell_cmd_kernel_tick` (guarded by that same symbol) compiles and then cannot link: `undefined reference to reflex_sched_tick_stop`. Harmless with the documented invocation, which CI uses. A Kconfig `depends on IDF_TARGET_ESP32C6` would refuse the combination up front rather than 200 objects later.
+- ~~`tests/hardware/validate_shell.py` is not target-aware~~: the suite now reads the catalog size from `atlas verify` (`ok=N/M`) and tells three states apart where it previously collapsed two — the probe resolves (assert the Sanctuary Guard), the catalog exists but this name went stale (TEST PROBLEM, pick another name), or this target has no catalog at all (skip). The third is real: `components/goose/CMakeLists.txt` deliberately substitutes `goose_shadow_atlas_stub.c` off-C6 so other targets do not claim C6 hardware knowledge, so `notfound` was the honest answer and the failure blamed the firmware for the test's assumption. `Results.skip` is counted and printed, never silent. **Verified on hardware: ESP32 `170 passed, 0 failed, 1 skipped` exit 0; C6 still asserts `goonies read agency.io_mux.date` -> `#R:-1,guard` at `171 passed, 0 failed`.**
+- ~~Peak loom hold exceeds the timeout budget, unexplained~~: the peak now records **where** and **when**, because a bare maximum cannot distinguish a one-off from a steady state. `status` reads `max_us=1534@83.042s(alloc)`. That immediately settled it, and disproved the boot-time hypothesis in the previous entry: the site is always `alloc` (`fabric_alloc_internal`) and the peak tracks **eviction pressure**, not uptime. Measured on one C6: fresh boot `321@0.082s`, after one `bonsai bloat` pass (163 evictions) `568@75.712s`, after two (463 evictions) `1534@83.042s`, unchanged by a third. The original 3x spread between two identical C6s was workload, not boot ordering — one had run `hw-test`, the other only the P0 probe.
+- ~~`CONFIG_REFLEX_KERNEL_SCHEDULER` fails at link on esp32~~: the symbol now carries `depends on IDF_TARGET_ESP32C6`, so the combination is refused at configure instead of 200 objects later. **Verified: the exact previously-failing invocation (`set-target esp32` with no `SDKCONFIG_DEFAULTS`) now leaves the symbol absent from sdkconfig despite `sdkconfig.defaults` setting it `=y`, and builds with 0 undefined references. The C6 keeps it `=y`.**
 
-### Adoption gaps (usability, not correctness) — see [`adoption-gaps.md`](adoption-gaps.md)
-
-Assessed 2026-09-07 at commit `9609a08`. These are what stand between the current
-substrate and something a hobbyist or a lab can build on. None is a correctness
-defect; all are open. Three of the six are exposure of capability that already
-exists rather than new construction, which is why the distance is shorter than the
-list looks.
-
-- **A1 — nothing a user creates survives a reboot.** `vm loadhex` is RAM-only; `vm run` reaches only firmware-embedded programs; storage is NVS key-value with no filesystem and no program store. BLOCKING.
-- **A2 — `vm run` wedges the board.** Runs synchronously in the shell task (`shell/shell.c:1332`), so `vm stop` and `reboot` cannot be read; recovery is a physical reset. BLOCKING. The fix is already built: `vm/task_runtime.c` is a task-backed VM runtime, registered as `system_vm` in `main.c` and idle because its image is NULL.
-- **A3 — peripherals are not reachable.** The HAL is 19 functions (GPIO, temp, time, interrupts); no I2C, SPI, ADC, PWM. `goose_fabric_set_agency` can bind a cell to any GPIO or atlas register, but is C-only — no shell verb exposes it. BLOCKING for "control hardware".
-- **A4 — neither language can express a real program.** TASM has no `CALL`/`RET` (so no subroutines), no multiply, and four syscalls none of which touch hardware. LoomScript has one verb. SEVERE.
-- **A5 — programs cap near 500 bytes**, bounded by the 1023-character shell line; no chunking or OTA. SEVERE.
-- **A6 — no program-level debugging and no way to share a program.** IMPORTANT.
-
-
-Closed in the current remediation sweep:
-
-- ~~Plasticity rule~~: replaced with reward-gated co-activation Hebbian in `goose_supervisor_learn_sync` (Phase 3).
-- ~~NEURON aggregation~~: multi-route ternary sum-and-threshold in `internal_process_transitions` via `neuron_quorum` (Phase 2).
-- ~~Autonomous Fabrication hardcoded suffix~~: generic last-segment capability matcher in `goose_supervisor_weave_sync` (Phase 2).
-- ~~Replay protection on Atmosphere~~: 16-slot replay cache in `atmosphere_recv_cb` (Phase 1).
-- ~~Aura key material~~: NVS-backed key with `aura setkey <hex>` shell command; compile-time default retained as unprovisioned fallback (Phase 1).
-- ~~"MMU-backed memory" framing~~: README narrowed to "region-protected shared ternary memory" to match `vm/mmu.c` (Phase 4).
-- ~~LP-core "Coherent Heartbeat"~~: ULP enabled (`CONFIG_ULP_COPROC_TYPE_LP_CORE=y`), LP program rewritten to LP-local globals, HP bootstrap via `ulp_lp_core_load_binary`/`ulp_lp_core_run` with 1 Hz LP_TIMER wakeup, `heartbeat` shell command reads `lp_pulse_count` (Phase 5).
-- ~~Kernel task backend dormant~~: `reflex_task_kernel.c` was delegating to the cooperative scheduler (`reflex_sched.c`) which was never started, so supervisor task, field pulse tasks, and all substrate tasks were silently not running under `CONFIG_REFLEX_KERNEL_SCHEDULER=y`. Rewrote to delegate task management to FreeRTOS (matching `reflex_task_esp32c6.c`), preserving kernel ownership of interrupt context switching and scheduling policy.
-
-Accepted design decisions (audited, instrumented, benign):
-
-- ~~Round-robin eviction~~: no thrashing observed. `#T:E` telemetry monitors eviction. LRU deferred until evidence demands it.
-- ~~C supervisor (not TASM)~~: TASM lacks string ops and dynamic iteration for policy logic. C is the right tool.
-- ~~Route-only snapshots~~: full cell state is stateless by design (re-woven from atlas on boot). Current scope is correct.
-- ~~Alloc-under-lock~~: ~40µs worst case, `LOOM_CONTENTION_FAULT` never fired. Sub-threshold, instrumented.
+**Open, and newly surfaced by that instrumentation:** at fabric saturation the `alloc` path holds `loom_authority` for up to **1534us** — five times `LOOM_LOCK_TIMEOUT_US` (300us), so any concurrent `try_lock` in that window times out and defers. The eviction scan runs inside the hold. This also sits against the 637us peak recorded in the indexed-registry entry below, measured on the same board at the same churn (three `bonsai bloat` passes, 763 evictions); 1534us is 2.4x that figure and the difference is not yet explained. Not a correctness defect — no contention faults were logged and the deferral path is the designed response — but the budget the lock discipline is reasoned against does not hold under eviction pressure, and now that the site is named this is measurable rather than mysterious.
 
 Closed in the 2026-09-07 P0 audit remediation (see [`P0-07SEP26.md`](P0-07SEP26.md)):
 

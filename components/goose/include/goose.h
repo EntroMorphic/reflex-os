@@ -329,6 +329,13 @@ bool goose_fabric_addr_is_sanctuary(uint32_t addr);
 
 /** Loom lock hold duration instrumentation. */
 uint32_t goose_loom_hold_max_us(void);
+/** Field name that held the lock for the peak duration, or "alloc" for the
+ *  fabric allocation path. A bare peak cannot distinguish a one-off boot
+ *  operation from a recurring steady state; the site and timestamp can. */
+const char *goose_loom_hold_max_site(void);
+/** Microsecond timestamp at which the peak hold was acquired. Compare against
+ *  uptime: a value near zero means the peak was a boot-time bulk operation. */
+uint64_t goose_loom_hold_max_at_us(void);
 uint64_t goose_loom_hold_total_us(void);
 uint32_t goose_loom_hold_count(void);
 
