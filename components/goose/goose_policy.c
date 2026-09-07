@@ -126,3 +126,13 @@ uint32_t goose_policy_replay_slot(uint32_t nonce, const uint8_t *mac, uint32_t s
      * constrains it to a power of two. */
     return h % slot_count;
 }
+
+bool goose_policy_loom_route_acceptable(int orientation, unsigned coupling) {
+    if (orientation < -1 || orientation > 1) {
+        return false;
+    }
+    /* A whitelist, not a blacklist. A future coupling mode added to the enum
+     * must be considered deliberately before the wire can request it, rather
+     * than becoming reachable the moment it is defined. */
+    return coupling == GOOSE_POLICY_COUPLING_SOFTWARE;
+}

@@ -280,6 +280,59 @@ static void test_replay_slot(void) {
     printf("ok\n");
 }
 
+/* --- LoomScript route acceptance -------------------------------------------
+ *
+ * Regression: goose_weave_loom hardened its structural fields but copied
+ * orientation and coupling straight off the wire. orientation is used as a
+ * multiplicand, so a non-trit produces cell states outside the ternary set;
+ * coupling RADIO makes every pulse of a 100 Hz REACTIVE field emit a mesh arc,
+ * a permanent transmit loop woven by one admin-role upload. */
+static void test_loom_route_acceptance(void) {
+    printf("[loomacc] ");
+
+    /* What loomc.py actually emits must keep working. */
+    CHECK("orientation +1, SOFTWARE accepted",
+          goose_policy_loom_route_acceptable(1, GOOSE_POLICY_COUPLING_SOFTWARE));
+    CHECK("orientation 0 accepted",
+          goose_policy_loom_route_acceptable(0, GOOSE_POLICY_COUPLING_SOFTWARE));
+    CHECK("orientation -1 accepted",
+          goose_policy_loom_route_acceptable(-1, GOOSE_POLICY_COUPLING_SOFTWARE));
+
+    /* The audit's example value. */
+    CHECK("orientation 7 rejected",
+          !goose_policy_loom_route_acceptable(7, GOOSE_POLICY_COUPLING_SOFTWARE));
+    CHECK("orientation -128 rejected (int8_t floor)",
+          !goose_policy_loom_route_acceptable(-128, GOOSE_POLICY_COUPLING_SOFTWARE));
+    CHECK("orientation 2 rejected (just outside the set)",
+          !goose_policy_loom_route_acceptable(2, GOOSE_POLICY_COUPLING_SOFTWARE));
+
+    /* The transmit loop. */
+    CHECK("coupling RADIO rejected",
+          !goose_policy_loom_route_acceptable(1, GOOSE_POLICY_COUPLING_RADIO));
+    CHECK("coupling HARDWARE rejected",
+          !goose_policy_loom_route_acceptable(1, GOOSE_POLICY_COUPLING_HARDWARE));
+
+    /* Whitelist, not blacklist: every other uint8_t must be refused, including
+     * modes the enum does not define yet. */
+    int refused_all = 1;
+    for (unsigned c = 0; c <= 255; c++) {
+        if (c == GOOSE_POLICY_COUPLING_SOFTWARE) continue;
+        if (goose_policy_loom_route_acceptable(1, c)) refused_all = 0;
+    }
+    CHECK("every coupling but SOFTWARE refused, defined or not", refused_all);
+
+    /* And the full int8_t orientation range, so neither field can be waved
+     * through by the other being valid. */
+    int only_trits = 1;
+    for (int o = -128; o <= 127; o++) {
+        int ok = goose_policy_loom_route_acceptable(o, GOOSE_POLICY_COUPLING_SOFTWARE);
+        if (ok != (o >= -1 && o <= 1)) only_trits = 0;
+    }
+    CHECK("exactly the three trits accepted across int8_t", only_trits);
+
+    printf("ok\n");
+}
+
 /* Matches the harness convention: suites return their failure count. The
  * pass count is exposed separately because the runner's total otherwise
  * under-reports, counting only test_main's own assertions. */
@@ -289,6 +342,7 @@ int test_policy(void) {
     test_mesh_window();
     test_snapshot_count();
     test_replay_slot();
+    test_loom_route_acceptance();
     return s_fail;
 }
 

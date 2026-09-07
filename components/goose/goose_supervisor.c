@@ -389,21 +389,46 @@ reflex_err_t goose_supervisor_check_equilibrium(goose_field_t *field) {
     return REFLEX_OK;
 }
 
+/* Repairs a field that check_equilibrium found stuck, by giving an INTENT ->
+ * HARDWARE_OUT route with no orientation a positive one.
+ *
+ * The orientation write is a route mutation, and every other route mutation in
+ * the substrate takes loom_authority first. This one did not: it wrote through
+ * unlocked and then called goose_process_transitions, which takes the lock at
+ * depth 0. On the single-core C6 that is benign — the supervisor cannot preempt
+ * itself mid-write — but goose_supervisor_pulse runs at priority 20 while field
+ * pulse tasks run unpinned at 10, so on the dual-core ESP32 the write genuinely
+ * races the pulse's reads in internal_process_transitions and check_equilibrium.
+ *
+ * The lock is released before goose_process_transitions rather than held across
+ * it: goose_loom_try_lock is a non-recursive test-and-set, so holding it into a
+ * function that acquires it again would spin until the timeout and then skip
+ * the propagation this function exists to perform. */
 reflex_err_t goose_supervisor_rebalance(goose_field_t *field) {
+    if (!field) return REFLEX_ERR_INVALID_ARG;
+
+    /* Timeout-and-skip, matching every other supervisor lock site: a field left
+     * stuck for one more pulse is the cheaper failure. */
+    if (!goose_loom_try_lock(field)) return REFLEX_OK;
+
     int field_rebalance_limit = 0;
+    reflex_err_t rc = REFLEX_OK;
     for (size_t i = 0; i < field->route_count; i++) {
         goose_route_t *r = &field->routes[i];
         if (field_rebalance_limit++ > REFLEX_MAX_REBALANCE_ITERATIONS) {
             system_balance.state = REFLEX_TRIT_NEG;
-            return REFLEX_ERR_INVALID_STATE;
+            rc = REFLEX_ERR_INVALID_STATE;
+            break;
         }
-        if (r->cached_source && r->cached_sink &&
-            r->cached_source->type == GOOSE_CELL_INTENT && 
-            r->cached_sink->type == GOOSE_CELL_HARDWARE_OUT &&
-            r->orientation == REFLEX_TRIT_ZERO) {
+        if (r->cached_source && r->cached_sink && r->cached_source->type == GOOSE_CELL_INTENT &&
+            r->cached_sink->type == GOOSE_CELL_HARDWARE_OUT && r->orientation == REFLEX_TRIT_ZERO) {
             r->orientation = REFLEX_TRIT_POS;
         }
     }
+
+    goose_loom_unlock();
+
+    if (rc != REFLEX_OK) return rc;
     return goose_process_transitions(field);
 }
 

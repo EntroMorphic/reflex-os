@@ -133,4 +133,32 @@ uint16_t goose_policy_snap_entry_count(size_t route_count, size_t max_routes);
  */
 uint32_t goose_policy_replay_slot(uint32_t nonce, const uint8_t *mac, uint32_t slot_count);
 
+/* ---- LoomScript fragment acceptance -------------------------------------- */
+
+/* Mirrored from goose_coupling_t. Only SOFTWARE is reachable from the wire;
+ * the rest stay available to C callers. */
+#define GOOSE_POLICY_COUPLING_HARDWARE 0
+#define GOOSE_POLICY_COUPLING_SOFTWARE 1
+#define GOOSE_POLICY_COUPLING_RADIO 3
+
+/**
+ * @brief May a wire-supplied route carry this orientation and coupling?
+ *
+ * goose_weave_loom hardened its *structural* fields — counts, indices, buffer
+ * extents — in the 2026-08-12 pass, but copied these two payload fields
+ * straight through. Both are effects, not descriptions:
+ *
+ * - orientation lands in a reflex_trit_t and is used as a multiplicand
+ *   (sink = source->state * control), so a value outside {-1,0,+1} produces
+ *   cell states outside the ternary set and carries them downstream.
+ * - coupling selects a manifestation mode. RADIO makes every pulse of a 100 Hz
+ *   REACTIVE field emit a mesh arc — a permanent transmit loop woven by one
+ *   upload. HARDWARE routes silicon through the GPIO matrix. Neither is
+ *   something a fragment should be able to ask for.
+ *
+ * @param orientation  wire value, any int8_t
+ * @param coupling     wire value, any uint8_t
+ */
+bool goose_policy_loom_route_acceptable(int orientation, unsigned coupling);
+
 #endif /* GOOSE_POLICY_H */

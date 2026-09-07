@@ -233,7 +233,12 @@ Closed in the 2026-09-07 P0 audit remediation (see [`P0-07SEP26.md`](P0-07SEP26.
 - ~~P0-M1 mesh replay cache ignored the sender MAC~~: the slot was exactly `nonce & 63` for every peer, contradicting [`../SECURITY.md`](../SECURITY.md) §4. Hash moved to `goose_policy_replay_slot` (host-testable, covers the full MAC, mixes every input bit into the index) and pinned by `[replay]` in `tests/host/test_policy.c`.
 - ~~P0-M2 `make format-check` could not fail~~: `clang-format`'s exit status was consumed by a pipe to `head` and the success message printed unconditionally, so the CI gate had been green by construction since it was written. Now line-scoped against the merge-base (`make format-check`), with whole-tree debt reported separately (`make format-check-all`) and `clang-format` pinned in CI.
 
-Open from the 2026-09-07 P0 audit: P0-H2, P0-H3, P0-H4, P0-M3, P0-M4, P0-M5, and the low-severity table.
+- ~~P0-H2 LoomScript payload fields copied from the wire unvalidated~~: `orientation` (a multiplicand, so a non-trit propagates states outside the ternary set) and `coupling` (`RADIO` honoured, giving a 100 Hz permanent transmit loop from one upload). Now whitelisted to `{-1,0,+1}` × `SOFTWARE` via `goose_policy_loom_route_acceptable`, pinned by `[loomacc]`, with `_Static_assert`s binding the mirrored constants. `trans_count` is refused rather than silently dropped.
+- ~~P0-H3 `goose_supervisor_rebalance` mutated routes with no loom lock~~: now `goose_loom_try_lock` with timeout-and-skip, released before `goose_process_transitions` because the lock is non-recursive. Dual-core (`platform/esp32`) only; benign on the single-core C6.
+
+Open from the 2026-09-07 P0 audit: P0-H4, P0-M3, P0-M4, P0-M5, and the low-severity table.
+
+Related, observed while fixing P0-H3 and not part of it: `goose_supervisor_check_equilibrium` also reads route state with no loom lock, from the same unlocked `goose_supervisor_pulse` path. Its reads are guarded by the `cached_version` check rather than by the lock, which is the substrate's established staleness discipline, so this is recorded as exposure on dual-core rather than as a defect.
 
 **Formatting debt: 98 of 127 hand-written files do not match `.clang-format`.** Not a defect, but a consequence worth recording: the gate that should have prevented it never ran. The gate now holds changed lines only, so the tree converges as code is rewritten rather than through one mass reformat that would rewrite brace style across the codebase.
 

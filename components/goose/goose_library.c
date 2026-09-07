@@ -16,6 +16,7 @@
  */
 
 #include "goose.h"
+#include "goose_policy.h"
 #include "reflex_hal.h"
 #include <stdlib.h> /* malloc/free — reached transitively under ESP-IDF; declared
                        * here so the file also compiles standalone. An implicit
@@ -105,6 +106,14 @@ int goose_loom_fragment_count(void) { return active_loom_fragments; }
  * allocation happens, so a malformed fragment cannot leave a half-built field
  * registered with the supervisor.
  */
+/* The policy header mirrors goose_coupling_t by value, the same reciprocal-sync
+ * discipline goose_runtime.c uses for the cell types. A reordered enum would
+ * otherwise silently turn the wire whitelist into a different mode. */
+_Static_assert(GOOSE_COUPLING_HARDWARE == GOOSE_POLICY_COUPLING_HARDWARE, "policy/coupling drift");
+_Static_assert(GOOSE_COUPLING_SOFTWARE == GOOSE_POLICY_COUPLING_SOFTWARE, "policy/coupling drift");
+_Static_assert(GOOSE_COUPLING_RADIO == GOOSE_POLICY_COUPLING_RADIO, "policy/coupling drift");
+_Static_assert(REFLEX_TRIT_NEG == -1 && REFLEX_TRIT_POS == 1, "policy/trit drift");
+
 reflex_err_t goose_weave_loom(const uint8_t *buffer, size_t size) {
     if (!buffer) return REFLEX_ERR_INVALID_ARG;
     if (size < sizeof(loom_header_t)) return REFLEX_ERR_INVALID_SIZE;
@@ -126,6 +135,17 @@ reflex_err_t goose_weave_loom(const uint8_t *buffer, size_t size) {
         REFLEX_LOGE(TAG, "Security Violation: fragment counts out of range (cells=%u routes=%u)",
                     (unsigned)head.cell_count, (unsigned)head.route_count);
         return REFLEX_ERR_INVALID_SIZE;
+    }
+
+    /* trans_count is in the wire header and there is no transition format to
+     * parse it with. Accepting the fragment anyway meant a producer could
+     * declare transitions, watch the weave succeed, and never learn that the
+     * behaviour it asked for was dropped on the floor. Refusing is the honest
+     * answer until the format exists. */
+    if (head.trans_count != 0) {
+        REFLEX_LOGE(TAG, "fragment declares %u transition(s); the format is not implemented",
+                    (unsigned)head.trans_count);
+        return REFLEX_ERR_NOT_SUPPORTED;
     }
 
     /* The declared arrays must actually be present. Checking only
@@ -170,6 +190,16 @@ reflex_err_t goose_weave_loom(const uint8_t *buffer, size_t size) {
             REFLEX_LOGE(TAG, "route %u references a cell that did not resolve", (unsigned)i);
             return REFLEX_ERR_NOT_FOUND;
         }
+        /* The structural fields were hardened in the 2026-08-12 pass; these two
+         * payload fields were still copied through verbatim. The rule lives in
+         * goose_policy.c so the host suite exercises the firmware's own
+         * predicate — see goose_policy_loom_route_acceptable for why each field
+         * is an effect rather than a description. */
+        if (!goose_policy_loom_route_acceptable(re.orientation, re.coupling)) {
+            REFLEX_LOGE(TAG, "Security Violation: route %u rejected (orientation=%d coupling=%u)",
+                        (unsigned)i, (int)re.orientation, (unsigned)re.coupling);
+            return REFLEX_ERR_INVALID_ARG;
+        }
     }
 
     goose_field_t *field = malloc(sizeof(goose_field_t));
@@ -193,8 +223,8 @@ reflex_err_t goose_weave_loom(const uint8_t *buffer, size_t size) {
         snprintf(r->name, sizeof(r->name), "ls%u_%u", (unsigned)(head.name_hash & 0xFFF), (unsigned)i);
         r->source_coord = resolved_cells[re.src_idx]->coord;
         r->sink_coord   = resolved_cells[re.snk_idx]->coord;
-        r->orientation  = re.orientation;
-        r->coupling     = re.coupling;
+        r->orientation = (reflex_trit_t)re.orientation; /* range-checked above */
+        r->coupling = (goose_coupling_t)re.coupling;    /* whitelisted above  */
         goose_apply_route(r);
     }
 
