@@ -1007,14 +1007,21 @@ static void shell_cmd_kernel_tick(void) {
     unsigned hz = elapsed_us ? (unsigned)((uint64_t)ticks * 1000000u / elapsed_us) : 0;
     printf("kernel tick: %lu ticks in %lu us -> %u Hz (target %u)\n", (unsigned long)ticks,
            (unsigned long)elapsed_us, hz, (unsigned)REFLEX_SCHED_TICK_HZ);
-    if (ticks == 0) {
-        /* Report the routing rather than the conclusion. "Routed but not
-         * firing" names three or four possible causes and distinguishes none
-         * of them; the registers distinguish all of them, and they are three
-         * reads away. Every value is read back from hardware now, not
-         * remembered from when the routing was set up, because the interesting
-         * failure is the one where something else changed it. */
-        printf("kernel tick: no ticks — routing readback (taken live):\n");
+    /* Report the routing rather than the conclusion, and report it whether or
+     * not the tick fired.
+     *
+     * "Routed but not firing" names three or four possible causes and
+     * distinguishes none of them; the registers distinguish all of them, and
+     * they are three reads away. Every value is read back from hardware, not
+     * remembered from setup, because the interesting failure is the one where
+     * something else changed it.
+     *
+     * Printing only on failure was its own mistake: the working case was never
+     * observed, so a claim about what the registers look like when it works
+     * went into the record unmeasured. A diagnostic visible only when things
+     * are broken cannot say what "not broken" looks like. */
+    {
+        printf("kernel tick: routing readback (taken live):\n");
         printf("  intmtx: src=%lu -> cpu_int=%lu\n", (unsigned long)route.source,
                (unsigned long)route.cpu_int);
         printf("  plic:   enabled=%d pri=%lu thresh=%lu level=%d\n", (int)route.plic_enabled,
@@ -1024,6 +1031,9 @@ static void shell_cmd_kernel_tick(void) {
                (int)route.mip_pending, (int)route.global_ie);
         printf("  systimer: ena=0x%08lx raw=0x%08lx st=0x%08lx (TARGET1=bit1)\n",
                (unsigned long)st_ena, (unsigned long)st_raw, (unsigned long)st_st);
+    }
+    if (ticks == 0) {
+        printf("kernel tick: no ticks delivered\n");
         outcome(SHELL_FAILED);
     }
 }

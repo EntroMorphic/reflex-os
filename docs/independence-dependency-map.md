@@ -411,8 +411,31 @@ arming 4:    1 tick
 arming 5:    0 ticks
 ```
 
-The readback was extended with `mip`, the CSR that says whether the core itself
-sees the interrupt pending, and that is decisive:
+The readback now prints on success as well as failure — printing only on
+failure meant the working case was never observed, and a claim about it went
+into the record unmeasured. Comparing a working arming against a failing one on
+the same boot:
+
+| | arming 1 (1000 Hz) | armings 2-3 (0 ticks) |
+|---|---|---|
+| `intmtx` | `src=58 -> cpu_int=10` | identical |
+| `plic` | `enabled=1 pri=2 thresh=1 level=1` | identical |
+| `csr` | `mie=1 mip_pending=0 mstatus.MIE=1` | identical |
+| `systimer` | `raw=0x0 st=0x0` | **`raw=0x2 st=0x2`** |
+
+**Every controller register is identical. The only difference is that the
+SYSTIMER source is stuck asserted in the failing case** — it fired and was never
+acknowledged, because no ISR ran to acknowledge it.
+
+That also corrects a claim made when the threshold-derived priority landed: it
+was said that a cold arming "happens to run at `thresh=0`". It does not. The
+threshold is 1 in both the working and failing cases, so that change is
+correctness and not an explanation.
+
+The `mip` reading needed fixing too. It was originally taken with traps
+unmasked, where a forwarded interrupt is taken before the read can see it — so
+`mip=0` was tautological rather than decisive. It is now read with
+`mstatus.MIE` cleared, which makes `0` genuinely mean "not forwarded":
 
 ```
 intmtx: src=58 -> cpu_int=10
@@ -421,10 +444,11 @@ csr:    mie_bit=1 mip_pending=0 mstatus.MIE=1
 systimer: ena=0x00000007 raw=0x00000002 st=0x00000002 (TARGET1=bit1)
 ```
 
-**`mip_pending=0` while the source is asserting and latched.** The core never
-sees the interrupt at all, so nothing downstream is masking it — `mstatus.MIE`,
-`mie` and the trap path are all irrelevant to this failure. The interrupt
-controller is simply not forwarding an asserted, routed, enabled line.
+**`mip_pending=0` with traps masked, while the source is asserting and
+latched.** The core does not see the interrupt, so nothing downstream is masking
+it — the trap path is irrelevant to this failure. The controller is not
+forwarding an asserted, routed, enabled line whose every visible register
+matches a line that works.
 
 That narrows it to the forwarding stage and rules out most of what was
 previously suspected. Two candidates remain and neither is currently

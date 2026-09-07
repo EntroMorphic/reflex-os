@@ -358,7 +358,14 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
      *
      * The threshold is not a constant. It is whatever the rest of the system
      * is running at, so reading it and sitting one above keeps this correct in
-     * any configuration rather than working by luck in one. */
+     * any configuration rather than working by luck in one.
+     *
+     * Correcting a claim made when this landed: it was said that a cold arming
+     * "happens to run at thresh=0", which is why the old hardcoded priority of
+     * 1 worked. That was never measured, and it is false. With the readback now
+     * printing on success as well as failure, a working arming reads pri=2
+     * thresh=1 — the same as a failing one. The threshold is 1 in both cases,
+     * so this change is correctness rather than the explanation of anything. */
     uint32_t thresh = REFLEX_REG(PLIC_MXINT_THRESH);
     uint32_t prio = thresh + 1;
     if (prio > REFLEX_PLIC_PRIO_MAX) prio = REFLEX_PLIC_PRIO_MAX;
@@ -416,12 +423,23 @@ void reflex_hal_intr_describe(int source, reflex_intr_route_t *out) {
         uint32_t mie;
         __asm__ volatile("csrr %0, mie" : "=r"(mie));
         out->mie_enabled = (mie >> (16 + cpu_int)) & 1u;
-        /* mip is the decisive one for "asserting but never delivered": it says
-         * whether the core itself sees the interrupt pending. Set means the
-         * PLIC forwarded it and something is masking the trap; clear means the
-         * PLIC is not forwarding despite the source asserting. */
+        /* mip says whether the core sees the interrupt pending, and it is only
+         * meaningful with traps masked.
+         *
+         * Read with mstatus.MIE set — which is how a shell command runs — a
+         * forwarded interrupt is taken before the read can observe it, so mip
+         * reads 0 whether the controller is forwarding or not. That makes the
+         * reading tautological rather than decisive, which is exactly the
+         * mistake the first version of this made. Masking traps first lets a
+         * forwarded-but-not-yet-taken interrupt sit in mip long enough to be
+         * seen, so 0 now genuinely means "not forwarded". */
+        uint32_t mstatus_save;
+        __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(mstatus_save));
         uint32_t mip;
         __asm__ volatile("csrr %0, mip" : "=r"(mip));
+        if (mstatus_save & 0x8u) {
+            __asm__ volatile("csrsi mstatus, 0x8");
+        }
         out->mip_pending = (mip >> (16 + cpu_int)) & 1u;
     }
     out->plic_threshold = REFLEX_REG(PLIC_MXINT_THRESH);
