@@ -389,7 +389,15 @@ and distinguishes none; those registers distinguish all of them. The first
 version of that readback ran *after* `reflex_sched_tick_stop()` and therefore
 described the teardown — corrected, and the comment says so.
 
-**The tick fires, intermittently, at the right rate.** Best measurement on the
+**Measured baseline, 2026-09-07, default build, 8 cold starts
+(`make tick-measure PORT=...`): the tick fired on 1 of 8, and that one delivered
+a single tick.** That is the honest number, and it is much worse than the
+anecdotes that preceded it — two runs in this session read 1000 Hz and 1001 Hz,
+and those were the outliers, not the behaviour. Any claim about this tick needs
+a distribution; `tools/measure_tick.py` exists because three separate readings
+were drawn from single samples in one session and all three were wrong.
+
+**When it fires, it fires at the right rate.** Best measurement on the
 default build: `497 ticks in 496930 us -> 1000 Hz (target 1000)`, and separately
 `500 ticks in 499157 us -> 1001 Hz`. The period derives from a 16 MHz counter,
 not the 40 MHz crystal — the divider is fixed at 2.5, which Reflex's generated

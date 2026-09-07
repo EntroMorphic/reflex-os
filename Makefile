@@ -6,7 +6,7 @@ RELEASE_NAME := reflex-os-$(VERSION)-esp32c6
 RELEASE_DIR := release/$(RELEASE_NAME)
 
 .PHONY: build flash release clean test tasm-test loomc-test tools-test hw-test doc-links \
-        format format-check format-diff warn-check lock-check independence independence-check ci-lint soc-header soc-bridge \
+        format format-check format-diff warn-check lock-check independence independence-check tick-measure ci-lint soc-header soc-bridge \
         soc-check rom-check idf-build verify config-reset docs atlas
 
 build:
@@ -74,6 +74,13 @@ independence:
 
 independence-check:
 	@python3 tools/check_independence.py --check
+
+# Measure the Reflex scheduler tick across repeated cold starts. Delivery is
+# intermittent, so a single run proves nothing — this reports the distribution.
+# Requires a flashed board: make tick-measure PORT=/dev/cu.usbmodemXXXX
+tick-measure:
+	@test -n "$(PORT)" || { echo "Usage: make tick-measure PORT=/dev/cu.usbmodemXXXX [RUNS=10]"; exit 1; }
+	@python3 tools/measure_tick.py $(PORT) $(or $(RUNS),10)
 
 # Regenerate Reflex's own SoC register header from the vendor SVD.
 soc-header:
