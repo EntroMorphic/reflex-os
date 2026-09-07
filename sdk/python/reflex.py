@@ -98,16 +98,29 @@ class ReflexNode:
 
     def __init__(self, port: str, baud: int = 115200, timeout: float = 2.0,
                  role: Optional[str] = None):
+        # Validate before opening the port. This used to run after
+        # serial.Serial() succeeded, so ReflexNode(port, role="bogus") raised
+        # with the port already open and no reference left to close it -- the fd
+        # stayed claimed until the interpreter exited, which on macOS means the
+        # next connection attempt fails for a reason that has nothing to do with
+        # the board.
+        if role is not None and role not in self.VALID_ROLES:
+            raise ValueError(f"role must be one of {self.VALID_ROLES}")
+
         self.ser = serial.Serial(port, baud, timeout=timeout)
         self._lock = threading.Lock()
         #: Outcome of the most recent cmd(), or None on firmware without `#R:`.
         self.last_outcome: Optional[Outcome] = None
-        time.sleep(0.3)
-        self.ser.read(self.ser.in_waiting)
-        if role is not None:
-            if role not in self.VALID_ROLES:
-                raise ValueError(f"role must be one of {self.VALID_ROLES}")
-            self.cmd(f"auth role {role}")
+        try:
+            time.sleep(0.3)
+            self.ser.read(self.ser.in_waiting)
+            if role is not None:
+                self.cmd(f"auth role {role}")
+        except Exception:
+            # Anything failing during handshake leaves the caller with no
+            # object and therefore no way to close the port it just opened.
+            self.ser.close()
+            raise
 
     def close(self):
         self.ser.close()

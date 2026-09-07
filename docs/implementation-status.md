@@ -244,7 +244,21 @@ Closed in the 2026-09-07 P0 audit remediation (see [`P0-07SEP26.md`](P0-07SEP26.
 
   Found while checking it: the comment at `vm/task_runtime.c` claiming the stop path was "absent from `reflex_os.elf` entirely" was wrong. `reflex_service_watchdog_tick` calls `svc->stop` then `svc->start` for any FAULTED service and `goose_supervisor_pulse` runs it at 1 Hz, so the path executes on every VM fault. Corrected in place.
 
-Open from the 2026-09-07 P0 audit: the low-severity table (P0-L1..L7), and P0-M4's proper fix pending hardware.
+Low-severity table (§3) closed in the same sweep:
+
+- ~~P0-L2~~ snapshot `learned_orientation` / Hebbian counter clamped on load. NVS is trusted, not infallible — flash wears out, and a partial write is not an attack.
+- ~~P0-L3~~ outbound mesh QUERY gated at 10 Hz, matching ingress. Counted as `query_throttled` in `mesh stat`. **The audit's framing was wrong**: `SECURITY.md` §7 only ever claimed an *ingress* limit, which exists and works. The missing egress gate was a real gap, but unstated rather than contradictory. Both §7 and the code now say so.
+- ~~P0-L4a~~ lock-free `mesh_stats` documented as deliberate: observability only, no branch reads them, and ~12 mux acquisitions per packet is not worth protecting numbers nothing decides on. Failure mode is a slightly low count on dual-core, never a corrupt one.
+- ~~P0-L4b~~ first-boot Aura key health-checked, retried, and replaced by the MAC-derived fallback rather than persisting all-zeros from a latched RNG. `SECURITY.md` §4's `esp_fill_random()` claim was also wrong for the C6 (the primary target reads `RNG_DATA_REG` directly) and is corrected.
+- ~~P0-L5a~~ SDK role validated before opening the port; handshake wrapped so any failure closes it.
+- ~~P0-L5b~~ `loom_viewer.py` surfaces a dead link instead of rendering its last known graph forever. Its main loop was `while True` and never checked the stop event, so the silent-death window was wider than the audit described.
+- ~~P0-L6~~ duplicate `sdk/python/setup.py` removed; `pyproject.toml` verified to build and install standalone. `.DS_Store` / `sdkconfig.old` are already covered by `.gitignore` and `lmm_repo/` is empty, so neither is repository state — no action needed.
+- ~~P0-L7~~ `hardware_addr`'s three meanings documented on the field itself, including the FIELD_PROXY/NEURON sub-field name hash and what a future NEURON-over-hardware binding would silently do.
+- **P0-L1 does not reproduce.** The claim was that shell-driven weaves stay `PINNED` and permanently consume fabric slots. Both `goose_fabric_alloc_cell` call sites reassign the type on the next line (`VIRTUAL`, `INTENT`), and `goose_policy_cell_evictable` makes both evictable in namespace 0. Recorded so the next pass does not re-investigate it.
+
+Found while checking L1 and fixed: `GOOSE_FRAGMENT_NOT` allocated nothing, wove nothing, logged "Wove Inverter Pattern" and returned `REFLEX_OK`. Unreachable today — the only caller is the shell self-test, which uses HEARTBEAT and GATE — which is why it went unnoticed, not why it was acceptable. It now refuses.
+
+Open from the 2026-09-07 P0 audit: **P0-M4's proper fix only**, pending hardware. Everything else is closed.
 
 Related, observed while fixing P0-H3 and not part of it: `goose_supervisor_check_equilibrium` also reads route state with no loom lock, from the same unlocked `goose_supervisor_pulse` path. Its reads are guarded by the `cached_version` check rather than by the lock, which is the substrate's established staleness discipline, so this is recorded as exposure on dual-core rather than as a defect.
 

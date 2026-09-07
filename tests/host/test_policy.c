@@ -333,6 +333,68 @@ static void test_loom_route_acceptance(void) {
     printf("ok\n");
 }
 
+/* --- Snapshot sanity and key material --------------------------------------
+ *
+ * Regression: goose_snapshot_load wrote NVS bytes straight into
+ * learned_orientation -- a multiplicand, exactly like the wire-side
+ * orientation -- and into the Hebbian counter unbounded. And the C6 fills
+ * random bytes with `RNG_DATA_REG ^ RNG_DATA_REG`, which a latched register
+ * collapses to zero for every word, so a board could silently provision an
+ * all-zero Aura key that every board in that state also holds. */
+static void test_snapshot_and_key_sanity(void) {
+    printf("[sanity]  ");
+
+    /* Trits pass through untouched. */
+    CHECK("learned -1 kept", goose_policy_clamp_learned_orientation(-1) == -1);
+    CHECK("learned 0 kept", goose_policy_clamp_learned_orientation(0) == 0);
+    CHECK("learned +1 kept", goose_policy_clamp_learned_orientation(1) == 1);
+
+    /* Anything else becomes "no learned bias", so the route falls back to its
+     * static orientation rather than multiplying by garbage. */
+    int all_clamped = 1;
+    for (int v = -128; v <= 127; v++) {
+        int got = goose_policy_clamp_learned_orientation(v);
+        if (got < -1 || got > 1) all_clamped = 0;
+        if ((v >= -1 && v <= 1) && got != v) all_clamped = 0;
+        if ((v < -1 || v > 1) && got != 0) all_clamped = 0;
+    }
+    CHECK("every int8_t clamps into the trit set", all_clamped);
+
+    /* Hebbian counter bounded both ways. */
+    const int MAXC = 16;
+    CHECK("hebbian in range kept", goose_policy_clamp_hebbian_counter(5, MAXC) == 5);
+    CHECK("hebbian over max clamped", goose_policy_clamp_hebbian_counter(30000, MAXC) == MAXC);
+    CHECK("hebbian under min clamped", goose_policy_clamp_hebbian_counter(-30000, MAXC) == -MAXC);
+    CHECK("hebbian at max kept", goose_policy_clamp_hebbian_counter(MAXC, MAXC) == MAXC);
+    CHECK("degenerate max floors to 0", goose_policy_clamp_hebbian_counter(99, -1) == 0);
+
+    /* Key material liveness. */
+    uint8_t zeros[16] = {0};
+    CHECK("all-zero key rejected", !goose_policy_key_material_plausible(zeros, sizeof(zeros)));
+
+    uint8_t constant[16];
+    memset(constant, 0xAB, sizeof(constant));
+    CHECK("constant-fill key rejected",
+          !goose_policy_key_material_plausible(constant, sizeof(constant)));
+
+    uint8_t real_key[16] = {0x9E, 0x37, 0x79, 0xB1, 0x00, 0x00, 0x00, 0x00,
+                            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+    CHECK("ordinary key accepted", goose_policy_key_material_plausible(real_key, sizeof(real_key)));
+
+    /* A key that is mostly zero but not entirely is still usable material --
+     * this is a liveness check on the noise source, not a randomness test, and
+     * must not reject legitimate output. */
+    uint8_t mostly_zero[16] = {0};
+    mostly_zero[15] = 1;
+    CHECK("one differing byte is enough",
+          goose_policy_key_material_plausible(mostly_zero, sizeof(mostly_zero)));
+
+    CHECK("NULL rejected", !goose_policy_key_material_plausible(NULL, 16));
+    CHECK("zero length rejected", !goose_policy_key_material_plausible(real_key, 0));
+
+    printf("ok\n");
+}
+
 /* Matches the harness convention: suites return their failure count. The
  * pass count is exposed separately because the runner's total otherwise
  * under-reports, counting only test_main's own assertions. */
@@ -343,6 +405,7 @@ int test_policy(void) {
     test_snapshot_count();
     test_replay_slot();
     test_loom_route_acceptance();
+    test_snapshot_and_key_sanity();
     return s_fail;
 }
 

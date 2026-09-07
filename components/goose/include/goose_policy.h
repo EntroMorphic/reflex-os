@@ -161,4 +161,47 @@ uint32_t goose_policy_replay_slot(uint32_t nonce, const uint8_t *mac, uint32_t s
  */
 bool goose_policy_loom_route_acceptable(int orientation, unsigned coupling);
 
+/* ---- Persisted snapshot sanity -------------------------------------------- */
+
+/**
+ * @brief Clamp a snapshot's learned orientation to the ternary set.
+ *
+ * goose_snapshot_load wrote NVS bytes straight into learned_orientation, which
+ * internal_process_transitions uses as a multiplicand exactly as the wire-side
+ * orientation is used -- so a corrupt blob produced cell states outside the
+ * ternary set, by the same mechanism as the LoomScript hole above but through
+ * a channel the threat model trusts. Trusted is not the same as infallible:
+ * flash wears out, and a partial write is not an attack.
+ *
+ * @return the value if it is already a trit, otherwise 0 (no learned bias)
+ */
+int goose_policy_clamp_learned_orientation(int value);
+
+/**
+ * @brief Clamp a snapshot's Hebbian counter to its representable range.
+ *
+ * The counter is bounded by REFLEX_HEBBIAN_COUNTER_MAX in the learn path but
+ * was restored unbounded, so a corrupt blob could seed it far past the commit
+ * threshold and make the next learning pass commit an orientation immediately.
+ */
+int goose_policy_clamp_hebbian_counter(int value, int counter_max);
+
+/* ---- Key material sanity -------------------------------------------------- */
+
+/**
+ * @brief Does this look like usable random key material?
+ *
+ * The C6 fills random bytes with `RNG_DATA_REG ^ RNG_DATA_REG` per word. If
+ * that register is latched -- the failure mode of a noise source that has not
+ * started -- the XOR collapses to zero for every word and the board silently
+ * provisions an all-zero Aura key, which every other board in that state would
+ * also hold. That is the opposite of the per-board isolation first-boot
+ * provisioning exists to provide.
+ *
+ * Rejects an all-zero buffer and any buffer whose bytes are all identical. This
+ * is a liveness check on the noise source, not a randomness test: it catches a
+ * dead or latched RNG, and nothing subtler.
+ */
+bool goose_policy_key_material_plausible(const uint8_t *key, size_t len);
+
 #endif /* GOOSE_POLICY_H */

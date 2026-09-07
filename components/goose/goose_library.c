@@ -73,9 +73,14 @@ reflex_err_t goose_weave_fragment(goose_fragment_type_t type, const char *name, 
             break;
         }
         case GOOSE_FRAGMENT_NOT: {
-            // NOT Pattern: Static Inversion route
-            REFLEX_LOGI(TAG, "Wove Inverter Pattern: %s", name);
-            break;
+            /* Not implemented: this allocated no cell and wove no route, then
+             * fell through to return REFLEX_OK — so a caller asking for an
+             * inverter got "Wove Inverter Pattern" in the log, a success code,
+             * and nothing woven. Unreachable today (the only caller is the
+             * shell self-test, which uses HEARTBEAT and GATE), which is why it
+             * has gone unnoticed rather than why it is acceptable. */
+            REFLEX_LOGW(TAG, "Inverter Pattern not implemented: %s", name);
+            return REFLEX_ERR_NOT_SUPPORTED;
         }
         default:
             return REFLEX_ERR_NOT_SUPPORTED;

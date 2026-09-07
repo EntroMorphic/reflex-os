@@ -772,8 +772,17 @@ reflex_err_t goose_snapshot_load(void) {
 
             for (size_t r = 0; r < field->route_count; r++) {
                 if (memcmp(field->routes[r].name, snap_name, 16) == 0) {
-                    field->routes[r].learned_orientation = snap_orient;
-                    field->routes[r].hebbian_counter = snap_hc;
+                    /* NVS is trusted by the threat model, which is not the
+                     * same as infallible: flash wears out and a partial write
+                     * is not an attack. learned_orientation is used as a
+                     * multiplicand in internal_process_transitions exactly as
+                     * the wire-side orientation is, so an unclamped byte here
+                     * produces cell states outside the ternary set through a
+                     * channel nobody is watching. */
+                    field->routes[r].learned_orientation =
+                        (reflex_trit_t)goose_policy_clamp_learned_orientation(snap_orient);
+                    field->routes[r].hebbian_counter = (int16_t)goose_policy_clamp_hebbian_counter(
+                        snap_hc, REFLEX_HEBBIAN_COUNTER_MAX);
                     restored_routes++;
                     break;
                 }

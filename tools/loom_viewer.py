@@ -160,12 +160,22 @@ def parse_initial_inventory(text, state):
 
 
 def serial_reader(ser, q, stop_event):
-    """Background thread: reads serial lines, routes #T: to queue."""
+    """Background thread: reads serial lines, routes #T: to queue.
+
+    On a read failure it sets ``serial_reader.error`` and the stop event, so a
+    dead link surfaces instead of looking like a quiet one.
+    """
     buf = b""
     while not stop_event.is_set():
         try:
             chunk = ser.read(ser.in_waiting or 1)
-        except Exception:
+        except Exception as e:
+            # A bare `except: break` killed the data path in silence: an
+            # unplugged cable stopped the feed while the viewer kept rendering
+            # its last known state, which reads as a quiet mesh rather than a
+            # dead link. Record the reason and signal the UI to stop.
+            serial_reader.error = f"serial read failed: {e}"
+            stop_event.set()
             break
         if not chunk:
             continue
@@ -196,6 +206,10 @@ def send_cmd(ser, cmd, timeout=2.0):
         else:
             time.sleep(0.02)
     return buf.decode("utf-8", errors="replace")
+
+
+# Set by serial_reader when the link dies; read by main() on the way out.
+serial_reader.error = None
 
 
 def process_telemetry(line, state):
@@ -325,7 +339,7 @@ def main():
     reader.start()
 
     try:
-        while True:
+        while not stop.is_set():
             try:
                 line = q.get(timeout=0.05)
                 dirty = process_telemetry(line, state)
@@ -343,6 +357,11 @@ def main():
     except KeyboardInterrupt:
         print("\n[loom_viewer] Shutting down...")
     finally:
+        # The reader sets stop on a read failure. Without this the main loop
+        # was `while True` and kept rendering the last known graph after the
+        # link died, which looks exactly like a quiet, healthy mesh.
+        if serial_reader.error:
+            print(f"[loom_viewer] {serial_reader.error}")
         stop.set()
         try:
             send_cmd(ser, "telemetry off", timeout=1.0)

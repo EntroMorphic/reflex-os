@@ -65,7 +65,23 @@ typedef struct {
     int8_t state;            ///< Current ternary state (-1, 0, +1)
     int8_t type;             ///< Role of the cell (goose_cell_type_t)
     uint8_t peer_id;         ///< 0 = local, 1-255 = remote peer index
-    uint32_t hardware_addr;  ///< Physical mapping (GPIO num or MMIO addr)
+    /** Overloaded by cell type — three meanings, not two, and the third is
+     *  the one that surprises people:
+     *
+     *  - HARDWARE_IN / HARDWARE_OUT: a GPIO pin index (1..GOOSE_AGENCY_GPIO_MAX)
+     *    or an MMIO address (>= GOOSE_AGENCY_MMIO_BASE). 0 means "no agency
+     *    bound" everywhere, so it cannot also mean pin 0.
+     *  - FIELD_PROXY / NEURON: the *name hash of a sub-field*, passed to
+     *    goose_fabric_find_field_by_name_hash. Not an address at all.
+     *  - everything else: unused, 0.
+     *
+     *  Nothing binds hardware to a NEURON or FIELD_PROXY cell today, so the two
+     *  meanings cannot currently collide. A future NEURON-over-hardware binding
+     *  would silently reinterpret a pin index as a field hash, find no field,
+     *  and degrade to state=0 with no diagnostic — which is why this is written
+     *  down rather than left to be rediscovered.
+     */
+    uint32_t hardware_addr;
     uint32_t bit_mask;       ///< Mask for multi-bit register mappings
 } __attribute__((aligned(4))) goose_cell_t;
 #pragma pack(pop)
@@ -639,6 +655,11 @@ typedef struct {
     uint32_t tx_query;
     uint32_t tx_advertise;
     uint32_t tx_posture;
+    /** Outbound QUERY broadcasts suppressed by the 10 Hz egress gate. A rising
+     *  value means something local is asking for unresolvable `peer.*` names in
+     *  a loop — the board being driven as a broadcast amplifier against its own
+     *  mesh, reachable from the observer role. */
+    uint32_t tx_query_throttled;
 } goose_mesh_stats_t;
 
 goose_mesh_stats_t goose_atmosphere_get_stats(void);

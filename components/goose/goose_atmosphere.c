@@ -110,6 +110,20 @@ static reflex_mutex_t swarm_mux;
 static bool swarm_mux_init = false;
 int32_t swarm_accumulator = 0;
 
+/* Counters are updated without swarm_mux, deliberately.
+ *
+ * Every rx_* increment runs on the radio RX path, and taking the mux ~12 times
+ * per packet to protect numbers nothing decides on would cost more than the
+ * numbers are worth. Each field is a 32-bit word on a 32-bit target, so a store
+ * is atomic and a torn *read* is impossible; what can be lost on the dual-core
+ * ESP32 is an increment, when two cores read-modify-write the same counter in
+ * the same window. The consequence is a count that reads slightly low under
+ * heavy concurrent RX, never a corrupt one.
+ *
+ * That is acceptable because these are observability, not control: no branch in
+ * the substrate reads mesh_stats. If one ever does, this comment is the thing
+ * that has to change first. Recorded because the omission otherwise reads as an
+ * oversight rather than a decision. */
 static goose_mesh_stats_t mesh_stats;
 
 /* Counters are bumped from the radio receive callback and read from the shell
@@ -183,6 +197,24 @@ static reflex_err_t persist_aura_key(const uint8_t key[16]) {
     return rc;
 }
 
+/* How many times to re-read the noise source before declaring it unusable. */
+#define AURA_RNG_ATTEMPTS 4
+
+/* Derive a device-unique key from MAC + salt. Not as strong as a true random
+ * key -- the MAC is predictable -- but strictly better than a compile-time
+ * constant shared by every build, which is what two boards with a dead RNG or
+ * a failed NVS write would otherwise both be holding. */
+static void aura_key_from_mac(void) {
+    uint8_t mac[6];
+    reflex_hal_mac_read(mac);
+    uint8_t seed[22];
+    memcpy(seed, GOOSE_AURA_KEY_DEFAULT, 16);
+    memcpy(seed + 16, mac, 6);
+    uint8_t digest[32];
+    reflex_hmac_sha256(GOOSE_AURA_KEY_DEFAULT, 16, seed, sizeof(seed), digest);
+    memcpy(goose_aura_key, digest, 16);
+}
+
 static void load_aura_key(void) {
     reflex_kv_handle_t h;
     if (reflex_kv_open("goose", true, &h) == REFLEX_OK) {
@@ -199,26 +231,43 @@ static void load_aura_key(void) {
      * factory-fresh boards don't accidentally trust each other. Pairing
      * now requires an operator to run `aura setkey <hex>` on both sides
      * with a chosen shared key. */
+    /* Health-check the noise source before trusting it with the one secret
+     * that makes this board distinct from every other factory-fresh board.
+     *
+     * The C6 fills each word with `RNG_DATA_REG ^ RNG_DATA_REG`. A latched
+     * register -- a noise source that has not started -- collapses that XOR to
+     * zero for every word, and the board would have persisted an all-zero key
+     * that every board in the same state also holds, silently inverting the
+     * isolation this path exists to provide. Retry first, since the condition
+     * is usually transient at very early boot. */
     uint8_t fresh[16];
-    reflex_hal_random_fill(fresh, sizeof(fresh));
+    bool have_random = false;
+    for (int attempt = 0; attempt < AURA_RNG_ATTEMPTS; attempt++) {
+        reflex_hal_random_fill(fresh, sizeof(fresh));
+        if (goose_policy_key_material_plausible(fresh, sizeof(fresh))) {
+            have_random = true;
+            break;
+        }
+        REFLEX_LOGW(TAG, "RNG returned degenerate key material (attempt %d)", attempt + 1);
+    }
+
+    if (!have_random) {
+        /* Fall through to the MAC-derived path below rather than persist a key
+         * the RNG did not actually generate. Device-unique but predictable
+         * beats identical across boards. */
+        REFLEX_LOGE(TAG, "RNG unusable after %d attempts; using MAC-derived key",
+                    AURA_RNG_ATTEMPTS);
+        aura_key_from_mac();
+        return;
+    }
+
     reflex_err_t rc = persist_aura_key(fresh);
     if (rc == REFLEX_OK) {
         memcpy(goose_aura_key, fresh, sizeof(goose_aura_key));
         REFLEX_LOGI(TAG, "aura key auto-provisioned (run 'aura setkey' on peers to pair)");
     } else {
-        /* NVS write failed. Derive a device-unique key from MAC + salt so
-         * two boards with NVS failures don't share the same key. Not as
-         * strong as a true random key (MAC is predictable), but strictly
-         * better than a compile-time constant shared by all builds. */
-        uint8_t mac[6];
-        reflex_hal_mac_read(mac);
-        uint8_t seed[22];
-        memcpy(seed, GOOSE_AURA_KEY_DEFAULT, 16);
-        memcpy(seed + 16, mac, 6);
-        uint8_t digest[32];
-        reflex_hmac_sha256(GOOSE_AURA_KEY_DEFAULT, 16, seed, sizeof(seed), digest);
-        memcpy(goose_aura_key, digest, 16);
         REFLEX_LOGW(TAG, "aura key NVS write failed (rc=0x%x); using MAC-derived fallback", rc);
+        aura_key_from_mac();
     }
 }
 
@@ -467,7 +516,31 @@ reflex_err_t goose_atmosphere_emit_arc(goose_cell_t *source) {
     return reflex_radio_send(broadcast_mac, (uint8_t *)&arc, sizeof(arc));
 }
 
+/* Minimum interval between outbound QUERY broadcasts.
+ *
+ * The ingress side has rate-limited incoming queries to 10 Hz since the Aura
+ * Shield work; egress had no gate at all. goonies_resolve_cell calls this on
+ * *every* unresolved `peer.*` lookup, and resolving a peer name is reachable
+ * from the observer role -- the least privileged one -- so a caller that asks
+ * for unresolvable peer names in a loop turns this board into a broadcast
+ * amplifier against its own mesh. It is not a contradiction of SECURITY.md
+ * section 7, which only ever claimed the ingress limit; it is the half nobody
+ * had written down.
+ *
+ * A dropped query costs nothing: the caller gets NOT_FOUND either way, the
+ * phantom cell is still created, and the name resolves on a later attempt if a
+ * peer holds it. */
+#define GOOSE_QUERY_EGRESS_MIN_US 100000 /* 10 Hz, matching ingress */
+
 reflex_err_t goose_atmosphere_query(const char *name) {
+    static uint64_t last_query_sent_us = 0;
+    uint64_t now = reflex_hal_time_us();
+    if (last_query_sent_us != 0 && (now - last_query_sent_us) < GOOSE_QUERY_EGRESS_MIN_US) {
+        mesh_stats.tx_query_throttled++;
+        return REFLEX_ERR_TIMEOUT;
+    }
+    last_query_sent_us = now;
+
     uint32_t nonce = (uint32_t)reflex_hal_time_us();
     uint32_t h = goose_name_hash(name);
     goose_arc_packet_t arc = {

@@ -1255,7 +1255,17 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
     } else if (argc >= 3 && strcmp(argv[1], "query") == 0) {
         if (extra_args(argc, 3)) return;
         reflex_err_t rc = goose_atmosphere_query(argv[2]);
-        printf("mesh query: name=%s rc=0x%x\n", argv[2], rc); outcome_rc(rc);
+        if (rc == REFLEX_ERR_TIMEOUT) {
+            /* Suppressed by the 10 Hz egress gate, not a radio failure. Say so,
+             * because an opaque rc here reads as a broken link — and report it
+             * as a guard refusal rather than a failure, because the command was
+             * declined by a protective limit and never reached the radio. */
+            printf("mesh query: name=%s throttled (10Hz egress limit)\n", argv[2]);
+            outcome(SHELL_GUARD);
+        } else {
+            printf("mesh query: name=%s rc=0x%x\n", argv[2], rc);
+            outcome_rc(rc);
+        }
     } else if (argc >= 4 && strcmp(argv[1], "posture") == 0) {
         /* The state goes onto the radio and is multiplied by the weight into
          * every peer's swarm accumulator. Unvalidated, `mesh posture 99 4`
@@ -1294,7 +1304,8 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         printf("version_mismatch=%lu aura_fail=%lu replay_drop=%lu self_drop=%lu\n",
                (unsigned long)s.rx_version_mismatch, (unsigned long)s.rx_aura_fail,
                (unsigned long)s.rx_replay_drop, (unsigned long)s.rx_self_drop);
-        printf("malformed=%lu\n", (unsigned long)s.rx_malformed);
+        printf("malformed=%lu query_throttled=%lu\n", (unsigned long)s.rx_malformed,
+               (unsigned long)s.tx_query_throttled);
     } else if (argc >= 4 && strcmp(argv[1], "peer") == 0 && strcmp(argv[2], "add") == 0) {
         if (argc < 5) { printf("mesh peer add <name> <mac_hex>\n"); outcome(SHELL_USAGE); return; }
         if (extra_args(argc, 5)) return;

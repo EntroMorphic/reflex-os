@@ -136,3 +136,37 @@ bool goose_policy_loom_route_acceptable(int orientation, unsigned coupling) {
      * than becoming reachable the moment it is defined. */
     return coupling == GOOSE_POLICY_COUPLING_SOFTWARE;
 }
+
+int goose_policy_clamp_learned_orientation(int value) {
+    if (value < -1 || value > 1) {
+        return 0;
+    }
+    return value;
+}
+
+int goose_policy_clamp_hebbian_counter(int value, int counter_max) {
+    if (counter_max < 0) {
+        return 0;
+    }
+    if (value > counter_max) {
+        return counter_max;
+    }
+    if (value < -counter_max) {
+        return -counter_max;
+    }
+    return value;
+}
+
+bool goose_policy_key_material_plausible(const uint8_t *key, size_t len) {
+    if (key == NULL || len == 0) {
+        return false;
+    }
+    /* All bytes identical covers both the all-zero case (a latched register
+     * XORed with itself) and a constant fill. */
+    for (size_t i = 1; i < len; i++) {
+        if (key[i] != key[0]) {
+            return true;
+        }
+    }
+    return false;
+}
