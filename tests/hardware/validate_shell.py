@@ -61,6 +61,11 @@ SYS_CELL = "sys.kernel.disposition"
 SANCTUARY_CELL = "agency.io_mux.date"
 
 
+# How long to wait for a board to reach its shell before giving up. A cold
+# ESP32 takes several seconds to boot, and longer with a radio to bring up.
+READY_TIMEOUT_S = 25.0
+
+
 class Board:
     def __init__(self, port, baud=115200):
         self.port = port
@@ -69,6 +74,58 @@ class Board:
         self.last_outcome = None
         time.sleep(0.6)
         self.ser.reset_input_buffer()
+        self._wait_ready()
+
+    def _wait_ready(self):
+        """Block until the board answers, rather than assuming it is up.
+
+        A fixed 0.6s settle was enough for a board that had been running and
+        far too short for one that had just been flashed. Running the suite
+        immediately after `idf.py flash` produced 99 passed and 71 failed on a
+        classic ESP32 — not a regression, just every check racing a board that
+        was still booting. A test suite that reports 71 failures for a timing
+        reason is worse than one that waits: it invites someone to go looking
+        for a defect that is not there.
+
+        Polls `status` until the outcome marker comes back, so readiness means
+        "the shell parsed a command and answered", not "some bytes arrived".
+
+        Two consecutive answers are required, not one. A single answer proves
+        the shell is alive; it does not prove the console is done settling. On
+        a classic ESP32 the first run after a flash answered `status` and then
+        failed the 1022-character line check — the boundary case that most
+        depends on the UART ring being fully up — while three later runs passed
+        it. Requiring stability rather than mere liveness removes that.
+        """
+        deadline = time.time() + READY_TIMEOUT_S
+        consecutive = 0
+        while time.time() < deadline:
+            self.ser.reset_input_buffer()
+            self.ser.write(b"status\n")
+            buf = b""
+            inner = time.time() + 2.0
+            answered = False
+            while time.time() < inner:
+                chunk = self.ser.read(self.ser.in_waiting or 1)
+                if chunk:
+                    buf += chunk
+                    if b"#R:" in buf:
+                        answered = True
+                        break
+            if answered:
+                consecutive += 1
+                if consecutive >= 2:
+                    time.sleep(0.3)  # let the last response drain fully
+                    self.ser.reset_input_buffer()
+                    return
+            else:
+                consecutive = 0
+            time.sleep(0.5)
+        raise SystemExit(
+            f"{self.port}: no shell response within {READY_TIMEOUT_S:g}s. "
+            f"If the board was just flashed, it may still be booting; if it is "
+            f"halted by Boot0 loop protection, power-cycle it."
+        )
 
     def _send(self, cmd, timeout):
         """Write a command and read until the prompt returns.
