@@ -1,11 +1,33 @@
 # ESP-IDF Independence: Dependency Map
 
-What Reflex OS actually needs ESP-IDF for, measured from the linked image rather
-than reasoned from the source tree, and in what order those needs can be retired.
+**This is the single source of truth for independence status.** What Reflex OS
+actually needs ESP-IDF for, measured from the linked image rather than reasoned
+from the source tree, and in what order those needs can be retired.
 
-Companion to [`prd-full-independence.md`](prd-full-independence.md) and
-[`v3-independence-plan.md`](v3-independence-plan.md). Where this document and
-those disagree, this one carries its evidence.
+Supersedes the tier discussion in
+[`prd-full-independence.md`](prd-full-independence.md) and
+[`v3-independence-plan.md`](v3-independence-plan.md) for questions of *status*.
+Those remain the record of the abstraction migration and its reasoning; where
+they disagree with this document about what is done, this one carries the
+evidence.
+
+**Two tier schemes exist and they answer different questions. Do not conflate
+them.**
+
+- `v3-independence-plan.md` Tier A/B/C is the **abstraction migration**: Types,
+  HAL, Tasks, KV, then Radio and Crypto, then Drivers and LP. It asks *does
+  Reflex code call ESP-IDF directly.* It is essentially complete —
+  `vm/`, `core/`, `storage/`, `services/` and `drivers/` carry zero ESP-IDF
+  includes, and `components/goose/` carries one.
+- This document's Tier A1/A2/B/C/D/E/F is the **dependency map**: it asks *what
+  does ESP-IDF still provide as scaffolding*, which is the harder question and
+  the one that decides independence. Section 1 says why: counted as API calls
+  the surface is small; counted as scaffolding it is the whole build.
+
+**The status table below is generated, not remembered.** Run
+`make independence` for the current measurement and `make independence-check`
+for the ratchet, which CI enforces. Prose drifts — this file had drifted three
+ways by 2026-09-07, each corrected in place and noted.
 
 **Method.** Every claim below comes from one of: the link map of a real build,
 `nm` over the archives that build linked, or the ESP-IDF headers as the
@@ -24,16 +46,42 @@ touch the second kind.
 
 | Tier | What | Status |
 |---|---|---|
-| **A1** | 52 register constants from `soc/*` headers | **Owned.** Generated from the SVD, proved against ESP-IDF |
+| **A1** | 47 register constants from `soc/*` headers | **Owned.** Generated from the SVD, proved against ESP-IDF |
 | **A2** | 14 mask-ROM entry points | **Owned.** Declared by Reflex, addresses verified |
 | **B** | Deep sleep entry; heap reporting | Sleep constants owned; entry still borrowed. Heap belongs to F |
-| **C** | FreeRTOS as the scheduler | Not started — but see §3, it is closer than it looks |
+| **C** | FreeRTOS as the scheduler | C0-C3 written and linked; **blocked on the boot panic and the tick.** See §5 |
 | **D** | Radio (802.15.4 or ESP-NOW) | 802.15.4 is one component and creates no tasks |
-| **E** | Console RX, peripheral drivers | TX already owned; RX needs a queue primitive |
+| **E** | Console RX, peripheral drivers | TX already owned. **Unblocked but unstarted** — C1 built the queue primitive RX was waiting on |
 | **F** | Build system, startup, heap, linker/memory layout, image format | Untouched. The real dependency |
 
-Tiers A and B are retired in commits `4548445`, `8d707d1` and `aff2784`. What
-follows is about what is left.
+Tier A is retired in commits `4548445` and `8d707d1`; Tier B is partly retired
+in `aff2784` (sleep constants owned, entry still borrowed). What follows is
+about what is left.
+
+**Measured 2026-09-07 at `641263b`,** on the independence path (ESP32-C6 with
+`CONFIG_REFLEX_RADIO_802154`) by `tools/check_independence.py`:
+
+| Tier | Remaining ESP-IDF includes |
+|---|---|
+| A | **0 — clear** |
+| B | 2 (`esp_sleep.h`, `esp_heap_caps.h`) |
+| C | 8 (`freertos/*`, `esp_intr_alloc.h`) |
+| D | 1 (`esp_ieee802154.h`) |
+| E | 8 (`driver/*` — LEDC, PCNT, RMT, UART, USB-JTAG) |
+| F | 4 (`nvs*`, `sdkconfig.h`, `esp_system.h`) |
+| **total** | **23** |
+
+A further 19 sit off-path — the classic-ESP32 backend, the Wi-Fi stack, the
+ESP-NOW radio — deliberately borrowed and reported but not ratcheted, so that
+"off-path" stays a decision rather than a hiding place.
+
+Every one of the 23 is in a platform backend, the kernel's FreeRTOS shims, or
+the shell's peripheral and console drivers. **None is in the substrate.**
+
+`CONFIG_REFLEX_KERNEL_SCHEDULER` carries `depends on IDF_TARGET_ESP32C6` as of
+`641263b`: the kernel sources are added to the build by
+`platform/esp32c6/CMakeLists.txt` and by nothing else, so the independence path
+is C6-only by construction rather than by convention.
 
 ---
 
@@ -404,9 +452,14 @@ direct register write (`usj_write_bytes`), and only RX uses the driver.
 
 ## 6. Honest limits
 
-- No hardware was attached for any of this. Everything above is a property of
-  builds and link maps, which is exactly the right evidence for a dependency
-  question and exactly the wrong evidence for a scheduler that runs.
+- **The dependency analysis** is a property of builds and link maps — exactly
+  the right evidence for a dependency question and exactly the wrong evidence
+  for a scheduler that runs. The original text here said "no hardware was
+  attached for any of this", which was true when written and is no longer: §5's
+  tick work was done on a board, and the whole tree was flashed to two C6s and
+  a classic dual-core ESP32 on 2026-09-07. Corrected rather than deleted,
+  because the distinction it was drawing still holds — a link map cannot tell
+  you whether a scheduler schedules.
 - The newly-built kernel files compile clean, under the flags of the
   configuration that actually builds them. That is all it establishes. They
   have never been linked, never executed, and C2 should treat them as a

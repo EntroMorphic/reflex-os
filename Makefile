@@ -6,7 +6,7 @@ RELEASE_NAME := reflex-os-$(VERSION)-esp32c6
 RELEASE_DIR := release/$(RELEASE_NAME)
 
 .PHONY: build flash release clean test tasm-test loomc-test tools-test hw-test doc-links \
-        format format-check format-diff warn-check lock-check ci-lint soc-header soc-bridge \
+        format format-check format-diff warn-check lock-check independence independence-check ci-lint soc-header soc-bridge \
         soc-check rom-check idf-build verify config-reset docs atlas
 
 build:
@@ -65,6 +65,16 @@ warn-check:
 lock-check:
 	@python3 tools/check_lock_discipline.py
 
+# What Reflex still borrows from ESP-IDF, by tier. The single source of truth
+# for independence status: measured from the source, not asserted in prose that
+# drifts. Ratchets — no tier may grow — and fails on a dependency it cannot
+# classify, so a genuinely new kind of coupling cannot arrive as noise.
+independence:
+	@python3 tools/check_independence.py -v
+
+independence-check:
+	@python3 tools/check_independence.py --check
+
 # Regenerate Reflex's own SoC register header from the vendor SVD.
 soc-header:
 	python3 tools/soc_scraper.py --emit-bridge
@@ -109,9 +119,9 @@ idf-build:
 	             idf.py -B build build'
 
 # Everything runnable without a board. Run this before pushing firmware changes.
-verify: test tasm-test doc-links warn-check lock-check ci-lint soc-check rom-check idf-build soc-bridge
+verify: test tasm-test doc-links warn-check lock-check independence-check ci-lint soc-check rom-check idf-build soc-bridge
 	@echo ""
-	@echo "verify: host tests, TASM, doc links, warning gate, lock discipline, workflow schema, a real ESP-IDF build, and the SoC constant bridge all passed."
+	@echo "verify: host tests, TASM, doc links, warning gate, lock discipline, the independence ratchet, workflow schema, a real ESP-IDF build, and the SoC constant bridge all passed."
 
 hw-test:
 	@test -n "$(PORT)" || { echo "Usage: make hw-test PORT=/dev/cu.usbmodemXXXX"; exit 1; }

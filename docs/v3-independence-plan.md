@@ -1,5 +1,11 @@
 # Reflex OS v3.0 — Platform Independence Plan
 
+> **Status lives elsewhere.** For what is actually done, see
+> [`independence-dependency-map.md`](independence-dependency-map.md), which is the
+> single source of truth and is backed by a measurement (`make independence`)
+> rather than by a table someone remembers to update. This document remains the
+> record of the plan and its reasoning.
+
 **Goal:** Reflex OS includes zero ESP-IDF headers. The GOOSE substrate, ternary VM, and OS surface are fully portable. Platform-specific code lives behind a Reflex-owned HAL in `platform/<target>/`. ESP-IDF becomes one possible backend, not a dependency.
 
 **Principle:** The substrate is an ocean of potential. It surfaces the shapes, forms, and functions the user needs. It is an OS while simultaneously being itself. Applications are containerized manifolds running on the ternary VM — nothing runs on bare metal except the substrate itself.

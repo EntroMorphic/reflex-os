@@ -91,6 +91,16 @@ jobs:
       - name: Check loom lock discipline
         run: make lock-check
 
+  # The independence ratchet. No tier of ESP-IDF dependency may grow, and a
+  # dependency the classifier does not recognise is an error rather than a
+  # warning — that is what stops a new kind of coupling arriving as noise.
+  independence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check ESP-IDF independence ratchet
+        run: make independence-check
+
   doc-links:
     runs-on: ubuntu-latest
     steps:

@@ -1,5 +1,11 @@
 # PRD: Full Espressif Elimination
 
+> **Status lives elsewhere.** For what is actually done, see
+> [`independence-dependency-map.md`](independence-dependency-map.md), which is the
+> single source of truth and is backed by a measurement (`make independence`)
+> rather than by a table someone remembers to update. This document remains the
+> record of the plan and its reasoning.
+
 **Objective:** Remove every Espressif dependency from Reflex OS. What can't be removed gets documented as a silicon constraint with the same honesty we'd give the mask ROM.
 
 **Principle:** No bullshit. Each item is either replaceable (with a plan) or irreplaceable (with an honest reason). No "future work" hand-waves.

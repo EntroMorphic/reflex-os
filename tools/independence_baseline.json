@@ -1,0 +1,10 @@
+{
+  "note": "Ratchet baseline. Lower is the only legal direction. Regenerate deliberately with tools/check_independence.py --update.",
+  "on_path": {
+    "B": 2,
+    "C": 8,
+    "D": 1,
+    "E": 8,
+    "F": 4
+  }
+}
