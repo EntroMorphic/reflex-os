@@ -440,6 +440,7 @@ void reflex_hal_intr_describe(int source, reflex_intr_route_t *out) {
         out->mip_pending = (mip >> (16 + cpu_int)) & 1u;
     }
     out->plic_threshold = REFLEX_REG(PLIC_MXINT_THRESH);
+    out->live_line_mask = REFLEX_REG(PLIC_MXINT_ENABLE);
 
     uint32_t mstatus;
     __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus));

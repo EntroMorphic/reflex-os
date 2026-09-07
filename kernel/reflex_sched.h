@@ -166,6 +166,21 @@ int reflex_sched_get_priority(const reflex_tcb_t *t);
 #ifndef REFLEX_HOST_BUILD
 reflex_err_t reflex_sched_tick_start(void);
 void reflex_sched_tick_stop(void);
+
+/**
+ * @brief Read back the tick peripheral's interrupt state.
+ *
+ * Exists so a diagnostic can report what the comparator is doing without
+ * duplicating SYSTIMER offsets. The shell used to hardcode base+0x64, +0x68 and
+ * +0x70 in its own file, which is the same register map written down twice and
+ * the kind of duplication that goes stale silently — the offsets already live
+ * beside the code that programs them.
+ *
+ * @param ena  SYSTIMER_INT_ENA, or NULL
+ * @param raw  SYSTIMER_INT_RAW, or NULL   (TARGET1 is bit 1 in each)
+ * @param st   SYSTIMER_INT_ST,  or NULL
+ */
+void reflex_sched_tick_debug(uint32_t *ena, uint32_t *raw, uint32_t *st);
 #endif
 
 /* ---- Trap-side tick routing (reflex_trap.c) ----

@@ -53,6 +53,8 @@
 #define SYSTIMER_COMP1_LOAD     (SYSTIMER_BASE + 0x54)
 #define SYSTIMER_INT_ENA        (SYSTIMER_BASE + 0x64)
 #define SYSTIMER_INT_CLR (SYSTIMER_BASE + 0x6C)
+#define SYSTIMER_INT_RAW (SYSTIMER_BASE + 0x68)
+#define SYSTIMER_INT_ST (SYSTIMER_BASE + 0x70)
 /* The SYSTIMER counter runs at 16 MHz, not at the 40 MHz crystal.
  *
  * The divider is fixed at 2.5 on the C6 — Reflex's own generated SoC header
@@ -278,6 +280,18 @@ void reflex_sched_tick_stop(void) {
     }
 }
 #endif /* !REFLEX_HOST_BUILD */
+
+void reflex_sched_tick_debug(uint32_t *ena, uint32_t *raw, uint32_t *st) {
+#ifndef REFLEX_HOST_BUILD
+    if (ena) *ena = REFLEX_REG(SYSTIMER_INT_ENA);
+    if (raw) *raw = REFLEX_REG(SYSTIMER_INT_RAW);
+    if (st) *st = REFLEX_REG(SYSTIMER_INT_ST);
+#else
+    if (ena) *ena = 0;
+    if (raw) *raw = 0;
+    if (st) *st = 0;
+#endif
+}
 
 void reflex_sched_tick(void) {
     s_tick_count++;

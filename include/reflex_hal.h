@@ -117,6 +117,11 @@ typedef struct {
     bool mie_enabled;        /**< `mie` CSR bit for that line.                 */
     bool mip_pending;        /**< `mip` CSR bit — does the CPU see it pending?  */
     bool global_ie;          /**< `mstatus.MIE` — interrupts enabled at all.   */
+    /** Every CPU interrupt line the controller currently has enabled, as a
+     *  bitmask. Owning the trap vector means servicing every line live at that
+     *  moment, so the population count of this word is the concrete size of
+     *  that job — nine of ten belong to ESP-IDF on the 802.15.4 build. */
+    uint32_t live_line_mask;
 } reflex_intr_route_t;
 
 /**
