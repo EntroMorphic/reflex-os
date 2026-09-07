@@ -605,6 +605,19 @@ def main():
             # validate() has already printed the port header before the
             # failure point, so printing it again here would double it.
             r.check(f"{port} reachable", False, str(e))
+        except Exception as e:  # noqa: BLE001 - deliberate, see below
+            # A board that dies *partway* through validation aborts the rest of
+            # the run exactly as a dead one did, just at a different point —
+            # the checks after it never run and the boards after it are never
+            # touched. Anything unhandled is therefore recorded against this
+            # port and the run continues.
+            #
+            # Broad on purpose, and visible rather than swallowed: the
+            # exception type and message are reported as a failed check, so a
+            # bug in the suite surfaces as a named failure instead of being
+            # quietly absorbed.
+            r.check(f"{port} completed without an unhandled error", False,
+                    f"{type(e).__name__}: {e}")
     tail = f", {r.skipped} skipped" if r.skipped else ""
     print(f"\n=== {r.passed} passed, {r.failed} failed{tail} ===")
     return 1 if r.failed else 0
