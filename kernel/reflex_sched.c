@@ -53,7 +53,41 @@
 #define SYSTIMER_COMP1_LOAD     (SYSTIMER_BASE + 0x54)
 #define SYSTIMER_INT_ENA        (SYSTIMER_BASE + 0x64)
 #define SYSTIMER_INT_CLR (SYSTIMER_BASE + 0x6C)
-#define SYSTIMER_TICK_PERIOD    (40000000 / REFLEX_SCHED_TICK_HZ)
+/* The SYSTIMER counter runs at 16 MHz, not at the 40 MHz crystal.
+ *
+ * The divider is fixed at 2.5 on the C6 — Reflex's own generated SoC header
+ * records it as REFLEX_SOC_SYSTIMER_FIXED_DIVIDER, and ESP-IDF's soc_caps.h
+ * spells it out: "Clock source divider is fixed: 2.5". The period was computed
+ * against 40 MHz, and one measurement matched that exactly — 200 ticks in
+ * 499167 us, 400 Hz against a target of 1000, which is 1/2.5 and puts the
+ * counter at 16 MHz by arithmetic.
+ *
+ * The derived period does not yet produce the derived rate, and that is
+ * unexplained rather than fixed. Measured on a C6: period 40000 gave 400 Hz
+ * once; periods 32000 and 16000 each gave exactly one tick per arming, three
+ * runs apiece. A minimum-period floor does not fit a discontinuity between
+ * 32000 and 40000, and neither does the ack racing the next match at 2 ms.
+ * What is established is that the interrupt is delivered at all, which it
+ * never was before; what the rate does across periods is the open question.
+ * See docs/independence-dependency-map.md. */
+#define SYSTIMER_CLK_HZ 16000000 /* 40 MHz XTAL / 2.5 */
+#define SYSTIMER_TICK_PERIOD (SYSTIMER_CLK_HZ / REFLEX_SCHED_TICK_HZ)
+
+/* SYSTIMER_CONF fields, per the C6 TRM. Named rather than written as bare bit
+ * numbers because this function had `1 << 25` where it meant `1 << 23`:
+ * bit 25 is TIMER_UNIT1_CORE1_STALL_EN, which on a single-core part does
+ * nothing observable, so the comparator's work-enable was simply never set.
+ * The interrupt was routed correctly all the way to the CPU and the peripheral
+ * never raised it — read off a board as `raw=0x00000000` with TARGET1 enabled
+ * in SYSTIMER_INT_ENA. A wrong bit number in a peripheral register is invisible
+ * to every gate this repository has. */
+#define SYSTIMER_TARGET1_WORK_EN_BIT 23
+#define SYSTIMER_TARGET0_WORK_EN_BIT 24 /* ESP-IDF's; do not touch */
+#define SYSTIMER_TIMER_UNIT0_WORK_EN 30 /* defaults to 1, ESP-IDF relies on it */
+
+/* SYSTIMER_TARGET1_CONF fields. */
+#define SYSTIMER_TARGET1_PERIOD_MODE 30
+#define SYSTIMER_TARGET1_UNIT_SEL 31 /* 0 selects timer unit 0 */
 
 reflex_tcb_t s_tasks[REFLEX_SCHED_MAX_TASKS];
 static reflex_tcb_t *s_current = NULL;
@@ -205,12 +239,21 @@ static void sched_tick_isr(void *arg) {
 reflex_err_t reflex_sched_tick_start(void) {
     if (s_tick_intr) return REFLEX_OK; /* already running */
 
-    /* Program the comparator first, then route. The other order leaves a
-     * window where the line is live and the comparator is not yet armed. */
-    setup_systimer_tick();
-
+    /* Route first, then arm the comparator.
+     *
+     * The reverse order was tried and is wrong in a way that stops the core.
+     * A routed line with an unarmed source is inert — nothing asserts it. An
+     * armed source with no routing is not: until reflex_hal_intr_alloc writes
+     * the interrupt-matrix entry, SYSTIMER_TARGET1's entry holds its reset
+     * value of 0, so the comparator asserts onto CPU interrupt line 0 rather
+     * than the line Reflex is about to claim. Level-triggered, so it stays
+     * asserted, and the core stops making progress. Observed as a task
+     * watchdog timeout with the idle task starved. */
     reflex_err_t rc = reflex_hal_intr_alloc(REFLEX_INTR_SRC_SYSTIMER_TARGET1, 0, sched_tick_isr,
                                             NULL, &s_tick_intr);
+    if (rc == REFLEX_OK) {
+        setup_systimer_tick();
+    }
     if (rc != REFLEX_OK) {
         /* Leave the peripheral disabled rather than raising an interrupt with
          * nowhere to go: an unrouted level interrupt stays asserted. */
@@ -225,6 +268,9 @@ void reflex_sched_tick_stop(void) {
     /* Peripheral first, for the same reason: never leave a routed line with an
      * armed source and no handler. */
     REFLEX_REG(SYSTIMER_INT_ENA) &= ~(1u << 1);
+    /* Stop the comparator too, not just its interrupt. Leaving TARGET1_WORK_EN
+     * set keeps it matching and re-raising into SYSTIMER_INT_RAW forever. */
+    REFLEX_REG(SYSTIMER_CONF) &= ~(1u << SYSTIMER_TARGET1_WORK_EN_BIT);
     REFLEX_REG(SYSTIMER_INT_CLR) = (1u << 1);
     if (s_tick_intr) {
         reflex_hal_intr_free(s_tick_intr);
@@ -350,10 +396,17 @@ void reflex_sched_exit_critical(void) {
 
 #ifndef REFLEX_HOST_BUILD
 static void setup_systimer_tick(void) {
-    REFLEX_REG(SYSTIMER_CONF) |= (1 << 0);
-    REFLEX_REG(SYSTIMER_TARGET1_CONF) = (1 << 30) | SYSTIMER_TICK_PERIOD;
-    REFLEX_REG(SYSTIMER_COMP1_LOAD) = 1;
-    REFLEX_REG(SYSTIMER_CONF) |= (1 << 25);
+    /* Period mode against unit 0, which ESP-IDF already has running for its
+     * own TARGET0 and TARGET2 comparators. UNIT_SEL is left clear for unit 0. */
+    REFLEX_REG(SYSTIMER_TARGET1_CONF) = (1u << SYSTIMER_TARGET1_PERIOD_MODE) | SYSTIMER_TICK_PERIOD;
+    REFLEX_REG(SYSTIMER_COMP1_LOAD) = 1; /* latch the period into the comparator */
+
+    /* Enable the TARGET1 comparator itself. This is the line that was writing
+     * bit 25. */
+    REFLEX_REG(SYSTIMER_CONF) |= (1u << SYSTIMER_TARGET1_WORK_EN_BIT);
+
+    /* Clear any match that accumulated before the comparator was armed, so
+     * enabling the interrupt does not immediately deliver a stale one. */
     REFLEX_REG(SYSTIMER_INT_CLR) = (1 << 1);
     REFLEX_REG(SYSTIMER_INT_ENA) |= (1 << 1);
 }

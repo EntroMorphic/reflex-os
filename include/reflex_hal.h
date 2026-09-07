@@ -99,6 +99,33 @@ void reflex_hal_sleep_enter(uint64_t duration_us);
 /** @brief Fill @p buf with hardware entropy. Used for the per-board Aura key
  *  and for arc nonces, so it must be a real RNG rather than a PRNG seeded at
  *  a predictable point in boot. */
+/**
+ * @brief Snapshot of how a peripheral interrupt source is currently routed.
+ *
+ * Exists so that "routed but not firing" can be answered with register values
+ * instead of a hypothesis. Every field is read back from hardware at the moment
+ * of the call, not remembered from when the routing was set up, because the
+ * interesting failures are the ones where something else changed it.
+ */
+typedef struct {
+    uint32_t source;         /**< Peripheral source number asked about.        */
+    uint32_t cpu_int;        /**< CPU line the interrupt matrix maps it to.    */
+    uint32_t plic_priority;  /**< PLIC priority of that line.                  */
+    uint32_t plic_threshold; /**< PLIC threshold. Lines at or below are masked.*/
+    bool plic_enabled;       /**< PLIC enable bit for that line.               */
+    bool level_triggered;    /**< True if level-triggered, false if edge.      */
+    bool mie_enabled;        /**< `mie` CSR bit for that line.                 */
+    bool global_ie;          /**< `mstatus.MIE` — interrupts enabled at all.   */
+} reflex_intr_route_t;
+
+/**
+ * @brief Read back the live routing of a peripheral interrupt source.
+ *
+ * @param source Peripheral source number (REFLEX_INTR_SRC_*).
+ * @param out    Filled in; zeroed on a platform that cannot report this.
+ */
+void reflex_hal_intr_describe(int source, reflex_intr_route_t *out);
+
 void reflex_hal_random_fill(uint8_t *buf, size_t len);
 /** @brief Read the factory MAC. Doubles as this board's mesh identity, so it
  *  is what self-arc suppression and the peer table compare against. */

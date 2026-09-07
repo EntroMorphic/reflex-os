@@ -24,6 +24,7 @@
 #include "reflex_hal.h"
 #include "reflex_task.h"
 #include "reflex_soc_esp32c6.h" /* LEDC signal index; was soc/gpio_sig_map.h */
+#include "reflex_regops.h"
 #include "reflex_rom_esp32c6.h" /* esp_rom_gpio_connect_out_signal */
 
 #include "reflex_log.h"
@@ -985,6 +986,18 @@ static void shell_cmd_kernel_tick(void) {
     uint64_t elapsed_us = reflex_hal_time_us() - t0;
 
     uint32_t after = reflex_sched_get_tick();
+
+    /* Capture the routing while it is still live. reflex_sched_tick_stop()
+     * clears the interrupt-matrix entry and the peripheral enable, so a
+     * readback taken after it describes the teardown rather than the failure —
+     * which is exactly the mistake this readback was added to stop someone
+     * making from the outside. */
+    reflex_intr_route_t route;
+    reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &route);
+    uint32_t st_ena = REFLEX_REG(REFLEX_DR_REG_SYSTIMER_BASE + 0x64);
+    uint32_t st_raw = REFLEX_REG(REFLEX_DR_REG_SYSTIMER_BASE + 0x68);
+    uint32_t st_st = REFLEX_REG(REFLEX_DR_REG_SYSTIMER_BASE + 0x70);
+
     reflex_sched_tick_stop();
 
     uint32_t ticks = after - before;
@@ -995,7 +1008,22 @@ static void shell_cmd_kernel_tick(void) {
     printf("kernel tick: %lu ticks in %lu us -> %u Hz (target %u)\n", (unsigned long)ticks,
            (unsigned long)elapsed_us, hz, (unsigned)REFLEX_SCHED_TICK_HZ);
     if (ticks == 0) {
-        printf("kernel tick: no ticks — routed but not firing\n");
+        /* Report the routing rather than the conclusion. "Routed but not
+         * firing" names three or four possible causes and distinguishes none
+         * of them; the registers distinguish all of them, and they are three
+         * reads away. Every value is read back from hardware now, not
+         * remembered from when the routing was set up, because the interesting
+         * failure is the one where something else changed it. */
+        printf("kernel tick: no ticks — routing readback (taken live):\n");
+        printf("  intmtx: src=%lu -> cpu_int=%lu\n", (unsigned long)route.source,
+               (unsigned long)route.cpu_int);
+        printf("  plic:   enabled=%d pri=%lu thresh=%lu level=%d\n", (int)route.plic_enabled,
+               (unsigned long)route.plic_priority, (unsigned long)route.plic_threshold,
+               (int)route.level_triggered);
+        printf("  csr:    mie_bit=%d mstatus.MIE=%d\n", (int)route.mie_enabled,
+               (int)route.global_ie);
+        printf("  systimer: ena=0x%08lx raw=0x%08lx st=0x%08lx (TARGET1=bit1)\n",
+               (unsigned long)st_ena, (unsigned long)st_raw, (unsigned long)st_st);
         outcome(SHELL_FAILED);
     }
 }

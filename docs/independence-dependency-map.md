@@ -358,8 +358,50 @@ running the configuration actually revealed:
 > rather than guarding it. Cost nothing at compile time, which is why CI built
 > this configuration green for its entire existence without running it.
 
-**The configuration now boots**, and the shell is reachable, so the tick is
-measurable for the first time:
+**The configuration now boots**, the shell is reachable, and as of 2026-09-07
+**the tick is delivered.** Three defects stood between "routed" and "firing",
+and none of them was visible to any gate this repository has:
+
+1. **The comparator was never enabled.** `setup_systimer_tick` wrote
+   `SYSTIMER_CONF |= 1 << 25`, but `TARGET1_WORK_EN` is **bit 23** —
+   `1 << (24 - alarm_id)` in ESP-IDF's own `systimer_ll_enable_alarm`. Bit 25 is
+   `TIMER_UNIT1_CORE1_STALL_EN`, which does nothing observable on a single-core
+   part. Read off a board as `raw=0x00000000` with TARGET1 enabled in
+   `SYSTIMER_INT_ENA`: routed the whole way to the CPU, and the peripheral never
+   raised it.
+2. **The comparator was armed before it was routed.** `reflex_sched_tick_start`
+   called `setup_systimer_tick()` first, so TARGET1 asserted while its
+   interrupt-matrix entry still held its reset value of 0 — onto CPU line 0
+   rather than the line about to be claimed. Level-triggered, so it stayed
+   asserted and the core stopped making progress: a task watchdog timeout with
+   the idle task starved. Routing now happens first; a routed line with an
+   unarmed source is inert, an armed source with no routing is not.
+3. **The vector was installed after the line was made deliverable.**
+   `reflex_hal_intr_alloc` enabled the PLIC line and re-enabled interrupts
+   *before* calling `intr_handler_set`. Everything that can be set up while the
+   line is masked now is, and the PLIC enable is last.
+
+A routing readback was added to `kernel tick` for this, and is kept: it reports
+the interrupt-matrix entry, PLIC enable/priority/threshold/type, the `mie` and
+`mstatus.MIE` bits, and the SYSTIMER enable/raw/status registers, all read back
+live rather than remembered. "Routed but not firing" names four possible causes
+and distinguishes none; those registers distinguish all of them. The first
+version of that readback ran *after* `reflex_sched_tick_stop()` and therefore
+described the teardown — corrected, and the comment says so.
+
+**Open: the rate is not yet right, and the behaviour across periods is not
+understood.** The systimer counts at 16 MHz, not at the 40 MHz crystal — the
+divider is fixed at 2.5, which Reflex's own generated header already records as
+`REFLEX_SOC_SYSTIMER_FIXED_DIVIDER`. One measurement matched that arithmetic
+exactly: period 40000 gave **200 ticks in 499167 us, 400 Hz** against a target
+of 1000, which is 1/2.5. But the derived period does not produce the derived
+rate — periods 32000 and 16000 each gave exactly one tick per arming, three runs
+apiece. A minimum-period floor does not fit a discontinuity between 32000 and
+40000, and neither does the acknowledgement racing the next match at 2 ms. What
+is established is that the interrupt is delivered at all, which it never was
+before. What the rate does across periods is the next question.
+
+The earlier blocker, for the record:
 
 ```
 reflex> kernel tick
@@ -367,7 +409,7 @@ kernel tick: 0 ticks in 490684 us -> 0 Hz (target 1000)
 kernel tick: no ticks — routed but not firing
 ```
 
-That is the blocker now, and it is a far better one than a panic: `make hw-test`
+That was a far better blocker than a panic: `make hw-test`
 reports **171/171** on this configuration, the 802.15.4 radio transmits with
 `aura_fail=0`, and dropping the Wi-Fi stack frees **120 KB of RAM** (heap free
 289,748 against 169,880 on the ESP-NOW build). What stands in front of the tick

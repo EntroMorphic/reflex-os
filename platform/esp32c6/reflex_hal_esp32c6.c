@@ -4,6 +4,7 @@
  */
 
 #include "reflex_hal.h"
+#include <string.h>
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -333,6 +334,18 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
     /* Set priority (1 = lowest non-zero) */
     REFLEX_REG(PLIC_MXINT_PRI(cpu_int)) = 1;
 
+    /* Install the vector before the line can deliver anything.
+     *
+     * This used to enable the PLIC line and re-enable interrupts *before*
+     * calling intr_handler_set, leaving a window in which a source already
+     * asserting would be taken with no handler installed for that line. For a
+     * level-triggered interrupt that is not a missed event, it is a permanent
+     * one: nothing clears the source, so it re-asserts immediately and the
+     * core makes no further progress. Everything that can be set up while the
+     * line is still masked now is. */
+    extern void intr_handler_set(int n, void (*fn)(void), void *arg);
+    intr_handler_set(cpu_int, (void (*)(void))reflex_intr_dispatch, NULL);
+
     /* Disable interrupts for atomic RMW of shared registers */
     __asm__ volatile ("csrci mstatus, 0x8");
 
@@ -341,23 +354,44 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
     type &= ~(1U << cpu_int);
     REFLEX_REG(PLIC_MXINT_TYPE) = type;
 
-    /* Enable the CPU interrupt in PLIC */
-    REFLEX_REG(PLIC_MXINT_ENABLE) |= (1U << cpu_int);
-
-    __asm__ volatile ("csrsi mstatus, 0x8");
-
-    /* Register dispatch with ROM's interrupt vector table */
-    extern void intr_handler_set(int n, void (*fn)(void), void *arg);
-    intr_handler_set(cpu_int, (void (*)(void))reflex_intr_dispatch, NULL);
-
     /* Enable in mie CSR (bit 16+n for external interrupts on C6) */
     uint32_t mie;
     __asm__ volatile ("csrr %0, mie" : "=r"(mie));
     mie |= (1U << (16 + cpu_int));
     __asm__ volatile ("csrw mie, %0" : : "r"(mie));
 
+    /* Enable the CPU interrupt in PLIC last: this is the step that makes the
+     * line deliverable, and everything it needs is now in place. */
+    REFLEX_REG(PLIC_MXINT_ENABLE) |= (1U << cpu_int);
+
+    __asm__ volatile("csrsi mstatus, 0x8");
+
     if (out_handle) *out_handle = (reflex_intr_handle_t)(uintptr_t)(cpu_int + 1);
     return REFLEX_OK;
+}
+
+void reflex_hal_intr_describe(int source, reflex_intr_route_t *out) {
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    if (source < 0 || source > INTMTX_SOURCE_MAX) return;
+
+    uint32_t cpu_int = REFLEX_REG(INTMTX_BASE + 4 * source);
+    out->source = (uint32_t)source;
+    out->cpu_int = cpu_int;
+
+    if (cpu_int < 32) {
+        out->plic_enabled = (REFLEX_REG(PLIC_MXINT_ENABLE) >> cpu_int) & 1u;
+        out->plic_priority = REFLEX_REG(PLIC_MXINT_PRI(cpu_int));
+        out->level_triggered = !((REFLEX_REG(PLIC_MXINT_TYPE) >> cpu_int) & 1u);
+        uint32_t mie;
+        __asm__ volatile("csrr %0, mie" : "=r"(mie));
+        out->mie_enabled = (mie >> (16 + cpu_int)) & 1u;
+    }
+    out->plic_threshold = REFLEX_REG(PLIC_MXINT_THRESH);
+
+    uint32_t mstatus;
+    __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus));
+    out->global_ie = (mstatus >> 3) & 1u; /* MIE */
 }
 
 reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {

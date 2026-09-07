@@ -7,6 +7,7 @@
  */
 
 #include "reflex_hal.h"
+#include <string.h>
 #include "esp_intr_alloc.h"
 #include <stdio.h>
 
@@ -90,6 +91,13 @@ void reflex_hal_sleep_enter(uint64_t duration_us) {
 
 void reflex_hal_random_fill(uint8_t *buf, size_t len) {
     esp_fill_random(buf, len);
+}
+
+/* The classic ESP32 borrows ESP-IDF's interrupt allocator wholesale, so there
+ * is no Reflex-owned routing to report. Zeroed rather than guessed. */
+void reflex_hal_intr_describe(int source, reflex_intr_route_t *out) {
+    (void)source;
+    if (out) memset(out, 0, sizeof(*out));
 }
 
 reflex_err_t reflex_hal_mac_read(uint8_t mac[6]) {
