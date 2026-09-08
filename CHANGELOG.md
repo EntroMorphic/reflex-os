@@ -9,6 +9,12 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Added
 
+- **Tier C loses one: the kernel scheduler test allocates its tick through Reflex's own interrupt path.** `esp_intr_alloc.h` is gone from `reflex_kernel_test.c`, which now uses `reflex_hal_intr_alloc` — the path the console's receive interrupt runs on and the one the tick was measured on at 1000 Hz. **Tier C 8 -> 7, on-path total 15 -> 14.**
+
+  Stated plainly because the measurement says otherwise: nothing calls that function, and the linker discards the whole object, so this include never cost the image anything while the tier number carried it. It is fixed so that wiring the file up during the C3 cutover cannot silently reintroduce the dependency — not because it was costing anything today.
+
+- **`make image-check` cross-checks the include count against the image**, and names the includes that live in objects the linker drops. That is how the above was found.
+
 - **`make image-check` — what is actually in the image, which counting includes cannot tell you.** Reaching Tier E zero exposed a limit in the measure itself, in both directions at once. The four peripherals Reflex took over contribute *no objects at all* to the linked image, which is stronger than the include count could state; and `esp_driver_usb_serial_jtag` still contributes three objects — including the VFS every `printf` in the shell travels through — which the include count could not see at all, because ESP-IDF's startup registers it and nothing includes it. A dependency arriving by startup registration rather than by an `#include` is invisible to a scan of include lines, which is the exact kind of drift `independence-dependency-map.md` exists to prevent, appearing in its own instrument.
 
   The check proves its query can find something before trusting an empty result. That guard is not decoration: the first two attempts at this measurement reported a clean bill of health from a pattern that matched nothing — once from a mis-typed map filename, once from a character class that excluded the dot in `gpio.c.obj`. An empty answer from a broken query reads exactly like success.
@@ -59,6 +65,8 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 - **`-DREFLEX_CONSOLE_RX_DIAG=1`** — a board that has stopped answering can still be asked a question, over transmit, which is the half that usually still works. It reports whether the receive handler ran, how many bytes it buffered, and whether anything consumed them, separating three failures that look identical from the host. It is what ended four rounds of reasoning about the wrong half of the console, and it is documented in `CONTRIBUTING.md`.
 
 ### Fixed
+
+- **A check that drew a confident conclusion from the wrong build.** The first version of the image cross-check reported `reflex_radio_802154.c`'s ESP-IDF include as discarded dead code. It is not: the include scan measures the independence configuration (C6 with the 802.15.4 radio) while the linker map is whatever was last built, and that build has no radio. "Absent from the image" has two causes and the check could not tell them apart — it simply asserted the interesting one. It now reads `sdkconfig` first and draws the conclusion only when the map is the configuration being measured, saying so plainly otherwise. Verifying the independence build itself is the outstanding follow-up.
 
 - **A comment that said the pin was handed back, over code that did not.** `reflex_hal_rmt_release` stopped the channel and gated the clock but left the pin routed to the transmit signal with its input buffer forced on for the rest of the boot — the same debt the counter had one commit earlier, in the function written immediately after fixing it. A comment asserting the work was done is worse than no comment, because it is what a reader checks instead of the code. It now detaches the signal, returns the pin to an input, and says only what it does.
 

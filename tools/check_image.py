@@ -73,6 +73,62 @@ def main():
         for o in objs:
             print(f"           {o}")
 
+    # Cross-check the include count against the image — but only where the two
+    # are talking about the same build.
+    #
+    # An include in a translation unit the linker discards is a dependency on
+    # paper only: driver/uart.h was counted that way for a while, and so was
+    # esp_intr_alloc.h in a kernel test nothing calls.
+    #
+    # The trap is that "absent from the image" has a second cause, and the first
+    # version of this check could not tell them apart. The include scan assumes
+    # the independence configuration (C6 with the 802.15.4 radio); the map is
+    # whatever was last built. Run against a build without the radio, it
+    # confidently reported the radio backend as discarded dead code. It is not —
+    # it is simply not in that build. So the configuration is checked first, and
+    # the conclusion is stated only when it can be supported.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import check_independence as ci
+
+    sdkconfig = os.path.join(ROOT, "sdkconfig")
+    conf = ""
+    if os.path.exists(sdkconfig):
+        with open(sdkconfig, errors="replace") as fh:
+            conf = fh.read()
+    is_independence_build = "CONFIG_REFLEX_RADIO_802154=y" in conf
+
+    with open(MAP, errors="replace") as fh:
+        map_text = fh.read()
+    on, _off, _unknown = ci.scan()
+    phantom = {}
+    for rel, _n, inc, tier, _w in on:
+        base = os.path.basename(rel)
+        if not base.endswith((".c", ".S")):
+            continue
+        obj = base.rsplit(".", 1)[0] + (".c.obj" if base.endswith(".c") else ".S.obj")
+        if f"({obj})" not in map_text:
+            phantom.setdefault(rel, []).append((tier, inc))
+
+    print()
+    if not is_independence_build:
+        print("On-path includes absent from this image:")
+        for rel, items in sorted(phantom.items()):
+            for tier, inc in items:
+                print(f"  {tier}  {rel}  {inc}")
+        print("  This build does not have CONFIG_REFLEX_RADIO_802154, so it is "
+              "not the configuration the include scan measures. An object may "
+              "be missing here because it belongs to a build this is not, and "
+              "not because anything discarded it — no conclusion is drawn.")
+    elif phantom:
+        print("On-path includes in objects the linker discards:")
+        for rel, items in sorted(phantom.items()):
+            for tier, inc in items:
+                print(f"  {tier}  {rel}  {inc}  <- object not in image")
+        print("  Counted by the include scan and costing the image nothing. "
+              "Not an error — a caveat on the number.")
+    else:
+        print("Every on-path include lives in an object that is actually linked.")
+
     print()
     if failed:
         print("A peripheral Reflex owns is still contributing code to the image.")

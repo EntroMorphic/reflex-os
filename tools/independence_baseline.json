@@ -3,7 +3,7 @@
         "Ratchet baseline. Lower is the only legal direction. Regenerate deliberately with tools/check_independence.py --update.",
     "on_path": {
         "B": 2,
-        "C": 8,
+        "C": 7,
         "D": 1,
         "F": 4
     }
