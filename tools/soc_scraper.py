@@ -95,6 +95,14 @@ REGS = [
     ("REFLEX_ASSIST_DEBUG_CORE_0_RCD_EN_REG",  "ASSIST_DEBUG_CORE_0_RCD_EN_REG",  "ASSIST_DEBUG", "CORE_0_RCD_EN", None, ""),
     ("REFLEX_ASSIST_DEBUG_CORE_0_RCD_RECORDEN","ASSIST_DEBUG_CORE_0_RCD_RECORDEN","ASSIST_DEBUG", "CORE_0_RCD_EN", "CORE_0_RCD_RECORDEN", ""),
     ("REFLEX_ASSIST_DEBUG_CORE_0_RCD_PDEBUGEN","ASSIST_DEBUG_CORE_0_RCD_PDEBUGEN","ASSIST_DEBUG", "CORE_0_RCD_EN", "CORE_0_RCD_PDEBUGEN", ""),
+    # The stack-pointer watchpoint. ESP-IDF arms it with each FreeRTOS task's
+    # bounds, so a scheduler that switches to its own stack trips it: observed
+    # as "Guru Meditation Error: Core 0 panic'ed (Stack protection fault)" with
+    # the SP outside the bounds of the task the switch started from. Reflex has
+    # to be able to stand it down before taking over scheduling.
+    ("REFLEX_ASSIST_DEBUG_MONTR_ENA_REG", "ASSIST_DEBUG_CORE_0_INTR_ENA_REG", "ASSIST_DEBUG", "CORE_0_MONTR_ENA", None, "stack and area watchpoint enables; IDF calls this INTR_ENA where the SVD says MONTR_ENA"),
+    ("REFLEX_ASSIST_DEBUG_SP_SPILL_MIN_ENA", "ASSIST_DEBUG_CORE_0_SP_SPILL_MIN_ENA", "ASSIST_DEBUG", "CORE_0_MONTR_ENA", "CORE_0_SP_SPILL_MIN_ENA", ""),
+    ("REFLEX_ASSIST_DEBUG_SP_SPILL_MAX_ENA", "ASSIST_DEBUG_CORE_0_SP_SPILL_MAX_ENA", "ASSIST_DEBUG", "CORE_0_MONTR_ENA", "CORE_0_SP_SPILL_MAX_ENA", ""),
     ("REFLEX_PCR_ASSIST_CONF_REG",             "PCR_ASSIST_CONF_REG",             "PCR", "ASSIST_CONF", None, ""),
     ("REFLEX_PCR_ASSIST_CLK_EN",               "PCR_ASSIST_CLK_EN",               "PCR", "ASSIST_CONF", "ASSIST_CLK_EN", ""),
     ("REFLEX_PCR_ASSIST_RST_EN",               "PCR_ASSIST_RST_EN",               "PCR", "ASSIST_CONF", "ASSIST_RST_EN", ""),

@@ -32,6 +32,16 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Added
 
+- **`kernel selftest` starts the Reflex scheduler, and it gets further than the plan implied.** Nothing had ever called `reflex_sched_start`, so "does the scheduler work" had never been asked of hardware. It is now, from an admin-gated shell command that hands the calling task to the scheduler and does not give it back. On the independence build, where the tick runs at 1000 Hz, the scheduler **starts, picks a task, and reaches the first stack switch**.
+
+  There it panics: `Guru Meditation Error: Core 0 panic'ed (Stack protection fault). Stack pointer: 0x408369b0   Stack bounds: 0x40825c28 - 0x40827e20`. The switch is not obviously wrong — that SP is inside the Reflex task's own stack. ESP-IDF arms a stack-pointer watchpoint with the bounds of whichever FreeRTOS task is running, and does not know Reflex's stacks exist.
+
+- **`reflex_hal_stack_guard_disable`** releases that watchpoint (constants through the bridge, 175 -> 178; IDF calls the register `INTR_ENA` where the SVD says `MONTR_ENA`). **It does not fix the panic, and that is the finding.** FreeRTOS re-arms the watchpoint on every context switch and its tick is still running, so the two schedulers cannot coexist even for the length of one experiment.
+
+  **So the `mtvec` hand-off is not a third blocker queued behind the other two — it is the problem.** Until Reflex owns the trap vector and FreeRTOS is quiesced, the first stack switch keeps being undone by the system it is replacing. That is a much sharper statement of C3's remaining distance than "three things are missing", and it came from running it rather than reading it.
+
+- **The self-test no longer allocates the tick itself.** It routed SYSTIMER_TARGET1 and then called `reflex_sched_start`, which routes and arms it too — two allocations of one source, landing on different CPU lines. Harmless only because nothing ever called it.
+
 - **A recovery net for deep sleep, proved rather than assumed — and it does not yet work where it is needed.** Owning the sleep entry is the one dependency whose failure mode is silent and unrecoverable: get it wrong and the board never wakes, with nothing left running to say why. The mitigation is the low-power watchdog, which lives in the always-on domain: armed before sleeping, it turns "never wakes" into "reboots a few seconds later". `reflex_hal_wdt_arm/feed/disarm/armed/regs` own it directly, constants through the SoC bridge (161 -> 175). `kernel wdt <ms|off>` arms it, gated at `admin` because it is a reboot by another name.
 
   **Awake, it works: armed for 5000 ms, the board reset on schedule.** It did not on the first attempt, and the reason is worth recording — the configuration read back exactly as intended, `WDT_EN` set, stage action `RESET_RTC`, the timeout correct to the tick, and nothing happened. Both reset-signal length fields were zero, which is a 100 ns pulse that does not take. ESP-IDF sets 3.2 µs. *Armed is not the same as working*, and only reading the register back showed the difference.

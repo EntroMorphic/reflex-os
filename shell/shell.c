@@ -1237,6 +1237,29 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
         shell_cmd_kernel_tick();
         return;
     }
+    if (argc >= 2 && strcmp(argv[1], "selftest") == 0) {
+        /* Hand this task to the Reflex scheduler and see whether it runs.
+         *
+         * reflex_sched_start does not return — it *is* the scheduler loop — so
+         * this shell task becomes that loop and the shell is gone until the
+         * board is reset. That is the point: it is the smallest thing that
+         * answers the question C3 actually turns on, which is whether the
+         * scheduler can run its own tasks at all. Two tasks print through ROM
+         * output and delay on the scheduler's tick, so the answer arrives on
+         * the console either way.
+         *
+         * Recoverable: FreeRTOS keeps running the rest of the system, so USB
+         * stays up and a reflash resets the board. Admin-gated, because losing
+         * the shell is at least as drastic as rebooting. */
+        extern void reflex_kernel_test(void);
+        printf("kernel selftest: handing this task to the Reflex scheduler\n");
+        printf("  the shell does not come back — reset the board when done\n");
+        fflush(stdout);
+        reflex_kernel_test();
+        printf("kernel selftest: scheduler returned, which it should not\n");
+        outcome(SHELL_FAILED);
+        return;
+    }
     if (argc >= 2 && strcmp(argv[1], "wdt") == 0) {
         /* Arm or disarm the low-power watchdog, and read back whether it took.
          *

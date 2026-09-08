@@ -24,13 +24,6 @@
  * proves it against ESP-IDF's own enum rather than trusting a number typed
  * into a comment. */
 #include "reflex_soc_esp32c6.h"
-#define SYSTIMER_TARGET1_INTR_SOURCE REFLEX_INTR_SRC_SYSTIMER_TARGET1
-
-static void __attribute__((section(".iram1"))) systimer_tick_isr(void *arg) {
-    (void)arg;
-    reflex_sched_tick();
-    reflex_sched_ack_tick();
-}
 
 static void task_a(void *arg) {
     (void)arg;
@@ -55,27 +48,14 @@ static void task_b(void *arg) {
 void reflex_kernel_test(void) {
     esp_rom_printf("\n[kernel] Reflex OS kernel scheduler test\n");
 
-    /* The tick arrives through Reflex's own interrupt allocator, which does the
-     * interrupt-matrix mapping, the PLIC priority and the mie bit itself.
+    /* The tick is not allocated here any more.
      *
-     * It used to come through ESP-IDF's, with a comment noting that this
-     * therefore exercised the Reflex scheduler and not Reflex's independence.
-     * That is no longer the trade: reflex_hal_intr_alloc is the path the
-     * console's receive interrupt runs on and the path the scheduler tick was
-     * measured on at 1000 Hz across ten cold starts.
-     *
-     * Worth being plain that nothing calls this function — the linker discards
-     * the whole object, which is why its ESP-IDF include cost the image nothing
-     * and the independence count showed it anyway. It is fixed here so that
-     * wiring it up during the C3 scheduler cutover does not silently reintroduce
-     * the dependency. */
-    reflex_intr_handle_t isr_handle;
-    reflex_err_t ie = reflex_hal_intr_alloc(REFLEX_INTR_SRC_SYSTIMER_TARGET1, 0, systimer_tick_isr,
-                                            NULL, &isr_handle);
-    if (ie != REFLEX_OK) {
-        esp_rom_printf("[kernel] ERROR: tick ISR alloc failed (0x%x)\n", (int)ie);
-        return;
-    }
+     * This routed SYSTIMER_TARGET1 itself and then called reflex_sched_start,
+     * which routes and arms it too — two allocations of the same source, the
+     * second landing on a different CPU line than the first. That was harmless
+     * only because nothing ever called this function. reflex_sched_start owns
+     * the tick now, and `kernel tick` measures the same path: 5/5 verified cold
+     * starts at 1000 Hz on the independence build. */
 
     /* Each of these reported a status that was discarded. Starting a scheduler
      * whose tasks failed to be created looks identical to a scheduler that
@@ -96,6 +76,12 @@ void reflex_kernel_test(void) {
         esp_rom_printf("[kernel] ERROR: task-B create failed (0x%x)\n", (int)rc);
         return;
     }
+
+    /* Take the stack watchpoint back before switching stacks. Without this the
+     * first switch panics with a stack protection fault — the SP is inside the
+     * Reflex task's own stack, and ESP-IDF's guard is still armed with the
+     * bounds of the FreeRTOS task this was called from. */
+    reflex_hal_stack_guard_disable();
 
     esp_rom_printf("[kernel] starting scheduler (cooperative)...\n");
     rc = reflex_sched_start();

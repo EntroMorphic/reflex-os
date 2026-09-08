@@ -54,6 +54,7 @@ reflex_err_t reflex_hal_wdt_arm(uint32_t ms) {
 }
 void reflex_hal_wdt_feed(void) {}
 void reflex_hal_wdt_disarm(void) {}
+void reflex_hal_stack_guard_disable(void) {}
 bool reflex_hal_wdt_armed(void) {
     return false;
 }

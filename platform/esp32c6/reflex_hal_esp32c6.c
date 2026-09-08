@@ -303,6 +303,28 @@ void reflex_hal_wdt_disarm(void) {
 /* Read the configuration back. Armed is not the same as working: the first
  * attempt at this net reported armed=1 and never fired, and the only way to
  * tell why is to look at what the register actually holds. */
+/* Stand down ESP-IDF's stack-pointer watchpoint.
+ *
+ * ESP-IDF arms the assist-debug SP watchpoint with the bounds of whichever
+ * FreeRTOS task is running. A scheduler that switches to its own task stacks
+ * therefore trips it on the first switch, which is exactly what happened the
+ * first time the Reflex scheduler was actually started:
+ *
+ *   Guru Meditation Error: Core 0 panic'ed (Stack protection fault).
+ *   Stack pointer: 0x408369b0   Stack bounds: 0x40825c28 - 0x40827e20
+ *
+ * The switch was not wrong — the SP was inside the Reflex task's own stack.
+ * The guard simply did not know that stack existed. Reflex has to be able to
+ * take the watchpoint back before it can own scheduling, and this is that.
+ *
+ * Deliberately narrow: only the two SP spill bits are cleared, leaving the
+ * area watchpoints alone. It is one-way for now, because whoever calls it is
+ * about to stop returning. */
+void reflex_hal_stack_guard_disable(void) {
+    REFLEX_REG(REFLEX_ASSIST_DEBUG_MONTR_ENA_REG) &=
+        ~(REFLEX_ASSIST_DEBUG_SP_SPILL_MIN_ENA | REFLEX_ASSIST_DEBUG_SP_SPILL_MAX_ENA);
+}
+
 void reflex_hal_wdt_regs(uint32_t *config0, uint32_t *config1) {
     if (config0) *config0 = REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG);
     if (config1) *config1 = REFLEX_REG(REFLEX_LP_WDT_CONFIG1_REG);

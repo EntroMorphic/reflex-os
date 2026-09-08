@@ -104,6 +104,10 @@ void reflex_hal_wdt_feed(void);
 void reflex_hal_wdt_disarm(void);
 bool reflex_hal_wdt_armed(void);
 void reflex_hal_wdt_regs(uint32_t *config0, uint32_t *config1);
+
+/* Release ESP-IDF's stack-pointer watchpoint, which is armed with FreeRTOS task
+ * bounds and fires when a scheduler switches to a stack it does not know. */
+void reflex_hal_stack_guard_disable(void);
 /** @brief Fill @p buf with hardware entropy. Used for the per-board Aura key
  *  and for arc nonces, so it must be a real RNG rather than a PRNG seeded at
  *  a predictable point in boot. */

@@ -33,6 +33,28 @@
  * targets, so it does not block the cutover, but the tick cannot be exercised
  * from the default build and the cause is unknown.)
  *
+ * ## What `kernel selftest` established (2026-09-08)
+ *
+ * The scheduler has now actually been started, from a shell command, on the
+ * independence build where the tick runs at 1000 Hz. It starts, picks a task,
+ * and reaches the first stack switch — where ESP-IDF's stack-pointer
+ * watchpoint fires:
+ *
+ *   Guru Meditation Error: Core 0 panic'ed (Stack protection fault).
+ *   Stack pointer: 0x408369b0   Stack bounds: 0x40825c28 - 0x40827e20
+ *
+ * The switch itself is not obviously wrong — the SP is inside the Reflex task's
+ * own stack. ESP-IDF arms that watchpoint with the bounds of whichever FreeRTOS
+ * task is running, and does not know Reflex's stacks exist.
+ *
+ * Releasing the watchpoint first (`reflex_hal_stack_guard_disable`) does not
+ * help, and the reason is the useful part: FreeRTOS re-arms it on every context
+ * switch, and its tick is still running. So the two schedulers cannot coexist
+ * even for the length of one experiment. **The mtvec hand-off is not a third
+ * blocker behind the other two — it is the problem.** Until Reflex owns the
+ * trap vector and FreeRTOS is quiesced, the first stack switch will keep being
+ * undone by the system it is trying to replace.
+ *
  * What this file *is* good for now: it compiles against nothing but Reflex's
  * own headers, so `make warn-check` builds it on every commit, and it makes
  * the remaining distance concrete — the cutover is a Kconfig flip once the

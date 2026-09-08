@@ -147,6 +147,7 @@ static void test_fails_closed(void) {
     CHECK("kernel is observer", ROLE1("kernel") == ROLE_OBSERVER);
     CHECK("kernel tick is observer", ROLE2("kernel", "tick") == ROLE_OBSERVER);
     CHECK("kernel wdt requires admin", ROLE2("kernel", "wdt") == ROLE_ADMIN);
+    CHECK("kernel selftest requires admin", ROLE2("kernel", "selftest") == ROLE_ADMIN);
     CHECK("kernel wdt off requires admin", ROLE3("kernel", "wdt", "off") == ROLE_ADMIN);
 
     CHECK("NULL command requires admin", shell_required_role(NULL, 0, NULL) == ROLE_ADMIN);
