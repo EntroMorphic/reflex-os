@@ -255,10 +255,36 @@ static void reflex_shell_bonsai_exp3a_status(void) {
 
 static void reflex_shell_bonsai_exp4_route(int orient) {
     if (!reflex_shell_bonsai_exp4.ledc_initialized) {
+        /* Bind the channel to the LED pin rather than to -1.
+         *
+         * The intent was to configure a channel without attaching a pin and
+         * then route the signal by hand below, which is a reasonable technique
+         * — but LEDC rejects -1 outright ("gpio_num argument is invalid"), so
+         * the channel was never configured. Nothing checked, so the handler
+         * went on to print the orientation it had not applied and report
+         * #R:+1,ok. This experiment has therefore never once driven the LED,
+         * and said otherwise every time.
+         *
+         * Binding the pin here is harmless: the manual routing below still
+         * decides orientation, and inversion is what it exists to control. */
         ledc_timer_config_t t = { .speed_mode=LEDC_LOW_SPEED_MODE, .timer_num=LEDC_TIMER_0, .duty_resolution=LEDC_TIMER_8_BIT, .freq_hz=1000, .clk_cfg=LEDC_AUTO_CLK };
-        ledc_timer_config(&t);
-        ledc_channel_config_t c = { .speed_mode=LEDC_LOW_SPEED_MODE, .channel=LEDC_CHANNEL_0, .timer_sel=LEDC_TIMER_0, .intr_type=LEDC_INTR_DISABLE, .gpio_num=-1, .duty=128, .hpoint=0 };
-        ledc_channel_config(&c);
+        if (ledc_timer_config(&t) != REFLEX_OK) {
+            printf("bonsai exp4: LEDC timer config failed\n");
+            outcome(SHELL_FAILED);
+            return;
+        }
+        ledc_channel_config_t c = {.speed_mode = LEDC_LOW_SPEED_MODE,
+                                   .channel = LEDC_CHANNEL_0,
+                                   .timer_sel = LEDC_TIMER_0,
+                                   .intr_type = LEDC_INTR_DISABLE,
+                                   .gpio_num = REFLEX_LED_PIN,
+                                   .duty = 128,
+                                   .hpoint = 0};
+        if (ledc_channel_config(&c) != REFLEX_OK) {
+            printf("bonsai exp4: LEDC channel config failed\n");
+            outcome(SHELL_FAILED);
+            return;
+        }
         reflex_shell_bonsai_exp4.ledc_initialized = true;
     }
     if (orient == 1) {
@@ -277,6 +303,27 @@ static void reflex_shell_bonsai_exp4_route(int orient) {
 // --- Exp 5: Silicon Loop (GIE) ---
 
 static void reflex_shell_bonsai_exp5_run(void) {
+#if !CONFIG_IDF_TARGET_ESP32C6
+    /* Refuse rather than reset the board.
+     *
+     * This experiment hardcodes GPIO 4 and GPIO 6 and depends on RMT's
+     * io_loop_back reaching PCNT on the same pad — C6 wiring throughout. On the
+     * classic ESP32, GPIO 6 is one of the pins wired to the SPI flash, so
+     * configuring it as an output cuts the chip off from the code it is
+     * executing and the watchdog resets: `rst:0x8 (TG1WDT_SYS_RESET)`,
+     * reproduced on that board with this build and with main's.
+     *
+     * A shell command must not be able to reboot the board — "no command can
+     * wedge the board" is one of the acceptance criteria in
+     * docs/adoption-gaps.md — so on any target this was not wired for it says
+     * so and stops. */
+    printf("bonsai exp5: not wired for this target "
+           "(needs GPIO 4/6 and RMT loopback into PCNT; GPIO 6 is a flash pin "
+           "on the classic ESP32)\n");
+    outcome(SHELL_FAILED);
+    return;
+#else
+
     pcnt_unit_config_t ucfg = { .low_limit = -1000, .high_limit = 1000 };
     pcnt_unit_handle_t pcnt = NULL;
     if (pcnt_new_unit(&ucfg, &pcnt) != REFLEX_OK) return;
@@ -300,6 +347,17 @@ static void reflex_shell_bonsai_exp5_run(void) {
     if (rmt_new_tx_channel(&rcfg, &rmt_ch) != REFLEX_OK) { pcnt_unit_stop(pcnt); pcnt_unit_disable(pcnt); pcnt_del_unit(pcnt); return; }
     rmt_enable(rmt_ch);
 
+    /* Left as OUTPUT deliberately, after testing the alternative.
+     *
+     * The obvious theory for the short count below is that a pin PCNT reads
+     * should have its input buffer enabled, and that reconfiguring GPIO 6
+     * output-only after pcnt_new_channel claimed it as a level input turns that
+     * buffer off. Both halves of that were tried on hardware: INPUT_OUTPUT on
+     * GPIO 6 changed the count not at all (2 of 10, four runs), and adding it
+     * on GPIO 4 made it worse (0 of 10, four runs) by disturbing the routing
+     * RMT's io_loop_back sets up. Neither is kept — a change that cannot show a
+     * result is not a fix, and this file has reverted speculative changes for
+     * that reason before. */
     gpio_config_t io = { .pin_bit_mask = (1ULL << 6), .mode = GPIO_MODE_OUTPUT };
     gpio_config(&io);
     gpio_set_level(6, 1); // High to enable (keeping it simple)
@@ -314,20 +372,46 @@ static void reflex_shell_bonsai_exp5_run(void) {
     rmt_transmit_config_t tcfg = { .loop_count = 0 };
     rmt_copy_encoder_config_t ecfg = {};
     rmt_encoder_handle_t encoder = NULL;
-    rmt_new_copy_encoder(&ecfg, &encoder);
+    if (rmt_new_copy_encoder(&ecfg, &encoder) != REFLEX_OK) {
+        printf("bonsai exp5: encoder alloc failed\n");
+        outcome(SHELL_FAILED);
+        goto cleanup;
+    }
     rmt_transmit(rmt_ch, encoder, pulses, 10, &tcfg);
 
-    reflex_task_delay_ms(100);
+    /* Wait for the transmission rather than for a fixed interval.
+     *
+     * rmt_transmit queues and returns, so the count below was read whenever
+     * 100ms happened to land relative to a 20ms pulse train. A delay is not a
+     * synchronisation primitive, and the experiment reported whatever it saw
+     * as though it were the answer. */
+    rmt_tx_wait_all_done(rmt_ch, 1000);
 
     int count = 0;
     pcnt_unit_get_count(pcnt, &count);
     printf("bonsai exp5 intersect overlap=%d (expected 10)\n", count);
+    if (count != 10) {
+        /* An experiment that misses its own stated expectation has not
+         * succeeded, and saying #R:+1,ok when it does is how a broken
+         * experiment survives being run. */
+        outcome(SHELL_FAILED);
+    }
 
+cleanup:
+    /* Free in the reverse order of acquisition, and free the channel.
+     *
+     * pcnt_del_channel was missing entirely, so pcnt_del_unit failed every run
+     * with "channel 0 still in working" and the unit leaked. The C6 has four;
+     * four runs of this command exhausted them, and the fifth failed for a
+     * reason that had nothing to do with the experiment. */
+    if (encoder) rmt_del_encoder(encoder);
     rmt_disable(rmt_ch);
     rmt_del_channel(rmt_ch);
     pcnt_unit_stop(pcnt);
     pcnt_unit_disable(pcnt);
+    pcnt_del_channel(p_ch);
     pcnt_del_unit(pcnt);
+#endif
 }
 
 // --- Main Shell ---
@@ -1087,24 +1171,82 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
            "withheld=-1 held back\n");
 }
 
+/* Say what the verb accepts instead of accepting nothing quietly.
+ *
+ * Every unmatched subcommand — a wrong verb, or a verb whose second word did
+ * not match — fell off the end of the chain and returned #R:+1,ok having done
+ * nothing. `bonsai nosuchthing` reported success. So did `bonsai exp4 bogus`,
+ * and so did `bonsai exp5` without `run`, which is the easy mistake to make
+ * because the other experiments take `start`. */
+static void bonsai_usage(const char *what) {
+    if (what) printf("bonsai: unknown subcommand '%s'\n", what);
+    printf("bonsai <exp1|exp2|exp3a> <start|status>\n");
+    printf("bonsai exp4 <connect|invert|detach>\n");
+    printf("bonsai exp5 run\n");
+    printf("bonsai <runtime|heal|gvm|sleep|weave|bloat>\n");
+    outcome(SHELL_USAGE);
+}
+
 static void shell_cmd_bonsai(int argc, char *argv[]) {
     /* Only the exp* subcommands take a second word. Requiring argc >= 3 here
      * silently disabled every single-word subcommand — sleep, runtime, heal,
      * gvm, weave and bloat all returned without doing anything. `sub_arg`
      * defaults to "" so the two-word branches stay safe to compare. */
-    if (argc < 2) return;
+    if (argc < 2) {
+        bonsai_usage(NULL);
+        return;
+    }
     const char *sub_arg = (argc >= 3) ? argv[2] : "";
-    if (strcmp(argv[1], "exp1") == 0) { if (strcmp(sub_arg, "start") == 0) reflex_shell_bonsai_exp1_start(); else if (strcmp(sub_arg, "status") == 0) reflex_shell_bonsai_exp1_status(); }
-    else if (strcmp(argv[1], "exp2") == 0) { if (strcmp(sub_arg, "start") == 0) reflex_shell_bonsai_exp2_start(); else if (strcmp(sub_arg, "status") == 0) reflex_shell_bonsai_exp2_status(); }
-    else if (strcmp(argv[1], "exp3a") == 0) { if (strcmp(sub_arg, "start") == 0) reflex_shell_bonsai_exp3a_start(); else if (strcmp(sub_arg, "status") == 0) reflex_shell_bonsai_exp3a_status(); }
-    else if (strcmp(argv[1], "exp4") == 0) { if (strcmp(sub_arg, "connect") == 0) reflex_shell_bonsai_exp4_route(1); else if (strcmp(sub_arg, "invert") == 0) reflex_shell_bonsai_exp4_route(-1); else if (strcmp(sub_arg, "detach") == 0) reflex_shell_bonsai_exp4_route(0); }
-    else if (strcmp(argv[1], "exp5") == 0) { if (strcmp(sub_arg, "run") == 0) reflex_shell_bonsai_exp5_run(); }
-    else if (strcmp(argv[1], "runtime") == 0) { reflex_shell_bonsai_runtime_test(); }
-    else if (strcmp(argv[1], "heal") == 0) { reflex_shell_bonsai_heal_test(); }
-    else if (strcmp(argv[1], "gvm") == 0) { reflex_shell_bonsai_gvm_test(); }
-    else if (strcmp(argv[1], "sleep") == 0) { reflex_shell_bonsai_deep_sleep(); }
-    else if (strcmp(argv[1], "weave") == 0) { reflex_shell_bonsai_weave_test(); }
-    else if (strcmp(argv[1], "bloat") == 0) { reflex_shell_loom_bloat_test(); }
+    if (strcmp(argv[1], "exp1") == 0) {
+        if (strcmp(sub_arg, "start") == 0)
+            reflex_shell_bonsai_exp1_start();
+        else if (strcmp(sub_arg, "status") == 0)
+            reflex_shell_bonsai_exp1_status();
+        else
+            bonsai_usage(NULL);
+    } else if (strcmp(argv[1], "exp2") == 0) {
+        if (strcmp(sub_arg, "start") == 0)
+            reflex_shell_bonsai_exp2_start();
+        else if (strcmp(sub_arg, "status") == 0)
+            reflex_shell_bonsai_exp2_status();
+        else
+            bonsai_usage(NULL);
+    } else if (strcmp(argv[1], "exp3a") == 0) {
+        if (strcmp(sub_arg, "start") == 0)
+            reflex_shell_bonsai_exp3a_start();
+        else if (strcmp(sub_arg, "status") == 0)
+            reflex_shell_bonsai_exp3a_status();
+        else
+            bonsai_usage(NULL);
+    } else if (strcmp(argv[1], "exp4") == 0) {
+        if (strcmp(sub_arg, "connect") == 0)
+            reflex_shell_bonsai_exp4_route(1);
+        else if (strcmp(sub_arg, "invert") == 0)
+            reflex_shell_bonsai_exp4_route(-1);
+        else if (strcmp(sub_arg, "detach") == 0)
+            reflex_shell_bonsai_exp4_route(0);
+        else
+            bonsai_usage(NULL);
+    } else if (strcmp(argv[1], "exp5") == 0) {
+        if (strcmp(sub_arg, "run") == 0)
+            reflex_shell_bonsai_exp5_run();
+        else
+            bonsai_usage(NULL);
+    } else if (strcmp(argv[1], "runtime") == 0) {
+        reflex_shell_bonsai_runtime_test();
+    } else if (strcmp(argv[1], "heal") == 0) {
+        reflex_shell_bonsai_heal_test();
+    } else if (strcmp(argv[1], "gvm") == 0) {
+        reflex_shell_bonsai_gvm_test();
+    } else if (strcmp(argv[1], "sleep") == 0) {
+        reflex_shell_bonsai_deep_sleep();
+    } else if (strcmp(argv[1], "weave") == 0) {
+        reflex_shell_bonsai_weave_test();
+    } else if (strcmp(argv[1], "bloat") == 0) {
+        reflex_shell_loom_bloat_test();
+    } else {
+        bonsai_usage(argv[1]);
+    }
 }
 
 /* Upload a compiled LoomScript fragment as hex and weave it.

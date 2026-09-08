@@ -299,6 +299,33 @@ def validate(port, r):
     r.check("newline echoed before dispatch", "led on\r\ndenied: requires operator" in w, w)
     b.raw("auth role admin")
 
+    print("--- bonsai: no silent success, and no leaked units ---")
+    # Every unmatched subcommand used to fall off the end of the dispatcher and
+    # report #R:+1,ok having done nothing.
+    for cmd in ("bonsai", "bonsai nosuchthing", "bonsai exp4 bogus", "bonsai exp5"):
+        b.raw(cmd)
+        r.check(f"`{cmd}` reports usage, not success",
+                b.last_outcome == (0, "usage"), b.last_outcome)
+
+    # exp5 allocates a PCNT unit, a channel and an RMT channel per run and used
+    # to free the unit while the channel was still attached, so pcnt_del_unit
+    # failed and the unit leaked. The C6 has four; the fifth run would fail for
+    # a reason with nothing to do with the experiment. Five runs is the check.
+    first = b.raw("bonsai exp5 run")
+    if "not wired for this target" in first:
+        # The experiment hardcodes C6 pins, and GPIO 6 is a flash pin on the
+        # classic ESP32 — running it there resets the board, so it refuses.
+        r.check("`bonsai exp5 run` refuses on a target it is not wired for",
+                b.last_outcome == (-1, "failed"), b.last_outcome)
+    else:
+        leaked = None if "overlap=" in first else f"run 1: {first[:80]}"
+        for i in range(4):
+            got = b.raw("bonsai exp5 run")
+            if leaked is None and "overlap=" not in got:
+                leaked = f"run {i + 2}: {got[:80]}"
+        r.check("five `bonsai exp5 run` in a row all reach the count (no leaked unit)",
+                leaked is None, leaked or "")
+
     print("--- role gating: denials ---")
     b.raw("auth role observer")
     for cmd, need in DENIALS:
