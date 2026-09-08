@@ -526,6 +526,10 @@ typedef struct {
     bool taken;
 } reflex_intr_entry_t;
 
+/* Routing a source here detaches it. See reflex_hal_intr_free for why this is
+ * 6 and not 0, and why it cannot be a bridge-verified constant. */
+#define INTMTX_DISABLED_LINE 6u
+
 static reflex_intr_entry_t s_intr_table[32];
 
 /* The ROM vector table calls registered handlers as fn(void).
@@ -743,10 +747,28 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
     REFLEX_REG(PLIC_MXINT_CLEAR) = (1U << cpu_int);
     __asm__ volatile ("csrsi mstatus, 0x8");
 
-    /* Clear interrupt matrix routing */
+    /* Detach the sources, which is not the same as writing zero.
+     *
+     * This wrote 0, on the reading that zero means "no route". It does not:
+     * zero is CPU interrupt line 0, and this tree already documents that —
+     * reflex_sched.c records SYSTIMER asserting onto line 0 precisely because
+     * its matrix entry still held the reset value. So freeing a line was
+     * re-pointing every source that used it at line 0 rather than detaching
+     * them.
+     *
+     * ESP-IDF disables a source by routing it to interrupt 6, unconditionally
+     * and including RISC-V targets ("Disable using int matrix",
+     * INT_MUX_DISABLED_INTNO in intr_alloc.c). That constant is private to a .c
+     * file, so it cannot go through the SoC bridge like a register; the value
+     * and its provenance are stated here instead.
+     *
+     * Currently latent: callers quiesce the peripheral first and line 0 is not
+     * enabled, so nothing has ever asserted through it. Wrong all the same, and
+     * exactly the kind of thing that surfaces once something else claims line
+     * 0. */
     for (int s = 0; s <= INTMTX_SOURCE_MAX; s++) {
         if (REFLEX_REG(INTMTX_BASE + 4 * s) == (uint32_t)cpu_int) {
-            REFLEX_REG(INTMTX_BASE + 4 * s) = 0;
+            REFLEX_REG(INTMTX_BASE + 4 * s) = INTMTX_DISABLED_LINE;
         }
     }
 

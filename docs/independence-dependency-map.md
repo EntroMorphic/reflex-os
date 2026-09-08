@@ -850,6 +850,21 @@ interrupt state. Free restores all three now, and the flag build passes 183/183.
 That defect was reachable by any caller of `reflex_hal_intr_free`, not just this
 path. It happened to be harmless while Reflex was the only allocator.
 
+Red-teaming that fix found a second defect in the same function, latent for the
+same reason. **Freeing a line detached its sources by writing 0 to their matrix
+entries, and 0 is not "no route" — it is CPU interrupt line 0.** This tree
+already documents that: `reflex_sched.c` records SYSTIMER asserting onto line 0
+because its matrix entry still held the reset value. So freeing was re-pointing
+sources at line 0 rather than detaching them. ESP-IDF disables a source by
+routing it to interrupt 6, unconditionally and including RISC-V targets; Reflex
+does the same now. The value cannot go through the SoC bridge, because ESP-IDF
+defines it privately inside a `.c` file rather than as a public macro — so its
+provenance is stated in the code instead.
+
+Latent because callers quiesce the peripheral first and nothing enables line 0.
+Wrong regardless, and precisely the kind of thing that surfaces the first time
+something else claims that line.
+
 So the flag cannot strand a board and now yields a working one where the tick is
 dead. On the independence build, where the tick runs, the fallback is not taken
 at all — that path is still unrun, and it is the one that ends in Reflex
