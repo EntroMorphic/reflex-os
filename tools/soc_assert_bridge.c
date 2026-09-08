@@ -25,6 +25,7 @@
 #include "soc/pcr_reg.h"
 #include "soc/ledc_reg.h"
 #include "soc/pcnt_reg.h"
+#include "soc/gpio_pins.h"
 #include "soc/extmem_reg.h"
 #include "soc/assist_debug_reg.h"
 #include "soc/spi_mem_reg.h"
@@ -197,8 +198,6 @@ _Static_assert(REFLEX_PCNT_CNT_RST_U0 == (uint32_t)(PCNT_PULSE_CNT_RST_U0),
                "REFLEX_PCNT_CNT_RST_U0 diverges from PCNT_PULSE_CNT_RST_U0");
 _Static_assert(REFLEX_PCNT_CNT_PAUSE_U0 == (uint32_t)(PCNT_CNT_PAUSE_U0),
                "REFLEX_PCNT_CNT_PAUSE_U0 diverges from PCNT_CNT_PAUSE_U0");
-_Static_assert(REFLEX_PCNT_CTRL_CLK_EN == (uint32_t)(PCNT_CLK_EN),
-               "REFLEX_PCNT_CTRL_CLK_EN diverges from PCNT_CLK_EN");
 _Static_assert(REFLEX_PCR_PCNT_CONF_REG == (uint32_t)(PCR_PCNT_CONF_REG),
                "REFLEX_PCR_PCNT_CONF_REG diverges from PCR_PCNT_CONF_REG");
 _Static_assert(REFLEX_PCR_PCNT_CLK_EN == (uint32_t)(PCR_PCNT_CLK_EN),
@@ -263,6 +262,8 @@ _Static_assert(REFLEX_PCNT_SIG_CH0_IN0_IDX == (uint32_t)(PCNT_SIG_CH0_IN0_IDX),
                "REFLEX_PCNT_SIG_CH0_IN0_IDX diverges from PCNT_SIG_CH0_IN0_IDX");
 _Static_assert(REFLEX_PCNT_CTRL_CH0_IN0_IDX == (uint32_t)(PCNT_CTRL_CH0_IN0_IDX),
                "REFLEX_PCNT_CTRL_CH0_IN0_IDX diverges from PCNT_CTRL_CH0_IN0_IDX");
+_Static_assert(REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT == (uint32_t)(GPIO_MATRIX_CONST_ZERO_INPUT),
+               "REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT diverges from GPIO_MATRIX_CONST_ZERO_INPUT");
 _Static_assert(REFLEX_IO_MUX_MCU_SEL_V == (uint32_t)(MCU_SEL),
                "REFLEX_IO_MUX_MCU_SEL_V diverges from MCU_SEL");
 _Static_assert(REFLEX_SOC_SYSTIMER_FIXED_DIVIDER == (uint32_t)(SOC_SYSTIMER_FIXED_DIVIDER),

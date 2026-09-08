@@ -475,7 +475,7 @@ cleanup:
      * cleanup path matter was ESP-IDF's allocator refusing to free a unit whose
      * channel was still attached; there is no allocator now, and pausing is the
      * whole of it. */
-    if (pcnt_started) reflex_hal_pcnt_stop();
+    if (pcnt_started) reflex_hal_pcnt_release();
     /* Hand GPIO 6 back. Leaving a pin driven is a side effect the caller did
      * not ask for, and `make hw-test` runs this five times. */
     /* Back to an input, which is how the pin was found. */

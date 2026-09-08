@@ -173,8 +173,6 @@
 #define REFLEX_PCNT_CNT_RST_U0 0x00000001u
 /* PCNT.CTRL.CNT_PAUSE_U0 bit 1 */
 #define REFLEX_PCNT_CNT_PAUSE_U0 0x00000002u
-/* PCNT.CTRL.CLK_EN bit 16 */
-#define REFLEX_PCNT_CTRL_CLK_EN 0x00010000u
 /* PCR.PCNT_CONF @ base+0x94 — peripheral clock and reset */
 #define REFLEX_PCR_PCNT_CONF_REG 0x60096094u
 /* PCR.PCNT_CONF.PCNT_CLK_EN bit 0 */
@@ -239,6 +237,9 @@
 #define REFLEX_PCNT_SIG_CH0_IN0_IDX 0x00000065u
 /* literal — GPIO matrix signal index; the level/control input gating the same channel */
 #define REFLEX_PCNT_CTRL_CH0_IN0_IDX 0x00000067u
+/* literal — gpio_pins.h, not the SVD. Routing this into a signal index is how the matrix
+ * disconnects an input */
+#define REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT 0x0000003Cu
 /* literal — IO_MUX function-select field mask (3 bits) */
 #define REFLEX_IO_MUX_MCU_SEL_V 0x00000007u
 /* literal — capability flag from soc_caps.h */

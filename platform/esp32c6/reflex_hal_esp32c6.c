@@ -945,7 +945,13 @@ reflex_err_t reflex_hal_pcnt_start(uint32_t edge_pin, uint32_t level_pin, int16_
 
     /* Zero the count, then run. CTRL carries all four units, so this touches
      * unit 0's bits and leaves the other three exactly as they were — they come
-     * up held in reset, and clearing that would quietly start them. */
+     * up held in reset, and clearing that would quietly start them.
+     *
+     * The read and the two writes are not atomic against another writer of this
+     * register, and deliberately so: unit 0 is the only one Reflex drives, and
+     * nothing here runs from an interrupt. A second PCNT user would need this
+     * to become a critical section, the way reflex_hal_time_us did once its
+     * shared latch acquired one. */
     uint32_t ctrl = REFLEX_REG(REFLEX_PCNT_CTRL_REG);
     REFLEX_REG(REFLEX_PCNT_CTRL_REG) = ctrl | REFLEX_PCNT_CNT_RST_U0;
     REFLEX_REG(REFLEX_PCNT_CTRL_REG) = ctrl & ~(REFLEX_PCNT_CNT_RST_U0 | REFLEX_PCNT_CNT_PAUSE_U0);
@@ -961,6 +967,23 @@ int reflex_hal_pcnt_read(void) {
 
 void reflex_hal_pcnt_stop(void) {
     REFLEX_REG(REFLEX_PCNT_CTRL_REG) |= REFLEX_PCNT_CNT_PAUSE_U0;
+}
+
+void reflex_hal_pcnt_release(void) {
+    /* Give back everything start took.
+     *
+     * Pausing alone leaves both pins routed into the counter's matrix inputs
+     * and the peripheral ungated for the rest of the boot — a side effect the
+     * caller did not ask for, and the same thing that was wrong with leaving
+     * GPIO 6 driven. Routing the constant-zero source into a signal index is
+     * how the matrix disconnects an input; it is what ESP-IDF's own del_unit
+     * does. */
+    REFLEX_REG(REFLEX_PCNT_CTRL_REG) |= REFLEX_PCNT_CNT_PAUSE_U0 | REFLEX_PCNT_CNT_RST_U0;
+    esp_rom_gpio_connect_in_signal(REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT, REFLEX_PCNT_SIG_CH0_IN0_IDX,
+                                   false);
+    esp_rom_gpio_connect_in_signal(REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT,
+                                   REFLEX_PCNT_CTRL_CH0_IN0_IDX, false);
+    REFLEX_REG(REFLEX_PCR_PCNT_CONF_REG) &= ~REFLEX_PCR_PCNT_CLK_EN;
 }
 
 void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out) {

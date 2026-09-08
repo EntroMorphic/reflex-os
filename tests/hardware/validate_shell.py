@@ -358,7 +358,14 @@ def validate(port, r):
     IDF_PCNT = ("conf0=0x00040010 conf1=0x00000000 conf2=0xfc1803e8 "
                 "ctrl=0x00000054 pcr=0x00000001")
     pcnt_line = next((l for l in first.splitlines() if "pcnt conf0=" in l), "")
-    if pcnt_line and "conf0=0x00000000" not in pcnt_line:
+    if not pcnt_line or "conf0=0x00000000" in pcnt_line:
+        # Say so rather than vanish. A check that disappears on one target
+        # without reporting it is indistinguishable from one that passed, and
+        # the counted SKIP exists precisely so coverage cannot go quiet.
+        r.skip("Reflex PCNT matches ESP-IDF register for register",
+               "this target does not run the experiment, so there is no Reflex "
+               "PCNT configuration to compare")
+    else:
         r.check("Reflex PCNT matches ESP-IDF register for register",
                 IDF_PCNT in pcnt_line, pcnt_line)
 

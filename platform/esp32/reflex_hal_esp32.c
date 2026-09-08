@@ -147,6 +147,8 @@ int reflex_hal_pcnt_read(void) {
 
 void reflex_hal_pcnt_stop(void) {}
 
+void reflex_hal_pcnt_release(void) {}
+
 void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out) {
     if (!out) return;
     memset(out, 0, sizeof *out);

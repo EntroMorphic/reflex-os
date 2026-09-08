@@ -244,6 +244,7 @@ reflex_err_t reflex_hal_pcnt_start(uint32_t edge_pin, uint32_t level_pin, int16_
                                    int16_t high_limit);
 int reflex_hal_pcnt_read(void);
 void reflex_hal_pcnt_stop(void);
+void reflex_hal_pcnt_release(void);
 
 void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out);
 
