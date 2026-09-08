@@ -799,6 +799,22 @@ Red-teaming it removed two things and caught a third:
   file, so the include was unnecessary — but the gate caught it before it
   shipped, which is what it is for.
 
+Two more defects came out of red-teaming it, both in configurations that had
+never been built:
+
+- **C6 with `CONFIG_REFLEX_KERNEL_SCHEDULER=n` and `REFLEX_OWN_ENTRY` set** gave
+  four undefined references two hundred objects into the link, naming symbols
+  rather than the choice that caused them. That is the same failure the Kconfig
+  help already describes for the classic ESP32, and it is refused the same way
+  now — at compile time, naming the choice.
+- **The entry path took the machine without checking the tick**, where
+  `kernel selftest` refuses if it is dead. That is worse here, not better: there
+  is no shell to abort back to, because the shell has not started. It now proves
+  the tick first and, if it is not running, **hands back to FreeRTOS** via
+  `__real_esp_startup_start_app` — which is a genuine hand-back rather than a
+  wish, because `mtvec` is deliberately installed *after* the check. A boot that
+  is not independent, and a board that still works.
+
 **What remains before the flag can be turned on:** with FreeRTOS never started,
 ESP-IDF's console VFS, `esp_timer` and newlib's reentrancy have no scheduler
 underneath them. That is the real content of Tier F, and it is now reachable

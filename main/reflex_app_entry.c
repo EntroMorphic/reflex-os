@@ -47,6 +47,19 @@
  * independence ratchet refused, correctly. */
 #if CONFIG_IDF_TARGET_ESP32C6
 
+/* Refuse the combination at configure time rather than at link time.
+ *
+ * reflex_trap_install and the reflex_sched_* family are added to the build only
+ * by CONFIG_REFLEX_KERNEL_SCHEDULER. Without it, taking the entry point fails
+ * as four undefined references roughly two hundred objects into the link,
+ * naming symbols rather than the choice that caused them — which is the same
+ * failure the Kconfig help already describes for the ESP32 target and the same
+ * reason it refuses that one early. */
+#if defined(REFLEX_OWN_ENTRY) && !CONFIG_REFLEX_KERNEL_SCHEDULER
+#error                                                                                             \
+    "REFLEX_OWN_ENTRY needs CONFIG_REFLEX_KERNEL_SCHEDULER: the Reflex scheduler it hands the machine to is not in this build"
+#endif
+
 /* The application's own entry, still named app_main so nothing else moves. */
 extern void app_main(void);
 
@@ -81,13 +94,35 @@ void __wrap_esp_startup_start_app(void) {
 #else
     REFLEX_LOGI(TAG, "Reflex owns the entry point; FreeRTOS was not started");
 
-    reflex_trap_install();
-
     reflex_err_t rc = reflex_sched_init();
     if (rc != REFLEX_OK) {
         REFLEX_LOGE(TAG, "scheduler init failed rc=0x%x", rc);
-        goto stall;
+        goto fallback;
     }
+
+    /* Prove the tick before committing the machine to a scheduler that needs
+     * it, and hand back to FreeRTOS if it is dead.
+     *
+     * The tick is 5/5 at 1000 Hz on the independence build and 0/5 on the
+     * default one, where the routing reads back perfect and nothing arrives.
+     * Taking the entry point there would hand the board to a scheduler that can
+     * never unblock a task — and unlike `kernel selftest`, there is no shell to
+     * abort back to, because the shell has not been started yet. Falling back
+     * costs a boot that is not independent and keeps a board that works. */
+    rc = reflex_sched_tick_start();
+    if (rc != REFLEX_OK) {
+        REFLEX_LOGE(TAG, "tick start failed rc=0x%x", rc);
+        goto fallback;
+    }
+    uint32_t t0 = reflex_sched_get_tick();
+    reflex_hal_delay_us(50000);
+    if (reflex_sched_get_tick() == t0) {
+        REFLEX_LOGE(TAG, "tick is not running; handing back to FreeRTOS");
+        goto fallback;
+    }
+
+    reflex_trap_install();
+
     rc = reflex_sched_create_task(reflex_main_task, "main", 8192, NULL, 10, NULL);
     if (rc != REFLEX_OK) {
         REFLEX_LOGE(TAG, "main task creation failed rc=0x%x", rc);
@@ -96,6 +131,15 @@ void __wrap_esp_startup_start_app(void) {
 
     rc = reflex_sched_start();
     REFLEX_LOGE(TAG, "scheduler returned rc=0x%x, which it must not", rc);
+    goto stall;
+
+fallback:
+    /* mtvec has not been taken at this point — the install is deliberately
+     * after the tick check — so ESP-IDF's world is still intact and this is a
+     * genuine hand-back rather than a wish. */
+    REFLEX_LOGW(TAG, "falling back to the FreeRTOS entry path");
+    __real_esp_startup_start_app();
+    return;
 
 stall:
     /* Nothing above this point can hand back to ESP-IDF: its startup expects
