@@ -92,6 +92,27 @@ void reflex_kernel_test(void) {
         return;
     }
 
+    /* Refuse to hand over to a scheduler whose tick does not run.
+     *
+     * The tick is 5/5 at 1000 Hz on the independence build and 0/5 on the
+     * default one, where the routing reads back perfect and nothing arrives.
+     * Taking mtvec there quiesces FreeRTOS, hands the core to a scheduler that
+     * can never unblock a task, and leaves a board that has to be reflashed —
+     * for a reason that has nothing to do with what was being tested. So the
+     * tick is measured first, on the same path the scheduler will use, and the
+     * hand-off simply does not happen if it is dead. */
+    uint32_t t_before = reflex_sched_get_tick();
+    reflex_hal_delay_us(50000);
+    uint32_t t_after = reflex_sched_get_tick();
+    if (t_after == t_before) {
+        esp_rom_printf("[kernel] ABORT: tick is not running (%lu over 50ms)\n",
+                       (unsigned long)(t_after - t_before));
+        esp_rom_printf("[kernel] the hand-off would strand the board; nothing changed\n");
+        return;
+    }
+    esp_rom_printf("[kernel] tick verified: %lu ticks in 50ms\n",
+                   (unsigned long)(t_after - t_before));
+
     reflex_intr_route_t tick;
     reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &tick);
     esp_rom_printf("[kernel] tick on cpu_int=%d\n", (int)tick.cpu_int);
@@ -125,8 +146,26 @@ void reflex_kernel_test(void) {
     reflex_hal_wdt_disable_timg();
     esp_rom_printf("[kernel] timer-group watchdogs disabled\n");
 
+    /* What was in mscratch before Reflex touched it.
+     *
+     * The hand-off got further when mscratch was left alone than when it was
+     * set correctly, which should not be possible — unless what was already
+     * there was usable and what replaced it is not. This says which. */
+    uint32_t prior_mscratch, prior_mtvec;
+    __asm__ volatile("csrr %0, mscratch" : "=r"(prior_mscratch));
+    __asm__ volatile("csrr %0, mtvec" : "=r"(prior_mtvec));
+    esp_rom_printf("[kernel] before: mscratch=0x%08x mtvec=0x%08x\n", (unsigned)prior_mscratch,
+                   (unsigned)prior_mtvec);
+
     esp_rom_printf("[kernel] taking mtvec\n");
     reflex_trap_install();
+    {
+        uint32_t now_mscratch, now_mtvec;
+        __asm__ volatile("csrr %0, mscratch" : "=r"(now_mscratch));
+        __asm__ volatile("csrr %0, mtvec" : "=r"(now_mtvec));
+        esp_rom_printf("[kernel] after:  mscratch=0x%08x mtvec=0x%08x\n", (unsigned)now_mscratch,
+                       (unsigned)now_mtvec);
+    }
 
     esp_rom_printf("[kernel] starting scheduler (cooperative)...\n");
     rc = reflex_sched_start();

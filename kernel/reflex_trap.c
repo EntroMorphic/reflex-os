@@ -70,9 +70,8 @@ static volatile int s_tick_cpu_int = -1;
 
 /* Point mtvec at Reflex's vector table.
  *
- * Direct mode: reflex_trap_entry is .align 4, so the low two bits are zero and
- * the CSR takes the address as-is. Separated from reflex_kernel_startup so the
- * hand-off can be exercised without also taking over task creation. */
+ * Separated from reflex_kernel_startup so the hand-off can be exercised without
+ * also taking over task creation. */
 /* An anomaly worth stating before the code below, because the code below is
  * correct and the board disagrees.
  *
@@ -81,6 +80,13 @@ static volatile int s_tick_cpu_int = -1;
  * `task A: tick 0 (sys=1)` and the same for B, before dying on the first tick.
  * With mscratch set properly to a trap stack, it dies at the mtvec install
  * itself, consistently, three runs.
+ *
+ * Part of that was self-inflicted and is now fixed: the exit path re-established
+ * mscratch by loading a pointer *variable*, and that variable landed in flash
+ * at 0x420f2828. So every trap return performed a flash read from inside the
+ * trap handler, which is not safe there and was a new load introduced by the
+ * very change that regressed. The address is materialised directly now — no
+ * memory access on the trap path at all.
  *
  * That inverts what should happen. A vector whose first instruction is
  * `csrrw sp, mscratch, sp` cannot be correct with mscratch unset, so the fix
@@ -104,15 +110,25 @@ static volatile int s_tick_cpu_int = -1;
  * Defined in C rather than as a .bss block in the vector file, so the
  * assembly's section layout is left exactly as it was — an earlier attempt put
  * it there and moved the entry point's section along with it. */
-static uint32_t s_trap_stack[512] __attribute__((aligned(16)));
-uint32_t *const reflex_trap_stack_top = s_trap_stack + 512;
+#define REFLEX_TRAP_STACK_WORDS 512
+uint32_t reflex_trap_stack[REFLEX_TRAP_STACK_WORDS] __attribute__((aligned(16)));
 
 void reflex_trap_install(void) {
     /* mscratch first, then mtvec. The vector's first instruction swaps sp with
      * mscratch, so installing the vector while mscratch is unset points the
      * very next trap's frame at whatever that register happened to hold. */
-    __asm__ volatile("csrw mscratch, %0" : : "r"(reflex_trap_stack_top));
-    __asm__ volatile("la t0, reflex_trap_entry\n"
+    uint32_t *top = reflex_trap_stack + REFLEX_TRAP_STACK_WORDS;
+    __asm__ volatile("csrw mscratch, %0" : : "r"(top));
+    /* Vectored mode, and the table rather than the handler.
+     *
+     * The mode field is not ours to choose: written with mode 0 it reads back
+     * as 1 on this part, matching ESP-IDF's own mtvec. And the base is masked
+     * to 256 bytes, so pointing it at a handler that merely happens to be
+     * 4-byte aligned silently relocates the vector to somewhere before it.
+     * reflex_vector_table is aligned for it and every entry jumps to the
+     * handler, so all causes converge where the code always thought they did. */
+    __asm__ volatile("la t0, reflex_vector_table\n"
+                     "ori t0, t0, 1\n"
                      "csrw mtvec, t0\n"
                      :
                      :

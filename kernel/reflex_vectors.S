@@ -18,7 +18,11 @@
  *   [32] mstatus
  */
 
-    .section .text
+/* IRAM, not flash. A trap handler in flash cannot run while the cache is
+ * disabled — during a flash write, say — which is precisely when a trap is
+ * least affordable. ESP-IDF puts its own vector in IRAM at 0x40800000 for the
+ * same reason. */
+    .section .iram1, "ax"
     .global reflex_trap_entry
     .align 4
 
@@ -36,6 +40,43 @@
  * Trap entry point. Set as mtvec. Saves all registers, calls
  * reflex_trap_handler (C), then restores registers and mret.
  */
+/* The vector table, and why there has to be one.
+ *
+ * This file assumed mtvec direct mode with 4-byte alignment: write the address
+ * of reflex_trap_entry and every trap lands on it. The C6 does neither.
+ *
+ * Read back after writing it, mtvec holds 0x4201d901 where reflex_trap_entry
+ * is at 0x4201d9b0. Two things happened to that value. The low bits of the
+ * base were masked away — the hardware wants the table 256-byte aligned — and
+ * the mode field came back as 1, vectored, which is also what ESP-IDF's own
+ * mtvec reads (0x40800001). So the vector was installed 0xb0 bytes *before*
+ * the handler, and interrupts dispatched to base + 4*cause: into whatever
+ * instructions happened to precede the entry point.
+ *
+ * That is why the scheduler could run two cooperative tasks and then die on the
+ * first tick. Nothing about the stack switch was wrong. The trap never arrived
+ * where the code believed it would.
+ *
+ * So: a real table, 256-byte aligned, one jump per cause. Exceptions land at
+ * entry 0 in vectored mode, interrupts at 4*cause, and every one of them jumps
+ * to the common handler which already reads mcause to decide what happened. */
+    .section .iram1, "ax"
+    .align 8
+    .global reflex_vector_table
+reflex_vector_table:
+    /* norvc, because vectored dispatch is BASE + 4*cause and the assembler
+     * will happily compress `j` to a two-byte c.j. It did: the table came out
+     * 64 bytes instead of 128, which would have sent cause 11 to entry 22 —
+     * another silent wrong-target, of exactly the kind this table exists to
+     * fix. */
+    .option push
+    .option norvc
+    .rept 32
+    j    reflex_trap_entry
+    .endr
+    .option pop
+
+    .align 4
 reflex_trap_entry:
     /* Save sp to mscratch, load kernel sp if needed */
     csrrw sp, mscratch, sp
@@ -111,7 +152,13 @@ reflex_trap_entry:
      * The first trap after the vector was installed was the only one that
      * could work, and even it only if mscratch happened to hold something
      * usable. t0 is restored from the frame below, so it is free here. */
-    lw   t0, reflex_trap_stack_top
+    /* Address materialised, not loaded. An earlier version read a pointer
+     * variable here, and that variable lived in flash at 0x420f2828 — a flash
+     * read on every trap return, from inside the trap handler. `la` with a
+     * symbol+offset is an auipc/addi pair: no memory access at all. (2048 does
+     * not fit a bare addi immediate, which is signed 12-bit; the pseudo-op
+     * splits it across the pair correctly.) */
+    la   t0, reflex_trap_stack + 2048
     csrw mscratch, t0
 
     /* Restore x1-x31 */

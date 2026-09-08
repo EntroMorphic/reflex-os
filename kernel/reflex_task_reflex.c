@@ -13,7 +13,9 @@
  * ## It is off by default, and must stay off until something starts the scheduler
  *
  * Not caution for its own sake, and the reason is blunter than "the tick is
- * incomplete". *Nothing starts the scheduler.* `reflex_sched_start` is called
+ * incomplete". *Nothing in the boot path starts the scheduler* — `kernel
+ * selftest` does, on demand and admin-gated, which is how the hand-off below
+ * was exercised. `reflex_sched_start` is otherwise called
  * only from `reflex_startup.c` and `reflex_kernel_test.c`, and nothing calls
  * either — `nm` on a build with this option selected shows
  * `reflex_sched_create_task` linked and `reflex_sched_start` absent. So

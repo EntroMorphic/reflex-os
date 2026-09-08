@@ -51,9 +51,10 @@ menu "Reflex OS"
 
             Two things are missing, and the first is the larger.
 
-            Nothing starts the scheduler. reflex_sched_start is only called
-            from reflex_startup.c and reflex_kernel_test.c, and nothing calls
-            either — verified by nm on a build with this option set:
+            Nothing in the boot path starts the scheduler. `kernel selftest`
+            does, on demand, which is how the mtvec hand-off was exercised on
+            hardware; reflex_sched_start is otherwise called only from
+            reflex_startup.c, and nothing calls that — verified by nm on a build with this option set:
             reflex_sched_create_task is linked, reflex_sched_start is not. So
             reflex_task_create files a TCB into the scheduler's table and no
             task ever runs. Not "hangs when a task blocks": nothing starts.
