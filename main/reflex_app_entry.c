@@ -32,6 +32,21 @@
 
 #define TAG "reflex.entry"
 
+/* Compiled only where --wrap is applied.
+ *
+ * The wrapper references __real_esp_startup_start_app, which the linker creates
+ * only when --wrap=esp_startup_start_app is on the link line — and that is
+ * gated on the C6. On any other target that reference is undefined, and the
+ * build survived purely because --gc-sections discarded the unreferenced
+ * wrapper and took the dangling reference with it. That is luck, not design:
+ * anything that referenced the wrapper, or a build without section GC, would
+ * fail to link. The condition is stated here instead.
+ *
+ * No #include for sdkconfig.h: the build force-includes it into every source
+ * file, and adding it explicitly grew Tier F from 1 to 2 — which the
+ * independence ratchet refused, correctly. */
+#if CONFIG_IDF_TARGET_ESP32C6
+
 /* The application's own entry, still named app_main so nothing else moves. */
 extern void app_main(void);
 
@@ -91,3 +106,5 @@ stall:
     }
 #endif /* REFLEX_OWN_ENTRY */
 }
+
+#endif /* CONFIG_IDF_TARGET_ESP32C6 */

@@ -780,6 +780,25 @@ not Reflex wants it, and a wrapper that only exists behind the flag breaks the
 ordinary build with an undefined reference. It did exactly that once. So the
 default path is a pass-through, verified on hardware at 183/183.
 
+Red-teaming it removed two things and caught a third:
+
+- **`WHOLE_ARCHIVE` was unnecessary.** It was added to force the object in when
+  the plan was to define the symbol outright. `--wrap` turns the call into an
+  undefined reference to `__wrap_...`, which pulls the object out of `libmain.a`
+  like any archive member — so a blunt instrument with link-wide side effects
+  came back out, and the wrapper is still linked without it.
+- **The non-C6 build survived on luck.** `--wrap` is applied only on the C6, so
+  elsewhere the wrapper's reference to `__real_...` is undefined; the build
+  linked only because `--gc-sections` discarded the unreferenced wrapper and the
+  dangling reference with it. Anything referencing the wrapper, or a build
+  without section GC, would have failed. The file is now compiled only where
+  `--wrap` is applied, and the classic-ESP32 image contains no reference to it.
+- **The ratchet refused a Tier F regression.** Stating that condition wanted
+  `CONFIG_IDF_TARGET_ESP32C6`, and adding `#include "sdkconfig.h"` for it grew
+  Tier F from 1 to 2. The build force-includes that header into every source
+  file, so the include was unnecessary — but the gate caught it before it
+  shipped, which is what it is for.
+
 **What remains before the flag can be turned on:** with FreeRTOS never started,
 ESP-IDF's console VFS, `esp_timer` and newlib's reentrancy have no scheduler
 underneath them. That is the real content of Tier F, and it is now reachable
