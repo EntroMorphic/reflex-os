@@ -47,7 +47,13 @@ tasm-test:
 loomc-test:
 	python3 tests/host/test_loomc.py
 
-tools-test: tasm-test loomc-test
+tools-test: tasm-test loomc-test independence-test
+
+# The independence checker decides what the tier numbers say, so its own
+# parser is tested — including against the C6 build's dependency output, which
+# is the only authority on what the compiler actually included.
+independence-test:
+	@python3 tools/test_check_independence.py
 
 # Shell validation against a flashed board. Non-destructive: never provisions
 # or clears an Aura key, never reboots, restores role/vitals/purpose.

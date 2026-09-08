@@ -569,7 +569,11 @@ are measured rather than assumed:
 
 **Landed and hardware-validated (2026-09-07): 171/171 on ten consecutive runs,
 against main's 15/15, with the classic ESP32 back at its documented 170/171.**
-Receive and transmit moved together, as the analysis below said they had to.
+Receive and transmit moved together. The analysis above had reached that as a
+sequencing note — "stdio TX must move too" — and then, after the first attempt,
+as the stronger claim that Tier E's console work is one change and not two:
+receive alone is not a smaller first step, it is a step that cannot stand. That
+conclusion held. The reasoning offered for it did not.
 
 The first attempt failed and the diagnosis recorded here — a deadlock between
 receive backpressure and a blocking transmit — described a real mechanism that
@@ -616,7 +620,11 @@ rather than at the peripheral's shared `INT_ENA`, which is necessary because
 that register also carries the transmit interrupt and writing it from an ISR
 wedges stdout — seen as a board emitting a single byte, `I`, and going silent.
 
-Tier E on-path includes: **8 -> 6**.
+Tier E on-path includes: **8 -> 6**, and then to **4** once the checker stopped
+counting the UART console includes that `#if SOC_USB_SERIAL_JTAG_SUPPORTED`
+already fences off — the C6 build had never included them. What remains in
+Tier E is four peripheral drivers: `ledc`, `pulse_cnt`, `rmt_tx`,
+`rmt_encoder`. The console is no longer among them.
 
 The general lesson is the one already in `CONTRIBUTING.md`: five of these six
 were found by an experiment that isolated one variable, and none by reading the

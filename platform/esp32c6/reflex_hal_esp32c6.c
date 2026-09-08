@@ -86,12 +86,38 @@ uint64_t reflex_hal_time_us(void) {
      * while the base address was also wrong and the whole function returned 0.
      *
      * Bounded spin (max 20 iterations) — the latch completes in ~2 cycles. */
+    /* The latch and the two reads have to be one indivisible operation.
+     *
+     * There is a single value-latch shared by every caller, and this function
+     * has many across several tasks. If one is preempted between reading LO and
+     * reading HI, the other's latch replaces the sample underneath it and the
+     * two halves come from different instants. That is harmless almost always —
+     * the counter is monotonic, so a mixed sample is merely slightly late — but
+     * not when LO has just wrapped: HI is then one greater than the LO it is
+     * paired with, and the result lands 2^32 ticks in the future. At 16 MHz
+     * that is a clock that jumps forward 268 seconds and comes back.
+     *
+     * This clock backs LOOM_LOCK_TIMEOUT_US, which is 300 microseconds, so the
+     * visible failure is a spurious LOOM_CONTENTION_FAULT on a lock that was
+     * held for no time at all — and uptime, telemetry ages and peer timeouts
+     * all inherit the same jump. The window is two instructions wide and needs
+     * a wrap to coincide with it, which is why it has not been seen; the
+     * console transmit path now calls this on every byte it waits for, so the
+     * odds stopped being negligible.
+     *
+     * Restores rather than unconditionally re-enables, because callers inside
+     * the loom hold already have interrupts off. */
+    uint32_t saved;
+    __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(saved));
     REFLEX_REG(SYSTIMER_UNIT0_OP) = REFLEX_SYSTIMER_UNIT0_UPDATE;
     for (volatile int i = 0; i < 20; i++) {
         if (REFLEX_REG(SYSTIMER_UNIT0_OP) & REFLEX_SYSTIMER_UNIT0_VALUE_VALID) break;
     }
     uint32_t lo = REFLEX_REG(SYSTIMER_UNIT0_VAL_LO);
     uint32_t hi = REFLEX_REG(SYSTIMER_UNIT0_VAL_HI);
+    if (saved & 0x8u) {
+        __asm__ volatile("csrsi mstatus, 0x8");
+    }
     return (((uint64_t)hi << 32) | lo) / SYSTIMER_TICKS_PER_US;
 }
 
