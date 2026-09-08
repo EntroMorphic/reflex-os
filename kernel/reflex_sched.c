@@ -281,6 +281,16 @@ void reflex_sched_tick_stop(void) {
 }
 #endif /* !REFLEX_HOST_BUILD */
 
+void reflex_sched_tick_debug_conf(uint32_t *conf, uint32_t *target1_conf) {
+#ifndef REFLEX_HOST_BUILD
+    if (conf) *conf = REFLEX_REG(SYSTIMER_CONF);
+    if (target1_conf) *target1_conf = REFLEX_REG(SYSTIMER_TARGET1_CONF);
+#else
+    if (conf) *conf = 0;
+    if (target1_conf) *target1_conf = 0;
+#endif
+}
+
 void reflex_sched_tick_debug(uint32_t *ena, uint32_t *raw, uint32_t *st) {
 #ifndef REFLEX_HOST_BUILD
     if (ena) *ena = REFLEX_REG(SYSTIMER_INT_ENA);

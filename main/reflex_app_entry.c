@@ -29,6 +29,7 @@
 
 #include "reflex_sched.h"
 #include "reflex_hal.h"
+#include "reflex_soc_esp32c6.h" /* REFLEX_INTR_SRC_SYSTIMER_TARGET1 */
 
 #define TAG "reflex.entry"
 
@@ -128,9 +129,65 @@ void __wrap_esp_startup_start_app(void) {
     uint32_t t0 = reflex_sched_get_tick();
     reflex_hal_delay_us(50000);
     if (reflex_sched_get_tick() == t0) {
-        REFLEX_LOGE(TAG, "tick is not running; handing back to FreeRTOS");
+        /* Say why, not just that.
+         *
+         * "tick is not running" is a verdict with no evidence attached, and
+         * this is the one place where the evidence cannot be gathered
+         * afterwards: there is no shell here to ask from, and the fallback
+         * hands the machine back to FreeRTOS, which changes every register that
+         * would have answered the question. Read them here or not at all. */
+        reflex_intr_route_t r;
+        reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &r);
+        uint32_t ena, raw, st;
+        reflex_sched_tick_debug(&ena, &raw, &st);
+        /* Both halves, because "routed but not firing" and "firing but not
+         * routed" look identical from either side alone. */
+        REFLEX_LOGE(TAG, "tick source: systimer int_ena=0x%08x int_raw=0x%08x int_st=0x%08x",
+                    (unsigned)ena, (unsigned)raw, (unsigned)st);
+        REFLEX_LOGE(TAG,
+                    "tick is not running: cpu_int=%u plic_en=%u pri=%u thresh=%u "
+                    "level=%u mie=%u mip=%u global_ie=%u live=0x%08x",
+                    (unsigned)r.cpu_int, (unsigned)r.plic_enabled, (unsigned)r.plic_priority,
+                    (unsigned)r.plic_threshold, (unsigned)r.level_triggered,
+                    (unsigned)r.mie_enabled, (unsigned)r.mip_pending, (unsigned)r.global_ie,
+                    (unsigned)r.live_line_mask);
         goto fallback;
     }
+
+    /* --- the hand-off ---------------------------------------------------
+     *
+     * Four steps that reflex_kernel_test performs and this did not. Each one is
+     * load-bearing, and the dead tick above was the only reason their absence
+     * had never cost anything: the fallback was taken every time, so the code
+     * below had never run on hardware.
+     *
+     * Nothing here needs undoing on the fallback path, because all of it
+     * happens after the tick check has already passed. That ordering is
+     * deliberate — it keeps the hand-back a hand-back. */
+    reflex_intr_route_t tick;
+    reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &tick);
+
+    /* Tell the handler which line is the tick. Without this it recognises
+     * nothing, acknowledges nothing, and the core stops on the first
+     * interrupt it takes — the single most consequential omission here. */
+    reflex_trap_set_tick_line((int)tick.cpu_int);
+
+    /* Take back the stack watchpoint, which ESP-IDF armed with the bounds of
+     * the FreeRTOS stack this is running on. The first switch to a Reflex
+     * stack panics without this. */
+    reflex_hal_stack_guard_disable();
+
+    /* Silence every line but the tick. Reflex's handler deliberately does not
+     * acknowledge a line it does not recognise, so any ESP-IDF interrupt left
+     * enabled asserts, is never cleared, and the machine stops. */
+    uint32_t saved_mask = reflex_hal_intr_quiesce_except(1u << tick.cpu_int);
+    REFLEX_LOGI(TAG, "quiesced PLIC 0x%08x -> 0x%08x, tick on cpu_int=%u", (unsigned)saved_mask,
+                (unsigned)(1u << tick.cpu_int), (unsigned)tick.cpu_int);
+
+    /* Stand down the timer-group watchdogs FreeRTOS was feeding. Without this
+     * the chip resets a few seconds in with TG1_WDT_HPSYS, after the scheduler
+     * has started perfectly well. */
+    reflex_hal_wdt_disable_timg();
 
     reflex_trap_install();
 

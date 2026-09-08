@@ -40,6 +40,18 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Fixed
 
+- **The entry-point path behind the tick check had never run, and would have stranded the board.** `REFLEX_OWN_ENTRY` was built on the independence configuration — the one where the tick measures 1000 Hz — to reach the branch where Reflex keeps the machine. It fell back there too, and that is the only reason the code after the check had never cost anything: it was **missing four of the steps `reflex_kernel_test` performs**. The critical one is `reflex_trap_set_tick_line`, without which Reflex's handler recognises no line, acknowledges nothing, and the core stops on the first interrupt it takes; the others are `reflex_hal_stack_guard_disable`, `reflex_hal_intr_quiesce_except` and `reflex_hal_wdt_disable_timg`, each with a recorded hardware failure behind it. All four are in place now, ordered *after* the tick check so nothing on the fallback path needs undoing and the hand-back stays a hand-back.
+
+  A guard that always fires is indistinguishable from a guard protecting working code, and the code behind it ages untested.
+
+- **"tick is not running" was a verdict with no evidence, in the one place the evidence cannot be collected afterwards.** There is no shell at the entry point, and the fallback rewrites every register that would answer the question. It now reads them where they still mean something, and the reading killed two standing hypotheses: `global_ie=1`, so interrupts are not masked pending FreeRTOS, and `int_raw`/`int_st` bit 1 are set, so the comparator is matching and the peripheral is asserting. The source fires, the routing reads correct end to end, and nothing is delivered.
+
+### Changed
+
+- **The tick works exactly once per boot, and that is now measured rather than assumed.** On the independence build, in one boot: `998 Hz`, then `2 Hz`, then `2 Hz` — the first arming correct, every later one delivering a single tick and stopping. So `tick_start` → `tick_stop` → `tick_start` does not restore the tick. Two fixes were tried on hardware and **both failed** (clearing `TARGET1_WORK_EN` before reconfiguring, per ESP-IDF's `systimer_hal_set_alarm_period` ordering; and re-latching `COMP1_LOAD` after enabling). `kernel tick` now reads back the comparator itself, which is what ruled it out: a working arm and a failing one are register-identical — `conf=0xf7c00002 target1_conf=0x40003e80`. Recorded as open, with the failed attempts named so they are not retried blind.
+
+  Also noted: the `mie`/`mip` fields in that readback use the C3-style `16 + cpu_int` mapping, and ESP-IDF's PLIC path never touches `mie` for external interrupts. Those two bits are probably reporting nothing meaningful on the C6, so `mip=0` is not evidence that the core never saw the interrupt.
+
 - **The LEDC leak was fixed on one target and left on the other.** `bonsai exp4 detach` gives the PWM peripheral back, but the release was written inside `#if CONFIG_IDF_TARGET_ESP32C6` while the command runs on both boards — so the classic ESP32 kept the identical defect the fix was written to remove, re-routing the pin while ESP-IDF's LEDC stayed configured and clocked. It now releases on both: `reflex_hal_pwm_release()` on the C6, `ledc_stop()` on the ESP32.
 
   Register evidence on the C6, read back through `goonies read agency.ledc.ch0_conf0`: `0x00000000` before any attach, `0x00000004` (`SIG_OUT_EN`) after `connect`, `0x00000010` after `detach` — the enable bit genuinely cleared, and the clock-gated peripheral still reads back without stalling, so the probe path is safe after a release.

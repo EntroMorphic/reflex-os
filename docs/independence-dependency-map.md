@@ -829,6 +829,94 @@ back and handed over. That is the safety mechanism demonstrated rather than
 asserted — which matters, because the last safety mechanism written here, the
 sleep watchdog, did not work and stranded a board.
 
+### The path behind the fallback had never run, and was not survivable
+
+`REFLEX_OWN_ENTRY` was then built on the **independence** configuration — the
+one where the tick measures 1000 Hz — expecting the branch where Reflex keeps
+the machine. It fell back there too, and that turned out to be the only reason
+the code after the check had never cost anything: **it was missing four of the
+steps `reflex_kernel_test` performs**, and would have stranded the board if the
+tick had ever passed.
+
+Most consequential of the four, `reflex_trap_set_tick_line`. Without it Reflex's
+handler recognises no line, acknowledges nothing, and the core stops on the
+first interrupt it takes. The other three — `reflex_hal_stack_guard_disable`,
+`reflex_hal_intr_quiesce_except` and `reflex_hal_wdt_disable_timg` — each have a
+recorded hardware failure behind them. All four are there now, placed *after*
+the tick check so that nothing on the fallback path needs undoing and the
+hand-back stays a hand-back.
+
+A dead check had been hiding a dead branch. Worth stating as a general shape:
+a guard that always fires is indistinguishable from a guard that protects
+working code, and the code it guards ages untested.
+
+### Why the tick is dead at the entry point, as far as the registers go
+
+The failure log said only "tick is not running", which is a verdict with no
+evidence, and it is the one place the evidence cannot be gathered afterwards —
+there is no shell to ask from, and the fallback changes every register that
+would have answered. It now reads them there:
+
+```
+E (reflex.entry) tick source: systimer int_ena=0x00000006 int_raw=0x00000002 int_st=0x00000002
+E (reflex.entry) tick is not running: cpu_int=10 plic_en=1 pri=2 thresh=1 level=1 mie=1 mip=0 global_ie=1 live=0x0a000424
+```
+
+That kills two hypotheses at once. `global_ie=1` — interrupts are **not** masked
+at this point, so "FreeRTOS has not enabled them yet" is wrong. `int_raw`/`int_st`
+bit 1 are **set** — the comparator is matching and the peripheral is asserting,
+so "the counter unit is not running yet" is wrong too. The source fires, the
+routing reads correct end to end, and nothing is delivered.
+
+One difference from the working case is on the record: at entry the tick lands
+on `cpu_int=10`, and from the shell it lands on 11 because Reflex has already
+taken 10 for the console. `reflex_hal_intr_alloc` scans only Reflex's own
+bitmap, so the first allocation of a boot always gets the lowest line — and at
+the entry point the tick *is* the first allocation. `kernel tick` carries a
+`<-- SAME LINE AS THE TICK` check for exactly this collision, with a comment
+predicting exactly this signature. It is not proven to be the cause, and the
+allocator comment records that a previous PLIC-aware allocation attempt made
+things worse, so it is written down rather than acted on.
+
+Note also that `mie`/`mip` are read at bit `16 + cpu_int`, which is the C3-style
+mapping. ESP-IDF's PLIC path (`interrupt_plic.c`) never touches `mie` for
+external interrupts — it gates on `PLIC_MXINT_ENABLE` alone. So `mie=1 mip=0` in
+that line is very likely reporting bits that mean nothing on this target, and
+`mip=0` should not be read as "the core never saw it". An instrument that has
+not been shown able to fail is not evidence.
+
+### The tick works exactly once per boot
+
+Found while establishing a baseline for the above, and reproducible on the
+independence build in a single boot:
+
+```
+kernel tick: 499 ticks in 499826 us -> 998 Hz (target 1000)
+kernel tick: 1 ticks in 499841 us -> 2 Hz (target 1000)
+kernel tick: 1 ticks in 499846 us -> 2 Hz (target 1000)
+```
+
+The first arming is correct. Every later one delivers a single tick and stops —
+which is the same "single tick" symptom `setup_systimer_tick`'s own comment
+records for configuring around a live comparator. So `tick_start` →
+`tick_stop` → `tick_start` does not restore the tick: another acquire/release
+pair where the release does not undo the acquire.
+
+Two fixes were tried on hardware and **both failed**, which is recorded because
+each looks obviously right and would otherwise be tried again:
+
+- Clearing `TARGET1_WORK_EN` before reconfiguring, matching ESP-IDF's
+  `systimer_hal_set_alarm_period` ordering exactly. No change.
+- Re-latching `COMP1_LOAD` after enabling the comparator, to flush a stale
+  internal target. No change.
+
+`kernel tick` now also reads back the comparator itself, which is what ruled it
+out: a working arm and a failing one are **register-identical** —
+`conf=0xf7c00002 target1_conf=0x40003e80`, period mode, unit 0, period 16000,
+`TARGET1_WORK_EN` set in both. The fault is therefore in state no register
+exposed so far, and the next move is to read the comparator's alarm target
+against the live unit count rather than to guess again. Open.
+
 **The board that came back was not fully working, and the cause was not what
 was guessed.** That build booted and answered, then failed the hardware suite
 outright — 0 of 1, twice — where the default passes 183 of 183. The published

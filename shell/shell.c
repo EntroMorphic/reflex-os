@@ -1217,6 +1217,8 @@ static void shell_cmd_kernel_tick(void) {
     reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &route);
     uint32_t st_ena = 0, st_raw = 0, st_st = 0;
     reflex_sched_tick_debug(&st_ena, &st_raw, &st_st);
+    uint32_t st_conf = 0, st_t1conf = 0;
+    reflex_sched_tick_debug_conf(&st_conf, &st_t1conf);
 
     reflex_sched_tick_stop();
 
@@ -1267,6 +1269,16 @@ static void shell_cmd_kernel_tick(void) {
                (int)route.level_triggered);
         printf("  csr:    mie_bit=%d mip_pending=%d mstatus.MIE=%d\n", (int)route.mie_enabled,
                (int)route.mip_pending, (int)route.global_ie);
+        /* The comparator's own configuration, not just its interrupt.
+         *
+         * INT_ENA/RAW/ST say whether the source fired; they say nothing about
+         * whether it is still armed to fire again, which is the whole question
+         * when a second arming in one boot yields exactly one tick. Added to
+         * answer that, and its answer was negative in the useful way: a working
+         * arm and a failing one read identically here, so the comparator is not
+         * where the fault is. */
+        printf("  comparator: conf=0x%08lx target1_conf=0x%08lx\n", (unsigned long)st_conf,
+               (unsigned long)st_t1conf);
         {
             unsigned n = 0;
             for (unsigned b = 0; b < 32; b++) {

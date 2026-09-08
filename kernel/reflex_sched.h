@@ -181,6 +181,23 @@ void reflex_sched_tick_stop(void);
  * @param st   SYSTIMER_INT_ST,  or NULL
  */
 void reflex_sched_tick_debug(uint32_t *ena, uint32_t *raw, uint32_t *st);
+
+/** @brief Read back the comparator's own configuration.
+ *
+ * The interrupt registers say whether the source fired; they say nothing about
+ * whether the comparator is still armed to fire again. A re-arm that yields
+ * exactly one tick and then stops is invisible in @ref reflex_sched_tick_debug
+ * and visible here — and what it showed is that the comparator is not the
+ * cause: a working arm and a failing one read identically. */
+void reflex_sched_tick_debug_conf(uint32_t *conf, uint32_t *target1_conf);
+
+/** @brief Read back the comparator's own configuration.
+ *
+ * The interrupt registers say whether the source fired; they say nothing about
+ * whether the comparator is still armed to fire again. A re-arm that yields
+ * exactly one tick and then stops is invisible in @ref reflex_sched_tick_debug
+ * and obvious here. */
+void reflex_sched_tick_debug_conf(uint32_t *conf, uint32_t *target1_conf);
 #endif
 
 /* ---- Trap-side tick routing (reflex_trap.c) ----
