@@ -447,6 +447,41 @@ void reflex_hal_intr_describe(int source, reflex_intr_route_t *out) {
     out->global_ie = (mstatus >> 3) & 1u; /* MIE */
 }
 
+/* Enable or mask one allocated interrupt line at the controller.
+ *
+ * Exists so a driver can throttle its own interrupt without touching the
+ * peripheral's INT_ENA register. That register is shared by every interrupt the
+ * peripheral has — on USB-serial-JTAG it carries the transmit path ESP-IDF's
+ * console still uses — and a read-modify-write of it from an ISR races code
+ * that never agreed to coordinate. Observed: the board emitted a single byte
+ * and went silent, which is a wedged stdout, not the receive failure it looked
+ * like.
+ *
+ * PLIC_MXINT_ENABLE is different in the one way that matters: every writer is
+ * Reflex's, and each brackets its read-modify-write with interrupts disabled,
+ * so on this single core the sequence is atomic against preemption.
+ *
+ * mstatus is saved and restored rather than unconditionally re-enabled: called
+ * from an ISR, MIE is already clear, and setting it would re-enable interrupts
+ * part-way through a handler. */
+reflex_err_t reflex_hal_intr_set_enabled(reflex_intr_handle_t handle, bool enabled) {
+    int cpu_int = (int)(uintptr_t)handle - 1;
+    if (cpu_int < REFLEX_INTR_MIN || cpu_int > REFLEX_INTR_MAX) {
+        return REFLEX_ERR_INVALID_ARG;
+    }
+    uint32_t saved;
+    __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(saved));
+    if (enabled) {
+        REFLEX_REG(PLIC_MXINT_ENABLE) |= (1U << cpu_int);
+    } else {
+        REFLEX_REG(PLIC_MXINT_ENABLE) &= ~(1U << cpu_int);
+    }
+    if (saved & 0x8u) {
+        __asm__ volatile("csrsi mstatus, 0x8");
+    }
+    return REFLEX_OK;
+}
+
 reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
     int cpu_int = (int)(uintptr_t)handle - 1;
     if (cpu_int < REFLEX_INTR_MIN || cpu_int > REFLEX_INTR_MAX)
@@ -579,8 +614,11 @@ static void usj_rx_isr(void *arg) {
         uint32_t head = s_usj_rx_head;
         uint32_t next = (head + 1u) & (USJ_RX_RING_SIZE - 1u);
         if (next == s_usj_rx_tail) {
-            /* Full: leave the rest in the FIFO and let the host wait. */
-            REFLEX_REG(REFLEX_USJ_INT_ENA_REG) &= ~REFLEX_USJ_OUT_RECV_PKT_INT;
+            /* Full: leave the rest in the FIFO and let the host wait. Mask at
+             * the interrupt controller, not at REFLEX_USJ_INT_ENA_REG — that
+             * register is shared with the transmit path and writing it from
+             * here wedges stdout. */
+            reflex_hal_intr_set_enabled(s_usj_intr, false);
             s_usj_rx_stalled = true;
             break;
         }
@@ -604,7 +642,18 @@ reflex_err_t reflex_hal_console_init(void) {
         s_usj_intr = NULL;
         return rc;
     }
-    REFLEX_REG(REFLEX_USJ_INT_ENA_REG) |= REFLEX_USJ_OUT_RECV_PKT_INT;
+    /* The one unavoidable write to the shared register: the peripheral will
+     * not raise the interrupt at all unless its own enable bit is set. Done
+     * once, at init, with interrupts disabled, and never touched again —
+     * throttling happens at the controller instead. */
+    {
+        uint32_t saved;
+        __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(saved));
+        REFLEX_REG(REFLEX_USJ_INT_ENA_REG) |= REFLEX_USJ_OUT_RECV_PKT_INT;
+        if (saved & 0x8u) {
+            __asm__ volatile("csrsi mstatus, 0x8");
+        }
+    }
     return REFLEX_OK;
 }
 
@@ -618,7 +667,7 @@ bool reflex_hal_console_read(uint8_t *out) {
          * refilled and the console would stop for good. */
         if (s_usj_rx_stalled) {
             s_usj_rx_stalled = false;
-            REFLEX_REG(REFLEX_USJ_INT_ENA_REG) |= REFLEX_USJ_OUT_RECV_PKT_INT;
+            reflex_hal_intr_set_enabled(s_usj_intr, true);
         }
         return false;
     }
@@ -626,7 +675,7 @@ bool reflex_hal_console_read(uint8_t *out) {
     s_usj_rx_tail = (tail + 1u) & (USJ_RX_RING_SIZE - 1u);
     if (s_usj_rx_stalled) {
         s_usj_rx_stalled = false;
-        REFLEX_REG(REFLEX_USJ_INT_ENA_REG) |= REFLEX_USJ_OUT_RECV_PKT_INT;
+        reflex_hal_intr_set_enabled(s_usj_intr, true);
     }
     return true;
 }

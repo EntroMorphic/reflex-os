@@ -224,6 +224,19 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
 reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle);
 
 /**
+ * @brief Enable or mask one allocated interrupt line at the controller.
+ *
+ * For a driver that needs to throttle its own interrupt — a receiver whose ring
+ * is full, say — without touching the peripheral's shared interrupt-enable
+ * register. That register carries every interrupt the peripheral has, so a
+ * read-modify-write of it can disturb a path another owner is using.
+ *
+ * Safe to call from an ISR: it saves and restores the global interrupt-enable
+ * bit rather than setting it.
+ */
+reflex_err_t reflex_hal_intr_set_enabled(reflex_intr_handle_t handle, bool enabled);
+
+/**
  * @brief Tell the bootloader this boot reached a stable state.
  *
  * Boot0 counts consecutive boot attempts in an always-on scratch register and

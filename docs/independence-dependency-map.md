@@ -565,6 +565,39 @@ are measured rather than assumed:
   dropping the driver means routing stdio at the same time. That is why the
   Tier E include count does not fall until both halves land.
 
+**Attempted on hardware, and it does not work as scoped — the reason is
+structural, not a bug list.** Branch `tier-e-console-rx` carries the attempt.
+
+Owning receive means applying backpressure: the ISR must stop draining the FIFO
+when its ring is full, because emptying the FIFO is what ACKs the USB packet
+and a receiver that always drains never slows the host down. Measured without
+it: `console: 962 byte(s) DROPPED` on a 913-character line.
+
+But backpressure on receive deadlocks against a transmit path that blocks.
+`usj_write_bytes` spins until the host drains the IN endpoint, and a host
+driving the shell writes a whole line before it reads. So: the device stops
+ACKing OUT because its ring is full, the host blocks mid-write and therefore
+never reads, the device's IN endpoint fills, and the shell blocks in its echo
+and never calls the read that would re-arm the receiver. Both ends wait for the
+other. Observed as a console that serves short commands, passes 87 of 171
+checks, and then stops answering entirely.
+
+The ESP-IDF driver this replaces does not avoid that by being cleverer about
+receive. It avoids it by buffering **both** directions, so neither side blocks
+long enough to close the loop.
+
+So Tier E's console work is one change, not two: **receive and transmit have to
+move together.** That was written above as a sequencing note — "stdio TX must
+move too" — and it is stronger than that. RX alone is not a smaller first step;
+it is a step that cannot stand.
+
+What the attempt established and is worth keeping: the ISR, ring and
+flow-control shape are right; `reflex_hal_intr_set_enabled` masks at the
+controller rather than at the peripheral's shared INT_ENA register, which is
+necessary because that register also carries the transmit interrupt ESP-IDF
+uses and writing it from an ISR wedges stdout — seen as a board emitting a
+single byte, `I`, and going silent.
+
 **Done:** the register constants are Reflex's own. The SVD calls the peripheral
 `USB_DEVICE` where IDF calls it `USB_SERIAL_JTAG` — the mapping table records
 exactly that kind of divergence — and the C6 HAL's hand-written `USJ_BASE +
