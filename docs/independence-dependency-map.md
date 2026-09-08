@@ -865,6 +865,23 @@ Latent because callers quiesce the peripheral first and nothing enables line 0.
 Wrong regardless, and precisely the kind of thing that surfaces the first time
 something else claims that line.
 
+Two defects of one shape in one function was worth generalising, so every
+acquire in the C6 HAL was checked against its release. `intr_alloc`/`free`,
+`rmt_tx_init`/`release`, `pcnt_start`/`release` and `wdt_arm`/`disarm` all pair.
+**`reflex_hal_pwm_init` had no release at all** — `bonsai exp4 detach` re-routed
+the pin to plain GPIO and left LEDC ungated, clocked and running for the rest of
+the boot. PCNT and RMT were given releases earlier in this work; PWM was
+overlooked. It has one now, and `detach` calls it.
+
+Two acquisitions are deliberately permanent and stay that way:
+`reflex_hal_console_init`, because the console outlives everything that could
+release it, and `reflex_hal_temp_init`, because the sensor is read continuously.
+Named here so their absence reads as a decision rather than the same oversight.
+
+Release-then-reacquire is verified rather than assumed: the LEDC register
+comparison runs `connect` after a previous run's `detach`, and still matches
+ESP-IDF byte for byte.
+
 So the flag cannot strand a board and now yields a working one where the tick is
 dead. On the independence build, where the tick runs, the fallback is not taken
 at all — that path is still unrun, and it is the one that ends in Reflex

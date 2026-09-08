@@ -1130,6 +1130,28 @@ reflex_err_t reflex_hal_pwm_init(uint32_t freq_hz, uint8_t duty_res_bits, uint32
     return REFLEX_OK;
 }
 
+/* Give LEDC back.
+ *
+ * pwm_init ungates the peripheral, selects its clock source, configures a timer
+ * and a channel and drives a pin — and nothing undid any of it. `bonsai exp4
+ * detach` re-routed the pin to plain GPIO and left LEDC clocked and running for
+ * the rest of the boot.
+ *
+ * That is the same asymmetry just fixed twice in reflex_hal_intr_free, and it
+ * was found by asking which other acquire in this file has no matching release:
+ * PCNT and RMT were given one earlier, PWM was not. Stopping the channel
+ * driving before gating the clock matters — gating first freezes whatever level
+ * the output happened to be at. */
+void reflex_hal_pwm_release(void) {
+    uint32_t c0 = REFLEX_REG(REFLEX_LEDC_CH0_CONF0_REG);
+    c0 &= ~REFLEX_LEDC_SIG_OUT_EN;
+    REFLEX_REG(REFLEX_LEDC_CH0_CONF0_REG) = c0;
+    REFLEX_REG(REFLEX_LEDC_CH0_CONF0_REG) = c0 | REFLEX_LEDC_CH_PARA_UP;
+
+    REFLEX_REG(REFLEX_PCR_LEDC_SCLK_CONF_REG) &= ~REFLEX_PCR_LEDC_SCLK_EN;
+    REFLEX_REG(REFLEX_PCR_LEDC_CONF_REG) &= ~REFLEX_PCR_LEDC_CLK_EN;
+}
+
 void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out) {
     if (!out) return;
     out->timer_conf = REFLEX_REG(REFLEX_LEDC_TIMER0_CONF_REG);

@@ -251,6 +251,7 @@ typedef struct {
     uint32_t pcr_sclk;
 } reflex_pwm_snapshot_t;
 
+void reflex_hal_pwm_release(void);
 void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out);
 
 /* Pulse counting. Reflex's own on the C6, replacing driver/pulse_cnt.h for the

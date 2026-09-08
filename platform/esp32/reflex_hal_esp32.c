@@ -186,6 +186,8 @@ void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out) {
     memset(out, 0, sizeof *out);
 }
 
+void reflex_hal_pwm_release(void) {}
+
 void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out) {
     if (!out) return;
     memset(out, 0, sizeof *out);

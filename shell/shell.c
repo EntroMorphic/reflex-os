@@ -338,6 +338,15 @@ static void reflex_shell_bonsai_exp4_route(int orient) {
     } else {
         esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, REFLEX_SIG_GPIO_OUT_IDX, false, false);
         reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_ZERO;
+#if CONFIG_IDF_TARGET_ESP32C6
+        /* Detach means give the peripheral back, not just re-route the pin.
+         *
+         * This left LEDC ungated, clocked and running for the rest of the boot
+         * with only the pin pointed elsewhere. PCNT and RMT both got a release;
+         * PWM did not, and an audit for that asymmetry is what turned it up. */
+        reflex_hal_pwm_release();
+        reflex_shell_bonsai_exp4.ledc_initialized = false;
+#endif
     }
     printf("bonsai exp4 route orient=%s\n", reflex_shell_bonsai_edge_name(reflex_shell_bonsai_exp4.route));
 }
