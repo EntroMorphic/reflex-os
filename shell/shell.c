@@ -1646,6 +1646,23 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
     outcome(SHELL_NOTFOUND);
 }
 
+/* Echo one character on the console.
+ *
+ * Not putchar+fflush. That routes through the stdio VFS, whose write blocks
+ * until the host drains the IN endpoint — and a host driving this shell writes
+ * a whole line before it reads anything. With Reflex applying receive
+ * backpressure, that closes a loop: the device stops ACKing OUT because its
+ * ring is full, the host blocks mid-write and so never reads, the IN endpoint
+ * fills, and the shell blocks here and never calls the read that would re-arm
+ * the receiver. Both ends wait for the other.
+ *
+ * reflex_hal_write_raw spins a bounded number of times and then drops the byte,
+ * because console output is best-effort by nature: if nobody is listening,
+ * dropping is correct and hanging is not. Bounded is the property that breaks
+ * the deadlock — the shell always returns to its loop, always drains the ring,
+ * and always re-arms receive. */
+static void shell_echo(char c) { reflex_hal_write_raw(&c, 1); }
+
 void reflex_shell_run(void) {
     char line[REFLEX_SHELL_LINE_MAX]; size_t len = 0; bool overflowed = false;
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
@@ -1727,7 +1744,7 @@ void reflex_shell_run(void) {
              * promising it: `result.startswith("denied:")` was never true,
              * so a role-restricted caller got a string back and carried on as
              * though the command had succeeded. */
-            putchar('\n'); fflush(stdout);
+            shell_echo('\n');
             line[len] = 0;
             bool dispatched = false;
             if (overflowed) {
@@ -1768,7 +1785,10 @@ void reflex_shell_run(void) {
              * the truncated line dispatched as though complete — silent
              * truncation feeding parsers that had just been hardened against
              * exactly that. Now the line is marked and refused. */
-            if (len < REFLEX_SHELL_LINE_MAX - 1) { line[len++] = ch; putchar(ch); fflush(stdout); }
+            if (len < REFLEX_SHELL_LINE_MAX - 1) {
+                line[len++] = ch;
+                shell_echo((char)ch);
+            }
             else { overflowed = true; }
         }
     }

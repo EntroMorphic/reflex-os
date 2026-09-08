@@ -625,7 +625,19 @@ static void usj_rx_isr(void *arg) {
         s_usj_rx_ring[head] = (uint8_t)REFLEX_REG(REFLEX_USJ_EP1_REG);
         s_usj_rx_head = next;
     }
-    REFLEX_REG(REFLEX_USJ_INT_CLR_REG) = REFLEX_USJ_OUT_RECV_PKT_INT;
+    /* Acknowledge every bit that was asserted, not only ours.
+     *
+     * Source 48 is the peripheral's single interrupt line, shared by receive
+     * and transmit events. Clearing only the receive bit leaves any other
+     * asserted bit pending on a level-triggered line, so the handler re-enters
+     * immediately and forever, and the core never runs anything else — which
+     * presents as a console that produces no output at all, because the task
+     * that would print never gets scheduled.
+     *
+     * Isolated by experiment: with this interrupt not enabled the console emits
+     * its full boot log; with it enabled and only our bit cleared, nothing.
+     * Nothing else differed. */
+    REFLEX_REG(REFLEX_USJ_INT_CLR_REG) = REFLEX_REG(REFLEX_USJ_INT_ST_REG);
 }
 
 reflex_err_t reflex_hal_console_init(void) {
