@@ -829,18 +829,31 @@ back and handed over. That is the safety mechanism demonstrated rather than
 asserted — which matters, because the last safety mechanism written here, the
 sleep watchdog, did not work and stranded a board.
 
-**But the board that comes back is not fully working.** That build boots and
-answers, and then fails the hardware suite outright (0 of 1, twice) where the
-default build passes 183 of 183. The fallback releases the tick through
-`reflex_sched_tick_stop`, which frees a CPU interrupt line through *Reflex's*
-allocator before ESP-IDF's world has started — so the two plausibly disagree
-about which lines are free, and the console is downstream of that. **A
-hypothesis, not a finding**; it has not been tested.
+**The board that came back was not fully working, and the cause was not what
+was guessed.** That build booted and answered, then failed the hardware suite
+outright — 0 of 1, twice — where the default passes 183 of 183. The published
+guess was that `reflex_sched_tick_stop` freed a line through Reflex's allocator
+and confused ESP-IDF's. Wrong: the build that failed *before* `tick_stop`
+existed failed identically.
 
-So the honest status of the flag is: it cannot strand a board, and it does not
-yet yield a working one on a configuration where the tick is dead. On the
-independence build, where the tick runs, the fallback is not taken at all — and
-that path has not been run.
+Bisected instead. Falling back straight after `reflex_sched_init` passes
+183/183; adding `reflex_sched_tick_start` before the fallback fails 0/1. So the
+fault was in taking and releasing a CPU interrupt, and it turned out to be a
+plain asymmetry: **`reflex_hal_intr_free` did not undo what
+`reflex_hal_intr_alloc` did.** Alloc sets a PLIC priority, installs a dispatch
+handler through `intr_handler_set` and flips the line's edge/level bit; free
+cleared only the enable bit and the matrix routing. A line handed back that way
+still carried Reflex's handler at Reflex's priority — wrong on its own terms,
+and fatal when the line is taken and released before ESP-IDF has built its
+interrupt state. Free restores all three now, and the flag build passes 183/183.
+
+That defect was reachable by any caller of `reflex_hal_intr_free`, not just this
+path. It happened to be harmless while Reflex was the only allocator.
+
+So the flag cannot strand a board and now yields a working one where the tick is
+dead. On the independence build, where the tick runs, the fallback is not taken
+at all — that path is still unrun, and it is the one that ends in Reflex
+actually keeping the machine.
 
 **What remains before the flag can be turned on for real:** with FreeRTOS never
 started, ESP-IDF's console VFS, `esp_timer` and newlib's reentrancy have no

@@ -512,6 +512,18 @@ static uint32_t s_intr_alloc_bitmap = 0;
 typedef struct {
     reflex_intr_handler_t handler;
     void *arg;
+    /* What the line held before Reflex took it, so freeing can put it back.
+     *
+     * alloc sets a PLIC priority, installs a dispatch handler and flips the
+     * line's edge/level bit; free used to clear only the enable bit and the
+     * matrix routing. A line handed back that way still carries Reflex's
+     * handler and a changed priority and type — which is wrong on its own
+     * terms, and breaks a board when the line is taken and released before
+     * ESP-IDF's interrupt world exists: bisected to exactly that, a build that
+     * boots and then fails every hardware check. */
+    uint32_t prev_priority;
+    uint32_t prev_type_bit;
+    bool taken;
 } reflex_intr_entry_t;
 
 static reflex_intr_entry_t s_intr_table[32];
@@ -589,6 +601,10 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
      * printing on success as well as failure, a working arming reads pri=2
      * thresh=1 — the same as a failing one. The threshold is 1 in both cases,
      * so this change is correctness rather than the explanation of anything. */
+    /* Record what is being displaced before displacing it. */
+    s_intr_table[cpu_int].prev_priority = REFLEX_REG(PLIC_MXINT_PRI(cpu_int));
+    s_intr_table[cpu_int].prev_type_bit = (REFLEX_REG(PLIC_MXINT_TYPE) >> cpu_int) & 1u;
+    s_intr_table[cpu_int].taken = true;
     REFLEX_REG(PLIC_MXINT_PRI(cpu_int)) = reflex_intr_priority_for(REFLEX_REG(PLIC_MXINT_THRESH));
 
     /* Install the vector before the line can deliver anything.
@@ -732,6 +748,25 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
         if (REFLEX_REG(INTMTX_BASE + 4 * s) == (uint32_t)cpu_int) {
             REFLEX_REG(INTMTX_BASE + 4 * s) = 0;
         }
+    }
+
+    /* Put back everything alloc changed, not just the enable bit.
+     *
+     * The priority, the edge/level bit and the vector entry were all set by
+     * alloc and none of them were restored here, so a freed line still carried
+     * Reflex's dispatcher at Reflex's priority. Harmless while Reflex is the
+     * only allocator; not harmless when the line is taken and given back before
+     * ESP-IDF has built its own interrupt state, which is what the entry path
+     * does to test the tick. */
+    if (s_intr_table[cpu_int].taken) {
+        REFLEX_REG(PLIC_MXINT_PRI(cpu_int)) = s_intr_table[cpu_int].prev_priority;
+        uint32_t type = REFLEX_REG(PLIC_MXINT_TYPE);
+        type &= ~(1U << cpu_int);
+        type |= (s_intr_table[cpu_int].prev_type_bit << cpu_int);
+        REFLEX_REG(PLIC_MXINT_TYPE) = type;
+        extern void intr_handler_set(int n, void (*fn)(void), void *arg);
+        intr_handler_set(cpu_int, NULL, NULL);
+        s_intr_table[cpu_int].taken = false;
     }
 
     s_intr_table[cpu_int].handler = NULL;
