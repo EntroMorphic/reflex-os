@@ -503,7 +503,20 @@ reflex_err_t reflex_sched_start(void) {
 
         reflex_tcb_t *next = pick_next();
         if (!next) {
-            /* No ready tasks — spin and wait for tick to unblock one */
+            /* No ready tasks — wait for the tick to unblock one.
+             *
+             * No instrumentation here.
+             *
+             * Two attempts failed and both are worth knowing about.
+             * esp_rom_printf busy-waits on the USB FIFO, so printing from this
+             * loop can hang the loop being measured. Writing to LP_AON scratch
+             * cannot block and survives a reset, which is the right shape — but
+             * STORE2 and STORE3 are not ours: tagged values written here read
+             * back as zero after a reset, so something in ROM or the boot path
+             * owns them. The tags are what caught it; without them the zeros
+             * looked exactly like a real measurement, and "interrupts are
+             * masked in the scheduler loop" was very nearly reported as a
+             * finding on the strength of two clobbered registers. */
             __asm__ volatile ("wfi");
             continue;
         }

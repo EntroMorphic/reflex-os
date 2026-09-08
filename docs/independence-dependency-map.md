@@ -748,6 +748,40 @@ document exists to catch. Resolving it is where C3 resumes.
 None of this changes what ships: `kernel selftest` is admin-gated, nothing calls
 it, and normal operation is untouched — C6 183/183, classic ESP32 177/177.
 
+### Tier C: what "make it real" reached, and what it did not (2026-09-08)
+
+The hand-off works. `kernel selftest` routes and arms the tick, verifies it is
+actually running, releases the stack watchpoint, quiesces every PLIC line but
+the tick, stands down both timer-group watchdogs, takes `mtvec`, and starts the
+scheduler. Two tasks execute on Reflex's scheduler with FreeRTOS quiesced.
+
+**Remaining: the tasks run once and never wake from `reflex_sched_delay_ms`.**
+The tick is confirmed running immediately beforehand — `tick verified: 50 ticks
+in 50ms`, and the tasks read `sys=53` — so the tick works up to the hand-off.
+After it, nothing wakes.
+
+Two attempts to instrument the idle loop both failed, and how they failed is
+worth more than the attempts:
+
+- **`esp_rom_printf` busy-waits on the USB FIFO**, so printing from the idle
+  loop can hang the loop being measured. The console is not a valid instrument
+  for a scheduler that has stopped scheduling.
+- **LP_AON scratch survives a reset**, which is the right shape — a register
+  write cannot block, and the value can be read back after resetting a hung
+  board. But `STORE2` and `STORE3` are not Reflex's: values written there read
+  back as zero after a reset, so ROM or the boot path owns them.
+
+The second attempt reported `tick=0 mstatus=0x00000000 MIE=0` — which reads as a
+clean finding: interrupts masked in the scheduler loop, `wfi` returning at once,
+the ISR never running. **It was two clobbered registers.** Tagging the values
+(`0x5CED....`, `0xA5A5....`) is what caught it: the tags came back absent, so
+the zeros meant "this slot did not survive", not "the value was zero". Without
+the tags that artifact would have been reported as the diagnosis.
+
+So the wake bug is **undiagnosed**, and the honest next step is an instrument
+that works: LP_AON slots that are genuinely free, or the classic ESP32, whose
+external USB-serial bridge does not depend on the chip's own state.
+
 ### Tier B: the sleep net, and why it is not yet enough (2026-09-08)
 
 `esp_sleep.h` is two calls, and the reason it is still here is not effort. Every

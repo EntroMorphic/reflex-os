@@ -11,6 +11,7 @@
 #include "reflex_rom_esp32c6.h"
 #include "reflex_hal.h"
 #include "reflex_soc_esp32c6.h"
+#include "reflex_regops.h"
 
 /* SYSTIMER TARGET1's interrupt-matrix source number.
  *
