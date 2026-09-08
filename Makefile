@@ -49,6 +49,13 @@ loomc-test:
 
 tools-test: tasm-test loomc-test independence-test
 
+# What ESP-IDF code is actually in the image, which counting #include lines
+# cannot tell you: a driver whose objects the linker discards is still counted,
+# and a dependency wired in by ESP-IDF's startup is not counted at all. Needs a
+# built image, so it is not part of `make test`.
+image-check:
+	@python3 tools/check_image.py
+
 # The independence checker decides what the tier numbers say, so its own
 # parser is tested — including against the C6 build's dependency output, which
 # is the only authority on what the compiler actually included.

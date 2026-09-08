@@ -659,6 +659,38 @@ statement about where the fault could *not* be.
 
 **Tier E 2 -> 0, on-path total 17 -> 15**, from 23 when this began.
 
+### What the include count cannot see (2026-09-08)
+
+Reaching zero exposed a limit in the measure itself. Counting `#include` lines
+is the right unit for deliberate coupling, but it is blind in both directions,
+and both showed up at once when the linker map was read instead:
+
+- **The four peripherals are gone more thoroughly than the count could say.**
+  `esp_driver_ledc`, `_pcnt`, `_rmt` and `_uart` contribute *no objects at all*
+  to the image — the archives are offered to the linker and nothing is
+  extracted. An include count cannot distinguish that from a driver whose code
+  is linked and merely unused.
+- **The console's transmit half is still ESP-IDF's, and nothing counted it.**
+  `esp_driver_usb_serial_jtag` contributes three objects, including
+  `usb_serial_jtag_vfs.c.obj`, which is what every `printf` in the shell travels
+  through. Nothing includes it: ESP-IDF's startup registers it. A dependency
+  that arrives by startup registration rather than by an include is invisible to
+  a scan of include lines, which is precisely the kind of drift this document
+  exists to prevent, appearing in the document's own instrument.
+
+`make image-check` reads the map and asserts that no peripheral Reflex has taken
+over contributes code, listing the console residue explicitly rather than
+letting it sit unnamed. It proves its own query can find something before
+trusting an empty result — the first two attempts at this check returned a clean
+bill of health from a pattern that matched nothing, once from a mis-typed
+filename and once from a character class that excluded the dot in `gpio.c.obj`.
+
+So the honest statement is narrower than "Tier E is clear": **no ESP-IDF
+peripheral driver remains on the independence path or in the image, and console
+receive is Reflex's own, while console transmit still reaches the wire through
+ESP-IDF's VFS.** That last one belongs to Tier F, where startup lives, and it is
+counted there rather than nowhere.
+
 The general lesson is the one already in `CONTRIBUTING.md`: five of these six
 were found by an experiment that isolated one variable, and none by reading the
 code. The receive path was blamed for four rounds while the fault was in the
