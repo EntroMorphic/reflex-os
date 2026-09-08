@@ -748,6 +748,43 @@ document exists to catch. Resolving it is where C3 resumes.
 None of this changes what ships: `kernel selftest` is admin-gated, nothing calls
 it, and normal operation is untouched — C6 183/183, classic ESP32 177/177.
 
+### Tier F: Reflex can take the application entry point (2026-09-08)
+
+This is the move the whole count turns on. Ten FreeRTOS objects are in the image
+not because Reflex calls FreeRTOS but because **ESP-IDF's startup is FreeRTOS's
+startup**: `esp_system`'s `startup.c` calls `esp_startup_start_app()`, which
+lives in `libfreertos.a(app_startup.c.obj)`, creates the main task, starts the
+scheduler, and only then calls `app_main`. Clearing Tier C's four includes would
+change none of that.
+
+`main/reflex_app_entry.c` takes that call. **Built, linked and verified**:
+`__wrap_esp_startup_start_app` is in the image and ESP-IDF's startup call
+reaches Reflex instead of FreeRTOS.
+
+Two link-level obstacles had to be solved, and both are the kind that fail
+silently:
+
+- **An archive member is pulled in only to resolve an undefined symbol.** With
+  the override in the platform component, it and `app_startup.c.obj` were both
+  archive members, FreeRTOS's won on link order, and the override *was never
+  linked at all* — no error, no warning, and the map showed FreeRTOS still
+  providing the symbol. The file lives in `main`, registered `WHOLE_ARCHIVE`, so
+  the linker takes it unconditionally.
+- **Defining the symbol outright collides.** `app_startup.c.obj` enters the link
+  regardless, so two definitions fight. `--wrap` redirects the *reference*
+  instead: FreeRTOS's definition stays, unreferenced and uncalled.
+
+The wrapper is defined unconditionally and forwards to `__real_` unless
+`REFLEX_OWN_ENTRY` is set — because `--wrap` rewrites the reference whether or
+not Reflex wants it, and a wrapper that only exists behind the flag breaks the
+ordinary build with an undefined reference. It did exactly that once. So the
+default path is a pass-through, verified on hardware at 183/183.
+
+**What remains before the flag can be turned on:** with FreeRTOS never started,
+ESP-IDF's console VFS, `esp_timer` and newlib's reentrancy have no scheduler
+underneath them. That is the real content of Tier F, and it is now reachable
+from a working mechanism rather than from an argument.
+
 ### Tier C: what "make it real" reached, and what it did not (2026-09-08)
 
 The hand-off works. `kernel selftest` routes and arms the tick, verifies it is

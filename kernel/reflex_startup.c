@@ -61,14 +61,16 @@ extern void reflex_trap_entry(void);
 reflex_err_t reflex_kernel_startup(void (*main_task)(void *), void *arg) {
     if (!main_task) return REFLEX_ERR_INVALID_ARG;
 
-    /* Direct mode: reflex_trap_entry is .align 4, so the low two bits of the
-     * written value are zero, which is what selects it. Vectored mode would
-     * need a table rather than a single handler. */
-    __asm__ volatile("la t0, reflex_trap_entry\n"
-                     "csrw mtvec, t0\n"
-                     :
-                     :
-                     : "t0");
+    /* Install through reflex_trap_install, which knows what this chip does.
+     *
+     * This wrote mtvec directly with the handler's address, on the assumption
+     * of direct mode and 4-byte alignment. Both are wrong here: the base is
+     * masked to 256 bytes and the mode field comes back as vectored, so the
+     * vector landed short of the handler and interrupts dispatched into
+     * whatever preceded it. Nothing had ever called this function, so the bug
+     * sat here until the same mistake was made in kernel_test and found on
+     * hardware. */
+    reflex_trap_install();
 
     REFLEX_LOGI(TAG, "trap vector installed");
 
