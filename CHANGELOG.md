@@ -7,6 +7,23 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ## [Unreleased]
 
+### Changed
+
+- **The watchdog "recovery net" does not recover the board. Arming is disabled by default.** The premise was that the low-power watchdog, armed before a sleep, turns "never wakes" into "reboots a few seconds later" and so makes owning the sleep entry survivable. It fires exactly as configured. It does not return a usable board, and both stage actions fail differently:
+
+  - `RESET_RTC`: after firing once, the board reset every five to eight seconds indefinitely. The watchdog itself read back **disarmed**, so the loop was the state it had left behind, not the watchdog re-firing. Only reflashing recovered it — twice.
+  - `RESET_SYSTEM`: the board did not come back at all. No shell, and esptool could not connect either — *"Failed to connect to ESP32-C6: No serial data received"*. It needs a physical power cycle.
+
+  So the mitigation designed to make sleep ownership safe is itself the thing that stranded a board, which is precisely the failure it existed to prevent. Arming now requires `-DREFLEX_WDT_EXPERIMENT=1`; reading and disarming stay available, and the boot-time disarm protects a board armed by such a build.
+
+  **Owning `esp_sleep.h` is therefore still blocked, and now for a better-understood reason:** not the difficulty of the entry sequence, but the absence of any demonstrated way to survive getting it wrong. That is the problem to solve first, and the watchdog is not the answer to it.
+
+- **The boot-time disarm moved from the shell to the first statement of `app_main`.** At the shell it was far too late: boot reached `[reflex.kernel] supervisor: policy=registered` and the port dropped, so the watchdog fired again during init every time and the loop could not be broken, because no command could be typed. ESP-IDF's own startup disarms it at the same point and for the same reason.
+
+- **`kernel wdt` enforces a 3000 ms floor.** Below the time it takes to reach the disarm, a timeout guarantees an unbreakable loop.
+
+- **The RC_SLOW figure is measured, not asserted.** An earlier comment claimed it was "calibrated by measurement" when nothing had calibrated it. Asked for 5000 ms the watchdog fires at about 5300 ms, three consecutive trials agreeing, so the oscillator is nearer 128 kHz than the nominal 136 kHz and timeouts run ~6% long. The constant is deliberately left nominal: firing late still recovers a board that never woke, firing early resets one that was working.
+
 ### Added
 
 - **A recovery net for deep sleep, proved rather than assumed — and it does not yet work where it is needed.** Owning the sleep entry is the one dependency whose failure mode is silent and unrecoverable: get it wrong and the board never wakes, with nothing left running to say why. The mitigation is the low-power watchdog, which lives in the always-on domain: armed before sleeping, it turns "never wakes" into "reboots a few seconds later". `reflex_hal_wdt_arm/feed/disarm/armed/regs` own it directly, constants through the SoC bridge (161 -> 175). `kernel wdt <ms|off>` arms it, gated at `admin` because it is a reboot by another name.

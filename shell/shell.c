@@ -1238,11 +1238,49 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
         }
         if (argc == 3) {
             long ms = strtol(argv[2], NULL, 10);
-            if (ms <= 0 || ms > 60000) {
-                printf("kernel wdt <1..60000 ms|off>\n");
+            /* The floor is the point of this range, not the ceiling.
+             *
+             * The watchdog survives the reset it causes, and the disarm that
+             * breaks the loop runs when the shell starts — about two seconds
+             * into boot. A timeout shorter than that fires again before the
+             * disarm is ever reached, and the board is then in a reset loop no
+             * command can interrupt, because no command can be typed. 3000ms
+             * leaves margin over the boot this was measured on. */
+            if (ms < 3000 || ms > 60000) {
+                printf("kernel wdt <3000..60000 ms|off>\n");
+                printf("  below 3000ms the reset arrives before the boot-time "
+                       "disarm and the loop cannot be broken\n");
                 outcome(SHELL_USAGE);
                 return;
             }
+#if !defined(REFLEX_WDT_EXPERIMENT)
+            /* Arming is disabled by default, and the evidence for that is
+             * hard-won.
+             *
+             * The watchdog fires exactly as configured. What it does not do is
+             * return a usable board. With stage action RESET_RTC the board then
+             * reset every five to eight seconds indefinitely — the watchdog
+             * itself reading back disarmed, so it was the state left behind and
+             * not the watchdog re-firing — and only reflashing recovered it.
+             * With RESET_SYSTEM it did not come back at all: no shell, and
+             * esptool could not connect either ("Failed to connect to
+             * ESP32-C6: No serial data received"), so the board needed a
+             * physical power cycle.
+             *
+             * That is the opposite of a recovery net, and a command that
+             * reliably bricks the board it exists to rescue has no business
+             * being one keystroke away. Arming now requires a deliberate build:
+             *   idf.py -DCMAKE_C_FLAGS=-DREFLEX_WDT_EXPERIMENT=1 build
+             * Reading and disarming stay available, and the boot-time disarm in
+             * main.c is what protects a board armed by such a build. */
+            (void)ms;
+            printf("kernel wdt: arming is disabled in this build\n");
+            printf("  it fires, but does not return a usable board — RESET_RTC "
+                   "loops it, RESET_SYSTEM strands it past esptool\n");
+            printf("  rebuild with -DREFLEX_WDT_EXPERIMENT=1 to investigate\n");
+            outcome(SHELL_FAILED);
+            return;
+#else
             reflex_err_t wrc = reflex_hal_wdt_arm((uint32_t)ms);
             if (wrc != REFLEX_OK) {
                 printf("kernel wdt: arm failed rc=0x%x\n", wrc);
@@ -1254,8 +1292,9 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
             printf("kernel wdt: armed %ldms, armed=%d conf0=0x%08lx conf1=%lu\n", ms,
                    (int)reflex_hal_wdt_armed(), (unsigned long)c0, (unsigned long)c1);
             return;
+#endif
         }
-        printf("kernel wdt <1..60000 ms|off>\n");
+        printf("kernel wdt <3000..60000 ms|off>\n");
         outcome(SHELL_USAGE);
         return;
     }
@@ -2055,20 +2094,6 @@ void reflex_shell_run(void) {
         uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
     }
 #endif
-    /* Disarm the low-power watchdog on the way up.
-     *
-     * It lives in the always-on domain, so it survives the reset it causes. Arm
-     * it, let it fire, and the board comes back with it still armed and fires
-     * again — a reset loop that outlives the reset, which is exactly what
-     * happened the first time this was tested: the hardware suite went 73
-     * checks, then 0, then 0. ESP-IDF's bootloader arms this and its app
-     * startup disarms it for the same reason.
-     *
-     * So the net is armed deliberately and only for the duration it is needed,
-     * and any boot clears it. A recovery net that bricks the board it was meant
-     * to recover is worse than none. */
-    reflex_hal_wdt_disarm();
-
     shell_prompt("reflex> ", 8);
     while (1) {
 #if CONFIG_IDF_TARGET_ESP32C6

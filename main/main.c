@@ -119,6 +119,22 @@ void app_main(void)
     static reflex_vm_task_runtime_t system_vm;
     static reflex_cache_t system_cache;
 
+    /* Disarm the low-power watchdog before anything else runs.
+     *
+     * It survives the reset it causes, so a board that was reset by it comes up
+     * with it still armed and counting. The disarm therefore has to beat the
+     * timeout, and the first attempt put it at the start of the shell — which
+     * is far too late. Boot reached "[reflex.kernel] supervisor: policy=
+     * registered" and the port dropped: the watchdog fired again during init,
+     * every time, and the board sat in a loop no command could interrupt
+     * because no command could be typed.
+     *
+     * Here it runs before storage, before the supervisor, before the banner has
+     * finished — as close to the first instruction of the application as this
+     * file gets. ESP-IDF's own startup disarms this watchdog for exactly the
+     * same reason, and at the same point. */
+    reflex_hal_wdt_disarm();
+
     reflex_boot_print_banner();
     
     // 1. Init Storage

@@ -696,6 +696,20 @@ survives the reset it causes**, so any boot must disarm it. Arming it and
 letting it fire otherwise produces a reset loop that outlives the reset. The
 hardware suite recorded it precisely — 73 checks, then 0, then 0.
 
+**The net does not work, and that is the finding.** It fires on command, and it
+does not return a usable board. `RESET_RTC` left it resetting every five to
+eight seconds with the watchdog reading back disarmed — the state it left
+behind, not the watchdog re-firing — recoverable only by reflashing.
+`RESET_SYSTEM` left it unreachable by the shell *and* by esptool, needing a
+physical power cycle. The mitigation intended to make sleep ownership safe is
+what stranded a board.
+
+So `esp_sleep.h` stays, and the reason is now sharper than "the entry sequence
+is hard". It is that **there is no demonstrated way to survive getting the entry
+wrong**, and that is the problem to solve before the entry is worth writing.
+Arming is behind `-DREFLEX_WDT_EXPERIMENT=1`; the boot-time disarm stays,
+because it is the only part of this that protects anything.
+
 ### The count was measuring the wrong thing twice over (2026-09-08)
 
 Reaching Tier E zero prompted a look at the instrument, and it was wrong in two

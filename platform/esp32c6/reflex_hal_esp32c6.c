@@ -215,13 +215,36 @@ void reflex_hal_reboot(void) {
  * power-down. */
 
 #define LP_WDT_STAGE_OFF 0u
-#define LP_WDT_STAGE_RESET_RTC 4u
+/* 3 resets the CPU and peripherals; 4 resets the RTC domain as well.
+ *
+ * RESET_RTC was the first choice, reasoning that a board asleep with domains
+ * powered down needs the most thorough reset available. It is worse. After
+ * firing once, the board reset every five to eight seconds indefinitely — with
+ * the watchdog itself reading back disarmed, so the loop was not the watchdog
+ * re-firing but the state it had left behind. Tearing down the RTC domain
+ * loses something the boot path does not re-establish. Only reflashing
+ * recovered it, twice.
+ *
+ * RESET_SYSTEM returns a running board, which is the whole requirement of a
+ * recovery net. */
+#define LP_WDT_STAGE_RESET_SYSTEM 3u
 /* 7 == 3.2us, matching ESP-IDF. 0 is 100ns and does not take. */
 #define LP_WDT_RESET_LEN_3_2US 7u
 
-/* Nominal RC_SLOW. The exact rate is not published as a constant and drifts
- * with temperature, so this is calibrated by measurement rather than trusted —
- * a net that fires late is still a net, one that never fires is not. */
+/* Nominal RC_SLOW, and deliberately left nominal.
+ *
+ * Measured, because an earlier version of this comment claimed the figure was
+ * calibrated when nothing had calibrated it. Asked for 5000ms the watchdog
+ * fires at about 5300ms — three consecutive trials agreed on 5.30s, so the real
+ * oscillator is nearer 128 kHz than the nominal 136 kHz and every timeout runs
+ * roughly 6% long. (Two further samples read 1.7s and 9.5s; those were the
+ * measuring harness losing the port across the reset, not the watchdog.)
+ *
+ * Correcting the constant would make the requested interval accurate at this
+ * temperature and no other — RC_SLOW drifts. Erring long is the safe direction
+ * for a net: firing late still recovers a board that never woke, while firing
+ * early resets one that was working. So the bias is kept and named rather than
+ * tuned away. */
 #define LP_WDT_SLOW_HZ 136000u
 
 static void wdt_unlock(void) {
@@ -241,7 +264,7 @@ reflex_err_t reflex_hal_wdt_arm(uint32_t timeout_ms) {
     REFLEX_REG(REFLEX_LP_WDT_CONFIG1_REG) = (uint32_t)ticks;
     uint32_t c0 = REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG);
     c0 &= ~(REFLEX_LP_WDT_STG_MASK << REFLEX_LP_WDT_STG0_S);
-    c0 |= (LP_WDT_STAGE_RESET_RTC << REFLEX_LP_WDT_STG0_S);
+    c0 |= (LP_WDT_STAGE_RESET_SYSTEM << REFLEX_LP_WDT_STG0_S);
     /* Clear, not set: this is the bit that decides whether the net exists at
      * all while the chip is asleep, which is the only time it is needed. */
     c0 &= ~REFLEX_LP_WDT_PAUSE_IN_SLP;
