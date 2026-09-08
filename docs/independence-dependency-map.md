@@ -657,9 +657,48 @@ What found it was making the two implementations comparable register for
 register, so that "identical configuration, different behaviour" became a
 statement about where the fault could *not* be.
 
-**Tier E 2 -> 0, on-path total 17 -> 15**, from 23 when this began.
+**Tier E 2 -> 0, on-path total 17 -> 15**, from 23 when this began — and then
+to **8**, once the count stopped including files this configuration does not
+build. See below; the code did not change, the measurement did.
 
-### What the include count cannot see (2026-09-08)
+### The count was measuring the wrong thing twice over (2026-09-08)
+
+Reaching Tier E zero prompted a look at the instrument, and it was wrong in two
+independent ways, both of which inflated the number.
+
+**It counted files the independence build does not compile.** CMake selects
+between backends: `reflex_kv_esp32c6.c` is built only when the radio is *not*
+802.15.4, and `reflex_task_esp32c6.c` only when the Reflex scheduler is *not*
+selected. Five on-path includes were being carried by two files this
+configuration never builds. The preprocessor-aware scan added earlier fixed
+exactly this error one level down, inside a file; this was the same error one
+level up, between files. The scan now filters against the build's own dependency
+output, which is the only authority on what was compiled.
+
+**And the configuration it measures had no build recipe.** The independence path
+is the C6 with the blob-free radio, which is not the default backend — so every
+claim in this document referred to a build nobody could reproduce with a single
+command. `sdkconfig.defaults.independence` and `make independence-build` fix
+that. When the build is absent the checker reports an upper bound and declines
+to apply the ratchet, rather than failing for a reason unrelated to the code.
+
+**On-path: 8, not 14.** Nothing in the firmware changed. What remains, in full:
+
+| Tier | Where | Include |
+|---|---|---|
+| B | `goose_metabolic.c` | `esp_heap_caps.h` |
+| B | `reflex_hal_esp32c6.c` | `esp_sleep.h` |
+| C | `reflex_freertos_compat.c` | `freertos/portmacro.h` |
+| C | `reflex_task_kernel.c` | `freertos/FreeRTOS.h`, `task.h`, `queue.h` |
+| D | `reflex_radio_802154.c` | `esp_ieee802154.h` |
+| F | `shell/shell.c` | `esp_system.h` |
+
+Off-path is 25 and still reported in full, because a file excluded by
+configuration is off the path in exactly the sense a file in another platform's
+directory is — and dropping it silently would make "off-path" the hiding place
+this tool exists to prevent.
+
+### What the include count still cannot see (2026-09-08)
 
 Reaching zero exposed a limit in the measure itself. Counting `#include` lines
 is the right unit for deliberate coupling, but it is blind in both directions,

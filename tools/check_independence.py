@@ -79,6 +79,7 @@ def classify(inc):
 
 
 def scan():
+    compiled = compiled_sources()
     on, off, unknown = [], [], []
     for d in SCAN:
         p = os.path.join(ROOT, d)
@@ -92,6 +93,12 @@ def scan():
                     continue
                 full = os.path.join(dirpath, f)
                 rel = os.path.relpath(full, ROOT)
+                # A source the independence configuration does not compile is
+                # off the path by definition. Reported, not counted — dropping
+                # it outright would make "off-path" a hiding place, which is
+                # the thing this tool was written to prevent.
+                not_built = (compiled is not None and f.endswith((".c", ".S"))
+                             and os.path.realpath(full) not in compiled)
                 try:
                     with open(full, errors="replace") as fh:
                         lines = fh.readlines()
@@ -106,7 +113,7 @@ def scan():
                     rec = (rel, n, inc, tier, what)
                     if tier is None:
                         unknown.append(rec)
-                    elif rel.startswith(OFF_PATH):
+                    elif not_built or rel.startswith(OFF_PATH):
                         off.append(rec)
                     else:
                         on.append(rec)
@@ -188,6 +195,46 @@ def _active_lines(lines):
             yield n, line
 
 
+# The set of sources the independence build actually compiles.
+#
+# Scanning every file under the source tree counts includes in files the
+# independence configuration never builds. CMake selects between backends —
+# reflex_kv_esp32c6.c only when the radio is *not* 802.15.4,
+# reflex_task_esp32c6.c only when the Reflex scheduler is *not* selected — so
+# five on-path includes were being carried by two files that configuration does
+# not compile at all. The preprocessor-aware scan above fixed the same error one
+# level down, inside a file; this is the same error one level up, between files.
+#
+# The build's own dependency output is the authority on what was compiled. When
+# it is absent the scan falls back to counting everything and says so, because
+# an overcount that announces itself is safer than a number that quietly
+# depends on whether someone happened to build first.
+INDEPENDENCE_BUILD = os.path.join(ROOT, "build_independence")
+
+
+def compiled_sources():
+    """Absolute paths of sources in the independence build, or None."""
+    if not os.path.isdir(INDEPENDENCE_BUILD):
+        return None
+    srcs = set()
+    for dirpath, _dirs, files in os.walk(INDEPENDENCE_BUILD):
+        for f in files:
+            if not f.endswith(".obj.d"):
+                continue
+            try:
+                with open(os.path.join(dirpath, f), errors="replace") as fh:
+                    head = fh.read(4096)
+            except OSError:
+                continue
+            # "path/to/x.c.obj: /abs/path/x.c /abs/other.h \"
+            after = head.split(":", 1)[-1]
+            for tok in after.replace("\\", " ").split():
+                if tok.endswith((".c", ".S")):
+                    srcs.add(os.path.realpath(tok))
+                    break
+    return srcs or None
+
+
 def counts(records):
     c = {}
     for _rel, _n, _inc, tier, _what in records:
@@ -259,6 +306,20 @@ def main():
     except (OSError, KeyError, ValueError):
         print(f"\nFAILED: no baseline. Create it with --update.")
         return 1
+
+    # Without the independence build there is nothing to filter against, so the
+    # numbers include files that configuration never compiles — an upper bound,
+    # not the measurement the baseline records. Ratcheting on it would fail the
+    # build for a reason that has nothing to do with the code, so it says so and
+    # declines to judge rather than reporting a regression it cannot support.
+    if compiled_sources() is None:
+        print("\n  No build_independence/ present, so these counts include "
+              "sources the independence configuration does not compile.")
+        print("  Upper bound only — the ratchet is not applied. Build it with:")
+        print("    SDKCONFIG_DEFAULTS=sdkconfig.defaults.independence \\")
+        print("      idf.py -B build_independence "
+              "-DSDKCONFIG=build_independence/sdkconfig build")
+        return 0
 
     regressed = False
     for tier, n in sorted(cur.items()):

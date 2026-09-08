@@ -21,7 +21,12 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MAP = os.path.join(ROOT, "build", "reflex_os.map")
+
+# Which build to read. Defaults to `build`; the independence configuration is
+# built elsewhere because it is not the default radio backend.
+#   python3 tools/check_image.py build_independence
+BUILD = sys.argv[1] if len(sys.argv) > 1 else "build"
+MAP = os.path.join(ROOT, BUILD, "reflex_os.map")
 
 # Peripherals Reflex drives itself. No object from these belongs in the image.
 OWNED = ["ledc", "pcnt", "rmt", "uart"]
@@ -90,7 +95,11 @@ def main():
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import check_independence as ci
 
-    sdkconfig = os.path.join(ROOT, "sdkconfig")
+    sdkconfig = os.path.join(ROOT, BUILD, "..", "sdkconfig")
+    if BUILD != "build":
+        sdkconfig = os.path.join(ROOT, BUILD, "sdkconfig")
+        if not os.path.exists(sdkconfig):
+            sdkconfig = os.path.join(ROOT, "sdkconfig." + BUILD)
     conf = ""
     if os.path.exists(sdkconfig):
         with open(sdkconfig, errors="replace") as fh:

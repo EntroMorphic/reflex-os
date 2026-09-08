@@ -54,7 +54,17 @@ tools-test: tasm-test loomc-test independence-test
 # and a dependency wired in by ESP-IDF's startup is not counted at all. Needs a
 # built image, so it is not part of `make test`.
 image-check:
-	@python3 tools/check_image.py
+	@python3 tools/check_image.py $(BUILD)
+
+# The independence configuration: the C6 with the blob-free radio, which is what
+# the dependency map and the checker both measure. It is not the default radio
+# backend, so until this target existed the configuration every independence
+# claim referred to had no build recipe — and check_independence.py counts files
+# this build does not compile unless it can see it.
+independence-build:
+	. $$IDF_PATH/export.sh >/dev/null 2>&1; \
+	SDKCONFIG_DEFAULTS=sdkconfig.defaults.independence \
+	  idf.py -B build_independence -DSDKCONFIG=build_independence/sdkconfig build
 
 # The independence checker decides what the tier numbers say, so its own
 # parser is tested — including against the C6 build's dependency output, which

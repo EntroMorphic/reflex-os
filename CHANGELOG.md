@@ -9,6 +9,18 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Added
 
+- **`sdkconfig.defaults.independence` and `make independence-build`.** The independence path is the C6 with the blob-free 802.15.4 radio, which is not the default backend — so until now every claim in `independence-dependency-map.md` referred to a configuration nobody could build with a single command. `make image-check BUILD=build_independence` reads that build.
+
+- **`make image-check` now cross-checks the include count against the linked image**, and the two agree: every remaining on-path include lives in an object that is actually linked.
+
+### Changed
+
+- **On-path is 8, not 14, and no firmware changed — the measurement did.** `check_independence.py` counted includes in files the independence configuration never compiles. CMake selects between backends: `reflex_kv_esp32c6.c` is built only when the radio is *not* 802.15.4, `reflex_task_esp32c6.c` only when the Reflex scheduler is *not* selected, and five on-path includes were being carried by those two files. The preprocessor-aware scan added earlier fixed exactly this error one level down, inside a file; this was the same error one level up, between files. The scan now filters against the build's own dependency output.
+
+  Files excluded by configuration are reported as off-path (25) rather than dropped, because a file excluded by configuration is off the path in the same sense as a file in another platform's directory — and dropping it silently would make "off-path" the hiding place this tool exists to prevent. Without the independence build present the checker reports an upper bound and declines to apply the ratchet, instead of failing for a reason unrelated to the code.
+
+  What remains on-path, in full: `esp_heap_caps.h` and `esp_sleep.h` (B); `freertos/portmacro.h` and three FreeRTOS headers in `reflex_task_kernel.c` (C); `esp_ieee802154.h` (D); `esp_system.h` in the shell (F).
+
 - **Tier C loses one: the kernel scheduler test allocates its tick through Reflex's own interrupt path.** `esp_intr_alloc.h` is gone from `reflex_kernel_test.c`, which now uses `reflex_hal_intr_alloc` — the path the console's receive interrupt runs on and the one the tick was measured on at 1000 Hz. **Tier C 8 -> 7, on-path total 15 -> 14.**
 
   Stated plainly because the measurement says otherwise: nothing calls that function, and the linker discards the whole object, so this include never cost the image anything while the tier number carried it. It is fixed so that wiring the file up during the C3 cutover cannot silently reintroduce the dependency — not because it was costing anything today.

@@ -36,6 +36,7 @@ session-ses_*.md
 Thumbs.db
 build-host/
 build_esp32/
+build_independence/
 release/reflex-os-*/
 release/*.zip
 docs/api/
