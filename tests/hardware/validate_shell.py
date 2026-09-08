@@ -311,6 +311,25 @@ def validate(port, r):
     # to free the unit while the channel was still attached, so pcnt_del_unit
     # failed and the unit leaked. The C6 has four; the fifth run would fail for
     # a reason with nothing to do with the experiment. Five runs is the check.
+    # exp4 configured its LEDC channel with gpio_num = -1, which LEDC rejects,
+    # and reported success anyway. A failure is now reported as one, so the
+    # check is that it succeeds — and that detaching gives the pin back, since
+    # it routes the LED away from plain GPIO to do its work.
+    got = b.raw("bonsai exp4 connect")
+    r.check("`bonsai exp4 connect` configures LEDC without failing",
+            b.last_outcome == (1, "ok") and "orient=" in got, got[:80])
+    was_on = "led=on" in b.raw("led status")
+    b.raw("bonsai exp4 detach")
+    # Detach routes the pin back from the LEDC signal to plain GPIO, so the
+    # test is that it can be driven again — both ways, since a pin stuck at one
+    # level would still satisfy a single read.
+    off_ok = "led=off" in b.raw("led off") and "led=off" in b.raw("led status")
+    on_ok = "led=on" in b.raw("led on") and "led=on" in b.raw("led status")
+    r.check("the LED is driveable again after exp4 detaches", off_ok and on_ok,
+            f"off_ok={off_ok} on_ok={on_ok}")
+    if not was_on:
+        b.raw("led off")
+
     first = b.raw("bonsai exp5 run")
     if "not wired for this target" in first:
         # The experiment hardcodes C6 pins, and GPIO 6 is a flash pin on the

@@ -324,16 +324,48 @@ static void reflex_shell_bonsai_exp5_run(void) {
     return;
 #else
 
-    pcnt_unit_config_t ucfg = { .low_limit = -1000, .high_limit = 1000 };
+    /* One acquisition order, one cleanup path.
+     *
+     * There were three separate unwind paths before, and the missing
+     * pcnt_del_channel was present in two of them: fixing the success path left
+     * the rmt_new_tx_channel failure path still calling pcnt_del_unit with the
+     * channel attached, which fails and leaks the unit exactly as before. Three
+     * hand-written unwinds is why the bug existed; a single one is why it will
+     * not come back. */
     pcnt_unit_handle_t pcnt = NULL;
-    if (pcnt_new_unit(&ucfg, &pcnt) != REFLEX_OK) return;
-    
+    pcnt_channel_handle_t p_ch = NULL;
+    rmt_channel_handle_t rmt_ch = NULL;
+    rmt_encoder_handle_t encoder = NULL;
+    bool pcnt_started = false, pcnt_enabled = false, rmt_enabled = false;
+    bool gpio6_taken = false;
+    const char *failed_at = NULL;
+
+    pcnt_unit_config_t ucfg = {.low_limit = -1000, .high_limit = 1000};
+    if (pcnt_new_unit(&ucfg, &pcnt) != REFLEX_OK) {
+        failed_at = "pcnt_new_unit";
+        goto cleanup;
+    }
+
     pcnt_chan_config_t ch = { .edge_gpio_num = 4, .level_gpio_num = 6 };
-    pcnt_channel_handle_t p_ch;
-    if (pcnt_new_channel(pcnt, &ch, &p_ch) != REFLEX_OK) { pcnt_del_unit(pcnt); return; }
-    pcnt_channel_set_edge_action(p_ch, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_HOLD);
-    pcnt_unit_enable(pcnt);
-    pcnt_unit_start(pcnt);
+    if (pcnt_new_channel(pcnt, &ch, &p_ch) != REFLEX_OK) {
+        failed_at = "pcnt_new_channel";
+        goto cleanup;
+    }
+    if (pcnt_channel_set_edge_action(p_ch, PCNT_CHANNEL_EDGE_ACTION_INCREASE,
+                                     PCNT_CHANNEL_EDGE_ACTION_HOLD) != REFLEX_OK) {
+        failed_at = "pcnt_channel_set_edge_action";
+        goto cleanup;
+    }
+    if (pcnt_unit_enable(pcnt) != REFLEX_OK) {
+        failed_at = "pcnt_unit_enable";
+        goto cleanup;
+    }
+    pcnt_enabled = true;
+    if (pcnt_unit_start(pcnt) != REFLEX_OK) {
+        failed_at = "pcnt_unit_start";
+        goto cleanup;
+    }
+    pcnt_started = true;
 
     rmt_tx_channel_config_t rcfg = {
         .gpio_num = 4,
@@ -343,9 +375,15 @@ static void reflex_shell_bonsai_exp5_run(void) {
         .trans_queue_depth = 4,
         .flags.io_loop_back = 1,
     };
-    rmt_channel_handle_t rmt_ch = NULL;
-    if (rmt_new_tx_channel(&rcfg, &rmt_ch) != REFLEX_OK) { pcnt_unit_stop(pcnt); pcnt_unit_disable(pcnt); pcnt_del_unit(pcnt); return; }
-    rmt_enable(rmt_ch);
+    if (rmt_new_tx_channel(&rcfg, &rmt_ch) != REFLEX_OK) {
+        failed_at = "rmt_new_tx_channel";
+        goto cleanup;
+    }
+    if (rmt_enable(rmt_ch) != REFLEX_OK) {
+        failed_at = "rmt_enable";
+        goto cleanup;
+    }
+    rmt_enabled = true;
 
     /* Left as OUTPUT deliberately, after testing the alternative.
      *
@@ -361,9 +399,10 @@ static void reflex_shell_bonsai_exp5_run(void) {
     gpio_config_t io = { .pin_bit_mask = (1ULL << 6), .mode = GPIO_MODE_OUTPUT };
     gpio_config(&io);
     gpio_set_level(6, 1); // High to enable (keeping it simple)
+    gpio6_taken = true;
 
     rmt_symbol_word_t pulses[10];
-    for(int i=0; i<10; i++) {
+    for (int i = 0; i < 10; i++) {
         pulses[i].duration0 = 1000;
         pulses[i].level0 = 1;
         pulses[i].duration1 = 1000;
@@ -371,20 +410,21 @@ static void reflex_shell_bonsai_exp5_run(void) {
     }
     rmt_transmit_config_t tcfg = { .loop_count = 0 };
     rmt_copy_encoder_config_t ecfg = {};
-    rmt_encoder_handle_t encoder = NULL;
     if (rmt_new_copy_encoder(&ecfg, &encoder) != REFLEX_OK) {
-        printf("bonsai exp5: encoder alloc failed\n");
-        outcome(SHELL_FAILED);
+        failed_at = "rmt_new_copy_encoder";
         goto cleanup;
     }
-    rmt_transmit(rmt_ch, encoder, pulses, 10, &tcfg);
+    if (rmt_transmit(rmt_ch, encoder, pulses, 10, &tcfg) != REFLEX_OK) {
+        failed_at = "rmt_transmit";
+        goto cleanup;
+    }
 
     /* Wait for the transmission rather than for a fixed interval.
      *
      * rmt_transmit queues and returns, so the count below was read whenever
      * 100ms happened to land relative to a 20ms pulse train. A delay is not a
-     * synchronisation primitive, and the experiment reported whatever it saw
-     * as though it were the answer. */
+     * synchronisation primitive, and the experiment reported whatever it saw as
+     * though it were the answer. */
     rmt_tx_wait_all_done(rmt_ch, 1000);
 
     int count = 0;
@@ -398,19 +438,22 @@ static void reflex_shell_bonsai_exp5_run(void) {
     }
 
 cleanup:
-    /* Free in the reverse order of acquisition, and free the channel.
-     *
-     * pcnt_del_channel was missing entirely, so pcnt_del_unit failed every run
-     * with "channel 0 still in working" and the unit leaked. The C6 has four;
-     * four runs of this command exhausted them, and the fifth failed for a
-     * reason that had nothing to do with the experiment. */
+    if (failed_at) {
+        printf("bonsai exp5: %s failed\n", failed_at);
+        outcome(SHELL_FAILED);
+    }
     if (encoder) rmt_del_encoder(encoder);
-    rmt_disable(rmt_ch);
-    rmt_del_channel(rmt_ch);
-    pcnt_unit_stop(pcnt);
-    pcnt_unit_disable(pcnt);
-    pcnt_del_channel(p_ch);
-    pcnt_del_unit(pcnt);
+    if (rmt_enabled) rmt_disable(rmt_ch);
+    if (rmt_ch) rmt_del_channel(rmt_ch);
+    if (pcnt_started) pcnt_unit_stop(pcnt);
+    if (pcnt_enabled) pcnt_unit_disable(pcnt);
+    /* The channel must go before the unit, or pcnt_del_unit refuses with
+     * "channel 0 still in working" and the unit is leaked for good. */
+    if (p_ch) pcnt_del_channel(p_ch);
+    if (pcnt) pcnt_del_unit(pcnt);
+    /* Hand GPIO 6 back. Leaving a pin driven is a side effect the caller did
+     * not ask for, and `make hw-test` runs this five times. */
+    if (gpio6_taken) gpio_reset_pin(6);
 #endif
 }
 
