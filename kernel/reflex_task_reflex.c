@@ -10,7 +10,7 @@
  * and `reflex_kqueue_*` instead. Exactly one of the two is compiled — they
  * define the same symbols — and which one is `CONFIG_REFLEX_TASK_BACKEND_REFLEX`.
  *
- * ## It is off by default, and must stay off until the tick works
+ * ## It is off by default, and must stay off until something starts the scheduler
  *
  * Not caution for its own sake, and the reason is blunter than "the tick is
  * incomplete". *Nothing starts the scheduler.* `reflex_sched_start` is called
@@ -21,11 +21,17 @@
  * runs. A board with this enabled boots ESP-IDF, creates tasks that never
  * execute, and does nothing at all.
  *
- * Behind that sits the tick: `setup_systimer_tick` enables the interrupt at
- * the SYSTIMER peripheral, but nothing routes it through the interrupt matrix
- * to a CPU line and the trap handler is not told which line to expect, so even
- * once something does start the scheduler, delays never expire. See
- * reflex_trap.c for the three specific missing pieces.
+ * The tick, which used to sit behind that, no longer does. This said nothing
+ * routed SYSTIMER through the interrupt matrix, gave it a PLIC priority or set
+ * the mie bit; `reflex_sched_tick_start` does all three now, and
+ * `make tick-measure` reports 5/5 verified cold starts at exactly 1000 Hz on
+ * the independence build. So of the two blockers this file recorded, one is
+ * closed and the remaining distance is shorter than it reads.
+ *
+ * (Not on the default ESP-NOW build: 0/5 there, with the routing reading back
+ * entirely correct and nothing delivered. The independence path is what Tier C
+ * targets, so it does not block the cutover, but the tick cannot be exercised
+ * from the default build and the cause is unknown.)
  *
  * What this file *is* good for now: it compiles against nothing but Reflex's
  * own headers, so `make warn-check` builds it on every commit, and it makes

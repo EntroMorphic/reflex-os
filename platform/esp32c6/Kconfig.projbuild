@@ -58,16 +58,18 @@ menu "Reflex OS"
             reflex_task_create files a TCB into the scheduler's table and no
             task ever runs. Not "hangs when a task blocks": nothing starts.
 
-            And the scheduler has no working tick on this chip anyway.
-            setup_systimer_tick enables the interrupt at the SYSTIMER
-            peripheral, but nothing routes it through the interrupt matrix to
-            a CPU line, gives it a PLIC priority, or sets the matching mie
-            bit, and the trap handler is not told which line to expect. So
-            even once something starts it, delays never expire and the
-            scheduler parks on wfi as soon as every task blocks.
+            The tick used to be the second blocker and is not any more.
+            reflex_sched_tick_start routes the source through the interrupt
+            matrix, sets a PLIC priority and enables the mie bit, and
+            make tick-measure reports 5/5 verified cold starts at exactly
+            1000 Hz on the independence build. It reports 0/5 on the default
+            ESP-NOW build, where the routing reads back correct and nothing is
+            delivered; the independence path is what this targets, so that does
+            not block the cutover, but the cause there is unknown.
 
-            Enabling this today produces a board that boots ESP-IDF, creates
-            tasks that never execute, and does nothing.
+            Enabling this today still produces a board that boots ESP-IDF,
+            creates tasks that never execute, and does nothing — because of the
+            first blocker alone.
             It is selectable so the remaining work is a Kconfig flip rather
             than a rewrite, and so the backend is built and reviewed before
             anyone depends on it. See kernel/reflex_trap.c for the three

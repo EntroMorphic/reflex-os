@@ -661,6 +661,43 @@ statement about where the fault could *not* be.
 to **8**, once the count stopped including files this configuration does not
 build. See below; the code did not change, the measurement did.
 
+### Tier C: one of the two blockers is already closed (2026-09-08)
+
+Tier C is four includes — `freertos/portmacro.h` in `reflex_freertos_compat.c`,
+and `FreeRTOS.h`/`task.h`/`queue.h` in `reflex_task_kernel.c`. A Reflex-native
+backend implementing the same thirteen functions already exists in
+`reflex_task_reflex.c`, includes nothing but Reflex's own headers, and is
+selectable with `CONFIG_REFLEX_TASK_BACKEND_REFLEX`. So three of the four are a
+Kconfig flip behind whatever makes that backend work.
+
+That file and the Kconfig help both recorded two blockers. **The second is
+stale.** They say the scheduler has no working tick — that nothing routes
+SYSTIMER through the interrupt matrix, sets a PLIC priority or enables the mie
+bit. `reflex_sched_tick_start` does all three, and `make tick-measure` reports
+**5/5 verified cold starts at exactly 1000 Hz** on the independence build. The
+remaining distance is shorter than those files read, which is why they now say
+so.
+
+It reports **0/5 on the default ESP-NOW build**, where the routing reads back
+entirely correct — matrix entry, PLIC enabled, priority above threshold, `mie`
+set, SYSTIMER asserting and latched — and nothing arrives. The console interrupt
+was ruled out as the cause (console on CPU line 10, tick on 11). The Wi-Fi
+stack's interrupt use is the obvious next suspect and has not been looked at.
+The independence path is what Tier C targets, so this does not block the
+cutover, but the tick cannot be exercised from the default build.
+
+**What actually remains** is the first blocker, and it is real: *nothing starts
+the scheduler.* `reflex_sched_start` is called only from `reflex_startup.c` and
+`reflex_kernel_test.c`, and nothing calls either — so `reflex_task_create` files
+a TCB and no task ever runs. Behind it sit two more: the scheduler switches
+context with `setjmp`/`longjmp`, which is undefined behaviour for starting a
+task on a fresh stack and wants an assembly trampoline, and `mtvec` ownership
+means quiescing the nine ESP-IDF interrupt lines that are live at the hand-off.
+
+None of that is a documentation problem, and none of it should be attempted
+without a bench and a way back — which, after the watchdog result above, Reflex
+does not yet have.
+
 ### Tier B: the sleep net, and why it is not yet enough (2026-09-08)
 
 `esp_sleep.h` is two calls, and the reason it is still here is not effort. Every

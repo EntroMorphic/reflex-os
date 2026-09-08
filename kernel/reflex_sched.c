@@ -468,10 +468,21 @@ reflex_err_t reflex_sched_start(void) {
      * a task watchdog timeout with the idle task starved.
      *
      * reflex_sched_tick_start does the routing first and then arms, and that
-     * path is measured: 6/6 verified cold starts at 1000-1001 Hz on both the
-     * default and the 802.15.4 builds. Sharing it means the scheduler's tick
-     * and the diagnostic's tick are the same code, so `kernel tick` actually
-     * exercises what the scheduler will use.
+     * path is measured — but not on both builds, which an earlier version of
+     * this comment claimed. Re-measured 2026-09-08 with `make tick-measure`:
+     * 5/5 verified cold starts at exactly 1000 Hz on the independence build
+     * (802.15.4), and 0/5 on the default ESP-NOW build, where the routing
+     * reads back entirely correct — matrix entry, PLIC enable, priority above
+     * threshold, mie set, SYSTIMER asserting and latched — and nothing is
+     * delivered. The console's interrupt was ruled out as the cause: it sits
+     * on CPU line 10, the tick on 11. The Wi-Fi stack's own interrupt use is
+     * the obvious next suspect and has not been investigated.
+     *
+     * The independence path is the one Tier C targets, so this does not block
+     * the cutover; it does mean the tick cannot be exercised from the default
+     * build. Sharing the code means the scheduler's tick and the diagnostic's
+     * tick are the same, so `kernel tick` exercises what the scheduler will
+     * use.
      *
      * A failure here is fatal to the scheduler rather than cosmetic: with no
      * tick, the loop below runs its first task and parks on wfi the moment

@@ -1187,6 +1187,24 @@ static void shell_cmd_kernel_tick(void) {
      * are broken cannot say what "not broken" looks like. */
     {
         printf("kernel tick: routing readback (taken live):\n");
+        {
+            /* Which CPU line the console's receive interrupt landed on.
+             *
+             * Reflex allocates an interrupt at boot for the console that it did
+             * not when the tick was first measured, and the interrupt matrix
+             * maps many sources onto few CPU lines. If two shared a line the
+             * later allocation would replace the earlier one's vector, and the
+             * tick would read as routed, enabled and asserting while being
+             * delivered somewhere else — which is the signature a dead tick
+             * shows. Checked, and they do not share: console on 10, tick on 11.
+             * Kept because that question will be asked again every time a new
+             * interrupt is allocated, and it costs one line to answer. */
+            reflex_intr_route_t con;
+            reflex_hal_intr_describe(REFLEX_INTR_SRC_USB_SERIAL_JTAG, &con);
+            printf("  console: src=%lu -> cpu_int=%lu%s\n", (unsigned long)con.source,
+                   (unsigned long)con.cpu_int,
+                   (con.cpu_int == route.cpu_int) ? "  <-- SAME LINE AS THE TICK" : "");
+        }
         printf("  intmtx: src=%lu -> cpu_int=%lu\n", (unsigned long)route.source,
                (unsigned long)route.cpu_int);
         printf("  plic:   enabled=%d pri=%lu thresh=%lu level=%d\n", (int)route.plic_enabled,

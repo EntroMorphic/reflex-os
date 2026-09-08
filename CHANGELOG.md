@@ -9,6 +9,12 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Changed
 
+- **Tier C's plan said two blockers; one has been closed for some time.** `reflex_task_reflex.c` and the Kconfig help both stated the scheduler has no working tick — that nothing routes SYSTIMER through the interrupt matrix, gives it a PLIC priority or sets the `mie` bit. `reflex_sched_tick_start` does all three, and `make tick-measure` reports **5/5 verified cold starts at exactly 1000 Hz** on the independence build. Both documents now say so, because they gate the C3 cutover and were overstating the distance.
+
+- **A comment in `reflex_sched.c` claimed the tick was measured "on both the default and the 802.15.4 builds".** Re-measured: 5/5 at 1000 Hz on the independence build, **0/5 on the default**, where the routing reads back entirely correct — matrix entry, PLIC enabled, priority above threshold, `mie` set, SYSTIMER asserting and latched — and nothing is delivered. The console's interrupt was ruled out as the cause: console on CPU line 10, tick on 11. The Wi-Fi stack is the obvious next suspect and has not been investigated. Corrected to what was measured.
+
+  What remains for C3 is the blocker that was always the larger one: **nothing starts the scheduler**, and behind it a `setjmp`/`longjmp` context switch that is undefined behaviour for starting a task on a fresh stack, plus `mtvec` ownership across nine live ESP-IDF interrupt lines.
+
 - **The watchdog "recovery net" does not recover the board. Arming is disabled by default.** The premise was that the low-power watchdog, armed before a sleep, turns "never wakes" into "reboots a few seconds later" and so makes owning the sleep entry survivable. It fires exactly as configured. It does not return a usable board, and both stage actions fail differently:
 
   - `RESET_RTC`: after firing once, the board reset every five to eight seconds indefinitely. The watchdog itself read back **disarmed**, so the loop was the state it had left behind, not the watchdog re-firing. Only reflashing recovered it — twice.
