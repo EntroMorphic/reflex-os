@@ -336,7 +336,7 @@ static void reflex_shell_bonsai_exp4_route(int orient) {
         esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, REFLEX_LEDC_LS_SIG_OUT0_IDX, true, false);
         reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_NEG;
     } else {
-        esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, 128, false, false);
+        esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, REFLEX_SIG_GPIO_OUT_IDX, false, false);
         reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_ZERO;
     }
     printf("bonsai exp4 route orient=%s\n", reflex_shell_bonsai_edge_name(reflex_shell_bonsai_exp4.route));
@@ -425,13 +425,23 @@ static void reflex_shell_bonsai_exp5_run(void) {
 
     /* Transmit and wait for the channel to say it is done, rather than for an
      * interval that might or might not cover it. */
+    /* Time the transmission, because nothing else here can check the clock.
+     *
+     * The register comparison pins DIV_CNT at 80 and the pulse count proves ten
+     * edges arrived, and both would still pass if the source clock were not the
+     * 80 MHz this driver assumes — the pulses would simply be the wrong width.
+     * Ten symbols of 1000 + 1000 ticks at the 1 MHz asked for is 20 ms, and
+     * that is a number the host can check. */
+    uint64_t tx_start = reflex_hal_time_us();
     if (reflex_hal_rmt_tx_symbols(pulses, 10, 1000000) != REFLEX_OK) {
         failed_at = "reflex_hal_rmt_tx_symbols";
         goto cleanup;
     }
+    uint32_t tx_us = (uint32_t)(reflex_hal_time_us() - tx_start);
 
     int count = reflex_hal_pcnt_read();
-    printf("bonsai exp5 intersect overlap=%d (expected 10)\n", count);
+    printf("bonsai exp5 intersect overlap=%d (expected 10) tx_us=%lu (expected ~20000)\n", count,
+           (unsigned long)tx_us);
     {
         /* Same readback the PWM path carries, and for the same reason: it is
          * what lets a Reflex driver be checked against the one it replaces

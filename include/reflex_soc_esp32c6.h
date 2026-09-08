@@ -328,6 +328,9 @@
 /* literal — gpio_pins.h, not the SVD. Routing this into a signal index is how the matrix
  * disconnects an input */
 #define REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT 0x0000003Cu
+/* literal — GPIO matrix signal index; gpio_sig_map, not the SVD. Routing this back onto a pin is
+ * how a peripheral output is detached, and it was a bare 128 in shell.c */
+#define REFLEX_SIG_GPIO_OUT_IDX 0x00000080u
 /* literal — GPIO matrix signal index; gpio_sig_map, not the SVD. Guessed as 51 first and the bridge
  * rejected it, which is the entire point of the bridge */
 #define REFLEX_RMT_SIG_OUT0_IDX 0x00000047u

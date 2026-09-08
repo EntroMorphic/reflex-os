@@ -351,6 +351,8 @@ _Static_assert(REFLEX_PCNT_CTRL_CH0_IN0_IDX == (uint32_t)(PCNT_CTRL_CH0_IN0_IDX)
                "REFLEX_PCNT_CTRL_CH0_IN0_IDX diverges from PCNT_CTRL_CH0_IN0_IDX");
 _Static_assert(REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT == (uint32_t)(GPIO_MATRIX_CONST_ZERO_INPUT),
                "REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT diverges from GPIO_MATRIX_CONST_ZERO_INPUT");
+_Static_assert(REFLEX_SIG_GPIO_OUT_IDX == (uint32_t)(SIG_GPIO_OUT_IDX),
+               "REFLEX_SIG_GPIO_OUT_IDX diverges from SIG_GPIO_OUT_IDX");
 _Static_assert(REFLEX_RMT_SIG_OUT0_IDX == (uint32_t)(RMT_SIG_OUT0_IDX),
                "REFLEX_RMT_SIG_OUT0_IDX diverges from RMT_SIG_OUT0_IDX");
 _Static_assert(REFLEX_IO_MUX_MCU_SEL_V == (uint32_t)(MCU_SEL),

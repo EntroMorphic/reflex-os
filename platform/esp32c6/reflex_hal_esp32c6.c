@@ -910,6 +910,10 @@ void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out) {
 #define RMT_SCLK_SEL_80M 1u
 #define RMT_SRC_HZ 80000000u
 
+/* Which pin the channel drives, so release can give it back. 0xFF means none,
+ * since 0 is a real pin. */
+static uint32_t s_rmt_pin = 0xFFu;
+
 uint32_t reflex_hal_rmt_symbol(uint16_t dur0, bool lvl0, uint16_t dur1, bool lvl1) {
     /* A symbol is two runs packed into one word: 15 bits of duration and a
      * level, twice. Durations are in channel ticks, so they mean whatever
@@ -922,6 +926,11 @@ reflex_err_t reflex_hal_rmt_tx_init(uint32_t pin, uint32_t resolution_hz) {
     if (pin >= 31u || resolution_hz == 0u) return REFLEX_ERR_INVALID_ARG;
     uint32_t div = RMT_SRC_HZ / resolution_hz;
     if (div == 0u || div > (REFLEX_RMT_DIV_CNT_MASK + 1u)) return REFLEX_ERR_INVALID_ARG;
+    /* Refuse a resolution the divider cannot produce exactly rather than
+     * silently rounding to one it can. A caller asking for 3 MHz would
+     * otherwise get 3.077 with no indication — the same shape of quiet
+     * wrongness as a duty cycle computed against the wrong crystal. */
+    if ((RMT_SRC_HZ % resolution_hz) != 0u) return REFLEX_ERR_INVALID_ARG;
     /* The field holds 0 for a divide of 256; every other value is itself. */
     uint32_t div_field = (div == 256u) ? 0u : div;
 
@@ -965,6 +974,7 @@ reflex_err_t reflex_hal_rmt_tx_init(uint32_t pin, uint32_t resolution_hz) {
     reflex_hal_gpio_init_output(pin);
     REFLEX_REG(IO_MUX_PIN_REG(pin)) |= IO_MUX_FUN_IE_BIT;
     esp_rom_gpio_connect_out_signal(pin, REFLEX_RMT_SIG_OUT0_IDX, false, false);
+    s_rmt_pin = pin;
     return REFLEX_OK;
 }
 
@@ -999,10 +1009,21 @@ reflex_err_t reflex_hal_rmt_tx_symbols(const uint32_t *symbols, uint32_t count,
 }
 
 void reflex_hal_rmt_release(void) {
-    /* Same debt the counter had: stop, hand the pin back, gate the clock. */
+    /* Stop, hand the pin back, gate the clock.
+     *
+     * The middle one is what this claimed to do and did not: the pin stayed
+     * routed to the transmit signal with its input buffer still forced on, for
+     * the rest of the boot. That is the debt the counter had one commit
+     * earlier, and a comment asserting it was paid is worse than no comment,
+     * because it is what a reader checks instead of the code. */
     REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG) |= REFLEX_RMT_TX_STOP;
     REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG) |= REFLEX_RMT_CONF_UPDATE;
     REFLEX_REG(REFLEX_RMT_INT_CLR_REG) = REFLEX_RMT_CH0_TX_END_INT_RAW;
+    if (s_rmt_pin < 31u) {
+        esp_rom_gpio_connect_out_signal(s_rmt_pin, REFLEX_SIG_GPIO_OUT_IDX, false, false);
+        reflex_hal_gpio_init_input(s_rmt_pin, false);
+        s_rmt_pin = 0xFFu;
+    }
     REFLEX_REG(REFLEX_PCR_RMT_CONF_REG) &= ~REFLEX_PCR_RMT_CLK_EN;
 }
 

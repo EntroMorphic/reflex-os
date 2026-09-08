@@ -377,6 +377,18 @@ def validate(port, r):
     if "overlap=" in first:
         r.check("`bonsai exp5` counts every pulse it sends",
                 "overlap=10 (expected 10)" in first, first[:90])
+
+        # Check the clock, which no register comparison can.
+        #
+        # The RMT register check pins the channel divider at 80 and the count
+        # above proves ten edges arrived — and both would still pass if the
+        # source feeding that divider were not the 80 MHz the driver assumes,
+        # because the pulses would simply come out the wrong width. Ten symbols
+        # of 1000 + 1000 ticks at 1 MHz is 20 ms. Measured at 20024 us.
+        m = re.search(r"tx_us=(\d+)", first)
+        r.check("the transmission takes the time 1 MHz implies",
+                m is not None and 19000 <= int(m.group(1)) <= 21500,
+                m.group(1) if m else first[:90])
     pcnt_line = next((l for l in first.splitlines() if "pcnt conf0=" in l), "")
     if not pcnt_line or "conf0=0x00000000" in pcnt_line:
         # Say so rather than vanish. A check that disappears on one target
