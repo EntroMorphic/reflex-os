@@ -62,6 +62,14 @@ extern void esp_rom_delay_us(uint32_t us);
 extern void esp_rom_gpio_connect_out_signal(uint32_t gpio_num, uint32_t signal_idx, bool out_inv,
                                             bool oen_inv);
 
+/** Route a pin into a peripheral input signal through the GPIO matrix.
+ *
+ * The counterpart of the above, and needed for the same reason: PCNT counts
+ * edges on a signal index, not on a pin, so something has to connect the two.
+ * Taken from ROM rather than reimplemented — the GPIO matrix is Tier A, where
+ * the entry points are already Reflex's to call. */
+extern void esp_rom_gpio_connect_in_signal(uint32_t gpio_num, uint32_t signal_idx, bool inv);
+
 /* ---- SPI flash ----
  *
  * Addresses and lengths are byte counts, but the buffers must be word-aligned:

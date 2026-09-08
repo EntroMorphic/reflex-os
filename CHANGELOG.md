@@ -9,6 +9,14 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Added
 
+- **Tier E: PCNT is Reflex's own.** `driver/pulse_cnt.h` leaves the independence path. `reflex_hal_pcnt_start` replaces `pcnt_new_unit` / `new_channel` / `set_edge_action` / `enable` / `start` in one call, because one unit and one channel is the whole of what `bonsai exp5` ever used. Constants through the SoC bridge (87 -> 116, all proved identical to ESP-IDF), including the PCR gating and the GPIO-matrix signal indices — PCNT counts a signal index rather than a pin, so `esp_rom_gpio_connect_in_signal` joins them, taken from ROM like its output counterpart rather than reimplemented.
+
+  **The register comparison earned its place here.** The first version counted correctly — the same value ESP-IDF's driver produced — while leaving `conf0` at `0x00043c10` against ESP-IDF's `0x00040010`. The filter and all four watch-event enables come up *set* out of reset, and a read-modify-write that only touched the mode fields inherited them: the peripheral was filtering short pulses and arming events nothing handles. No difference in behaviour on a 1 ms signal, a real one on a faster edge, and invisible to any test that only checks the count. The driver establishes that state now instead of inheriting it, and lands on all five registers exactly. Mutation-checked by removing the clear: `conf0` returns to `0x00043c10` and the check catches it.
+
+- **`bonsai exp5`'s cleanup shrinks to a pause.** The leak that made its single-exit unwind matter was ESP-IDF's allocator refusing to free a unit whose channel was still attached. There is no allocator now.
+
+  **Tier E 3 -> 2, on-path total 18 -> 17.** What remains is RMT (`rmt_tx`, `rmt_encoder`).
+
 - **Tier E: LEDC is Reflex's own.** `driver/ledc.h` is gone from the independence path — the C6 configures PWM through `reflex_hal_pwm_init`, writing the peripheral's clock gating, timer divider and channel latches directly. Every register and field comes through the SoC bridge (57 -> 87 constants, all proved identical to ESP-IDF), including the PCR gating that must be released before LEDC answers at all.
 
   What makes it trustworthy is not that it compiles. ESP-IDF's driver was asked to configure the same channel and the resulting silicon state was captured from the board — `timer=0x00138808 ch0=0x00000004 duty=0x00000800 pcr=0x00000001 sclk=0x00700000` — and Reflex's driver lands on all five exactly. That comparison is now a hardware check rather than a one-off observation, so a divergence in the Q10.8 divider arithmetic, the clock source or the latch bits fails the suite instead of becoming a pin quietly running at the wrong frequency. Mutation-checked by telling the driver the crystal is 80 MHz: the divider doubles and the check catches it.

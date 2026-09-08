@@ -149,6 +149,31 @@ REGS = [
     ("REFLEX_PCR_LEDC_CLK_EN",        "PCR_LEDC_CLK_EN",        "PCR", "LEDC_CONF",      "LEDC_CLK_EN",  ""),
     ("REFLEX_PCR_LEDC_RST_EN",        "PCR_LEDC_RST_EN",        "PCR", "LEDC_CONF",      "LEDC_RST_EN",  "asserted means held in reset"),
     ("REFLEX_PCR_LEDC_SCLK_EN",       "PCR_LEDC_SCLK_EN",       "PCR", "LEDC_SCLK_CONF", "LEDC_SCLK_EN", ""),
+
+    # --- PCNT, for the edge counting `bonsai exp5` does ---
+    # Tier E: replacing driver/pulse_cnt.h for unit 0, channel 0. IDF suffixes
+    # its field macros with the unit (PCNT_FILTER_EN_U0) where the SVD names the
+    # register as an array and the field plainly (U%s_CONF0.FILTER_EN); the
+    # count and its reset diverge further still, IDF calling them PULSE_CNT
+    # where the SVD says CNT. Recording those is what this table is for.
+    ("REFLEX_DR_REG_PCNT_BASE",   "DR_REG_PCNT_BASE",   "PCNT", None,        None, "peripheral base, not a register"),
+    ("REFLEX_PCNT_U0_CONF0_REG",  "PCNT_U0_CONF0_REG",  "PCNT", "U%s_CONF0", None, "unit 0: filter and per-channel modes"),
+    ("REFLEX_PCNT_U0_CONF1_REG",  "PCNT_U0_CONF1_REG",  "PCNT", "U%s_CONF1", None, "watch thresholds"),
+    ("REFLEX_PCNT_U0_CONF2_REG",  "PCNT_U0_CONF2_REG",  "PCNT", "U%s_CONF2", None, "count limits"),
+    ("REFLEX_PCNT_U0_CNT_REG",    "PCNT_U0_CNT_REG",    "PCNT", "U%s_CNT",   None, "the count itself"),
+    ("REFLEX_PCNT_CTRL_REG",      "PCNT_CTRL_REG",      "PCNT", "CTRL",      None, "reset and pause, all units"),
+    ("REFLEX_PCNT_FILTER_EN",     "PCNT_FILTER_EN_U0",  "PCNT", "U%s_CONF0", "FILTER_EN",    "set out of reset"),
+    ("REFLEX_PCNT_THR_ZERO_EN",   "PCNT_THR_ZERO_EN_U0",   "PCNT", "U%s_CONF0", "THR_ZERO_EN",   "watch events, all set out of reset"),
+    ("REFLEX_PCNT_THR_H_LIM_EN",  "PCNT_THR_H_LIM_EN_U0",  "PCNT", "U%s_CONF0", "THR_H_LIM_EN",  ""),
+    ("REFLEX_PCNT_THR_L_LIM_EN",  "PCNT_THR_L_LIM_EN_U0",  "PCNT", "U%s_CONF0", "THR_L_LIM_EN",  ""),
+    ("REFLEX_PCNT_THR_THRES0_EN", "PCNT_THR_THRES0_EN_U0", "PCNT", "U%s_CONF0", "THR_THRES0_EN", ""),
+    ("REFLEX_PCNT_THR_THRES1_EN", "PCNT_THR_THRES1_EN_U0", "PCNT", "U%s_CONF0", "THR_THRES1_EN", ""),
+    ("REFLEX_PCNT_CNT_RST_U0",    "PCNT_PULSE_CNT_RST_U0", "PCNT", "CTRL",   "CNT_RST_U0",   "held asserted keeps the count at zero"),
+    ("REFLEX_PCNT_CNT_PAUSE_U0",  "PCNT_CNT_PAUSE_U0",  "PCNT", "CTRL",      "CNT_PAUSE_U0", ""),
+    ("REFLEX_PCNT_CTRL_CLK_EN",   "PCNT_CLK_EN",        "PCNT", "CTRL",      "CLK_EN",       ""),
+    ("REFLEX_PCR_PCNT_CONF_REG",  "PCR_PCNT_CONF_REG",  "PCR",  "PCNT_CONF", None, "peripheral clock and reset"),
+    ("REFLEX_PCR_PCNT_CLK_EN",    "PCR_PCNT_CLK_EN",    "PCR",  "PCNT_CONF", "PCNT_CLK_EN",  ""),
+    ("REFLEX_PCR_PCNT_RST_EN",    "PCR_PCNT_RST_EN",    "PCR",  "PCNT_CONF", "PCNT_RST_EN",  "asserted means held in reset"),
 ]
 
 # Value masks: (1 << bitWidth) - 1 rather than a single bit.
@@ -159,6 +184,9 @@ WIDTH_MASKS = [
     ("REFLEX_LEDC_DUTY_RES_MASK",    "LEDC_TIMER0_DUTY_RES_V",  "LEDC", "TIMER%s_CONF", "DUTY_RES",    ""),
     ("REFLEX_LEDC_CLK_DIV_MASK",     "LEDC_CLK_DIV_TIMER0_V",   "LEDC", "TIMER%s_CONF", "CLK_DIV",     "Q10.8 divider"),
     ("REFLEX_PCR_LEDC_SCLK_SEL_MASK","PCR_LEDC_SCLK_SEL_V",     "PCR",  "LEDC_SCLK_CONF", "LEDC_SCLK_SEL", "3 selects XTAL"),
+    ("REFLEX_PCNT_MODE_MASK",        "PCNT_CH0_POS_MODE_U0_V",  "PCNT", "U%s_CONF0", "CH0_POS_MODE", "all four mode fields are 2 bits"),
+    ("REFLEX_PCNT_LIM_MASK",         "PCNT_CNT_H_LIM_U0_V",     "PCNT", "U%s_CONF2", "CNT_H_LIM",    ""),
+    ("REFLEX_PCNT_CNT_MASK",         "PCNT_PULSE_CNT_U0_V",     "PCNT", "U%s_CNT",   "CNT",          "16-bit, read as signed"),
 ]
 
 # Field shifts. REFLEX_REG_SET_FIELD takes mask and shift explicitly rather
@@ -172,6 +200,12 @@ SHIFTS = [
     ("REFLEX_LEDC_DUTY_RES_S",    "LEDC_TIMER0_DUTY_RES_S", "LEDC", "TIMER%s_CONF", "DUTY_RES",    ""),
     ("REFLEX_LEDC_CLK_DIV_S",     "LEDC_CLK_DIV_TIMER0_S",  "LEDC", "TIMER%s_CONF", "CLK_DIV",     ""),
     ("REFLEX_PCR_LEDC_SCLK_SEL_S","PCR_LEDC_SCLK_SEL_S",    "PCR",  "LEDC_SCLK_CONF", "LEDC_SCLK_SEL", ""),
+    ("REFLEX_PCNT_CH0_POS_MODE_S",   "PCNT_CH0_POS_MODE_U0_S",   "PCNT", "U%s_CONF0", "CH0_POS_MODE",   ""),
+    ("REFLEX_PCNT_CH0_NEG_MODE_S",   "PCNT_CH0_NEG_MODE_U0_S",   "PCNT", "U%s_CONF0", "CH0_NEG_MODE",   ""),
+    ("REFLEX_PCNT_CH0_HCTRL_MODE_S", "PCNT_CH0_HCTRL_MODE_U0_S", "PCNT", "U%s_CONF0", "CH0_HCTRL_MODE", ""),
+    ("REFLEX_PCNT_CH0_LCTRL_MODE_S", "PCNT_CH0_LCTRL_MODE_U0_S", "PCNT", "U%s_CONF0", "CH0_LCTRL_MODE", ""),
+    ("REFLEX_PCNT_CNT_H_LIM_S",      "PCNT_CNT_H_LIM_U0_S",      "PCNT", "U%s_CONF2", "CNT_H_LIM",      ""),
+    ("REFLEX_PCNT_CNT_L_LIM_S",      "PCNT_CNT_L_LIM_U0_S",      "PCNT", "U%s_CONF2", "CNT_L_LIM",      ""),
 ]
 
 # Not in the SVD. Each states where it does come from.
@@ -182,6 +216,8 @@ LITERALS = [
     ("REFLEX_SOC_RTC_IRAM_HIGH",   "SOC_RTC_IRAM_HIGH",   0x50004000, "CPU memory map: LP SRAM"),
     ("REFLEX_TIMG_WDT_WKEY_VALUE", "TIMG_WDT_WKEY_VALUE", 0x50D83AA1, "watchdog write-protect magic; a key, not an address"),
     ("REFLEX_LEDC_LS_SIG_OUT0_IDX","LEDC_LS_SIG_OUT0_IDX", 0,         "GPIO matrix signal index; lives in gpio_sig_map, not the SVD"),
+    ("REFLEX_PCNT_SIG_CH0_IN0_IDX", "PCNT_SIG_CH0_IN0_IDX",  101, "GPIO matrix signal index; gpio_sig_map, not the SVD. Unit 0 channel 0 edge input"),
+    ("REFLEX_PCNT_CTRL_CH0_IN0_IDX","PCNT_CTRL_CH0_IN0_IDX", 103, "GPIO matrix signal index; the level/control input gating the same channel"),
     ("REFLEX_IO_MUX_MCU_SEL_V",    "MCU_SEL",              0x7,        "IO_MUX function-select field mask (3 bits)"),
     ("REFLEX_SOC_SYSTIMER_FIXED_DIVIDER", "SOC_SYSTIMER_FIXED_DIVIDER", 1, "capability flag from soc_caps.h"),
     ("REFLEX_INTR_SRC_SYSTIMER_TARGET1", "ETS_SYSTIMER_TARGET1_INTR_SOURCE", 58,
@@ -307,6 +343,7 @@ def render_bridge(bridge):
         "#include \"soc/pmu_reg.h\"",
         "#include \"soc/pcr_reg.h\"",
         "#include \"soc/ledc_reg.h\"",
+        "#include \"soc/pcnt_reg.h\"",
         "#include \"soc/extmem_reg.h\"",
         "#include \"soc/assist_debug_reg.h\"",
         "#include \"soc/spi_mem_reg.h\"",

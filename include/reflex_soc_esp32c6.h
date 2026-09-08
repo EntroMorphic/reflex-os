@@ -145,6 +145,42 @@
 #define REFLEX_PCR_LEDC_RST_EN 0x00000002u
 /* PCR.LEDC_SCLK_CONF.LEDC_SCLK_EN bit 22 */
 #define REFLEX_PCR_LEDC_SCLK_EN 0x00400000u
+/* PCNT base — peripheral base, not a register */
+#define REFLEX_DR_REG_PCNT_BASE 0x60012000u
+/* PCNT.U%s_CONF0 @ base+0x0 — unit 0: filter and per-channel modes */
+#define REFLEX_PCNT_U0_CONF0_REG 0x60012000u
+/* PCNT.U%s_CONF1 @ base+0x4 — watch thresholds */
+#define REFLEX_PCNT_U0_CONF1_REG 0x60012004u
+/* PCNT.U%s_CONF2 @ base+0x8 — count limits */
+#define REFLEX_PCNT_U0_CONF2_REG 0x60012008u
+/* PCNT.U%s_CNT @ base+0x30 — the count itself */
+#define REFLEX_PCNT_U0_CNT_REG 0x60012030u
+/* PCNT.CTRL @ base+0x60 — reset and pause, all units */
+#define REFLEX_PCNT_CTRL_REG 0x60012060u
+/* PCNT.U%s_CONF0.FILTER_EN bit 10 — set out of reset */
+#define REFLEX_PCNT_FILTER_EN 0x00000400u
+/* PCNT.U%s_CONF0.THR_ZERO_EN bit 11 — watch events, all set out of reset */
+#define REFLEX_PCNT_THR_ZERO_EN 0x00000800u
+/* PCNT.U%s_CONF0.THR_H_LIM_EN bit 12 */
+#define REFLEX_PCNT_THR_H_LIM_EN 0x00001000u
+/* PCNT.U%s_CONF0.THR_L_LIM_EN bit 13 */
+#define REFLEX_PCNT_THR_L_LIM_EN 0x00002000u
+/* PCNT.U%s_CONF0.THR_THRES0_EN bit 14 */
+#define REFLEX_PCNT_THR_THRES0_EN 0x00004000u
+/* PCNT.U%s_CONF0.THR_THRES1_EN bit 15 */
+#define REFLEX_PCNT_THR_THRES1_EN 0x00008000u
+/* PCNT.CTRL.CNT_RST_U0 bit 0 — held asserted keeps the count at zero */
+#define REFLEX_PCNT_CNT_RST_U0 0x00000001u
+/* PCNT.CTRL.CNT_PAUSE_U0 bit 1 */
+#define REFLEX_PCNT_CNT_PAUSE_U0 0x00000002u
+/* PCNT.CTRL.CLK_EN bit 16 */
+#define REFLEX_PCNT_CTRL_CLK_EN 0x00010000u
+/* PCR.PCNT_CONF @ base+0x94 — peripheral clock and reset */
+#define REFLEX_PCR_PCNT_CONF_REG 0x60096094u
+/* PCR.PCNT_CONF.PCNT_CLK_EN bit 0 */
+#define REFLEX_PCR_PCNT_CLK_EN 0x00000001u
+/* PCR.PCNT_CONF.PCNT_RST_EN bit 1 — asserted means held in reset */
+#define REFLEX_PCR_PCNT_RST_EN 0x00000002u
 /* SPI0.SPI_MEM_MMU_POWER_CTRL.SPI_MMU_PAGE_SIZE width 2 — field value mask */
 #define REFLEX_SPI_MEM_MMU_PAGE_SIZE 0x00000003u
 /* LEDC.CH%s_CONF0.TIMER_SEL width 2 */
@@ -157,6 +193,12 @@
 #define REFLEX_LEDC_CLK_DIV_MASK 0x0003FFFFu
 /* PCR.LEDC_SCLK_CONF.LEDC_SCLK_SEL width 2 — 3 selects XTAL */
 #define REFLEX_PCR_LEDC_SCLK_SEL_MASK 0x00000003u
+/* PCNT.U%s_CONF0.CH0_POS_MODE width 2 — all four mode fields are 2 bits */
+#define REFLEX_PCNT_MODE_MASK 0x00000003u
+/* PCNT.U%s_CONF2.CNT_H_LIM width 16 */
+#define REFLEX_PCNT_LIM_MASK 0x0000FFFFu
+/* PCNT.U%s_CNT.CNT width 16 — 16-bit, read as signed */
+#define REFLEX_PCNT_CNT_MASK 0x0000FFFFu
 /* SPI0.SPI_MEM_MMU_POWER_CTRL.SPI_MMU_PAGE_SIZE bit 3 — field shift */
 #define REFLEX_SPI_MEM_MMU_PAGE_SIZE_S 0x00000003u
 /* LEDC.CH%s_CONF0.TIMER_SEL bit 0 */
@@ -169,6 +211,18 @@
 #define REFLEX_LEDC_CLK_DIV_S 0x00000005u
 /* PCR.LEDC_SCLK_CONF.LEDC_SCLK_SEL bit 20 */
 #define REFLEX_PCR_LEDC_SCLK_SEL_S 0x00000014u
+/* PCNT.U%s_CONF0.CH0_POS_MODE bit 18 */
+#define REFLEX_PCNT_CH0_POS_MODE_S 0x00000012u
+/* PCNT.U%s_CONF0.CH0_NEG_MODE bit 16 */
+#define REFLEX_PCNT_CH0_NEG_MODE_S 0x00000010u
+/* PCNT.U%s_CONF0.CH0_HCTRL_MODE bit 20 */
+#define REFLEX_PCNT_CH0_HCTRL_MODE_S 0x00000014u
+/* PCNT.U%s_CONF0.CH0_LCTRL_MODE bit 22 */
+#define REFLEX_PCNT_CH0_LCTRL_MODE_S 0x00000016u
+/* PCNT.U%s_CONF2.CNT_H_LIM bit 0 */
+#define REFLEX_PCNT_CNT_H_LIM_S 0x00000000u
+/* PCNT.U%s_CONF2.CNT_L_LIM bit 16 */
+#define REFLEX_PCNT_CNT_L_LIM_S 0x00000010u
 /* literal — CPU memory map, not a peripheral: HP SRAM instruction bus window */
 #define REFLEX_SOC_IRAM_LOW 0x40800000u
 /* literal — CPU memory map */
@@ -181,6 +235,10 @@
 #define REFLEX_TIMG_WDT_WKEY_VALUE 0x50D83AA1u
 /* literal — GPIO matrix signal index; lives in gpio_sig_map, not the SVD */
 #define REFLEX_LEDC_LS_SIG_OUT0_IDX 0x00000000u
+/* literal — GPIO matrix signal index; gpio_sig_map, not the SVD. Unit 0 channel 0 edge input */
+#define REFLEX_PCNT_SIG_CH0_IN0_IDX 0x00000065u
+/* literal — GPIO matrix signal index; the level/control input gating the same channel */
+#define REFLEX_PCNT_CTRL_CH0_IN0_IDX 0x00000067u
 /* literal — IO_MUX function-select field mask (3 bits) */
 #define REFLEX_IO_MUX_MCU_SEL_V 0x00000007u
 /* literal — capability flag from soc_caps.h */

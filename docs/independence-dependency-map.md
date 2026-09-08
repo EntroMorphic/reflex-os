@@ -635,8 +635,14 @@ exactly. "It compiles and the LED looks lit" would not have distinguished a
 correct Q10.8 divider from one running the pin at the wrong frequency; the
 comparison does, and it is a hardware check now rather than an observation.
 
-What remains in Tier E is two peripherals across three includes: `pulse_cnt`,
-and `rmt_tx` with `rmt_encoder`. RMT is the hard one — channel memory, an
+PCNT went the same way, and the same comparison caught something reasoning had
+not: the first driver counted correctly while leaving `conf0` four bits off
+ESP-IDF's, because the filter and all four watch-event enables come up set out
+of reset and a read-modify-write inherits them. Behaviourally identical on a
+1 ms signal; not on a fast edge; invisible to any check that only reads the
+count. **Tier E 3 -> 2, on-path 18 -> 17.**
+
+What remains in Tier E is RMT, across `rmt_tx` and `rmt_encoder`. It is the hard one — channel memory, an
 encoder abstraction and a completion signal — and `bonsai exp5`'s open question
 (two of ten pulses counted) sits on exactly that path, so the loopback should be
 understood before a Reflex RMT driver is written, or a porting bug and the

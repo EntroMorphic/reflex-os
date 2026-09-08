@@ -230,6 +230,23 @@ typedef struct {
 
 void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out);
 
+/* Pulse counting. Reflex's own on the C6, replacing driver/pulse_cnt.h for the
+ * single unit and channel `bonsai exp5` uses. */
+typedef struct {
+    uint32_t conf0;
+    uint32_t conf1;
+    uint32_t conf2;
+    uint32_t ctrl;
+    uint32_t pcr;
+} reflex_pcnt_snapshot_t;
+
+reflex_err_t reflex_hal_pcnt_start(uint32_t edge_pin, uint32_t level_pin, int16_t low_limit,
+                                   int16_t high_limit);
+int reflex_hal_pcnt_read(void);
+void reflex_hal_pcnt_stop(void);
+
+void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out);
+
 void reflex_hal_random_fill(uint8_t *buf, size_t len);
 /** @brief Read the factory MAC. Doubles as this board's mesh identity, so it
  *  is what self-arc suppression and the peer table compare against. */

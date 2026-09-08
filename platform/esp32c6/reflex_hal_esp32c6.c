@@ -889,6 +889,89 @@ void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out) {
     out->pcr_sclk = REFLEX_REG(REFLEX_PCR_LEDC_SCLK_CONF_REG);
 }
 
+/* ---- PCNT ------------------------------------------------------------- */
+
+/* Count up on a rising edge, hold on a falling one.
+ *
+ * Read off the silicon rather than off a header: ESP-IDF was asked for
+ * (INCREASE, HOLD) and left CH0_POS_MODE = 1 with CH0_NEG_MODE = 0, so those
+ * are the encodings, confirmed rather than assumed from an enum's declaration
+ * order. */
+#define PCNT_MODE_HOLD 0u
+#define PCNT_MODE_INCREASE 1u
+
+reflex_err_t reflex_hal_pcnt_start(uint32_t edge_pin, uint32_t level_pin, int16_t low_limit,
+                                   int16_t high_limit) {
+    if (edge_pin >= 31u || level_pin >= 31u) return REFLEX_ERR_INVALID_ARG;
+    if (high_limit <= 0 || low_limit >= 0) return REFLEX_ERR_INVALID_ARG;
+
+    /* Ungate and release. RST_EN asserted means held in reset. */
+    REFLEX_REG(REFLEX_PCR_PCNT_CONF_REG) |= REFLEX_PCR_PCNT_CLK_EN;
+    REFLEX_REG(REFLEX_PCR_PCNT_CONF_REG) &= ~REFLEX_PCR_PCNT_RST_EN;
+
+    /* PCNT counts a signal index, not a pin, so the matrix has to join them. */
+    reflex_hal_gpio_init_input(edge_pin, false);
+    reflex_hal_gpio_init_input(level_pin, false);
+    esp_rom_gpio_connect_in_signal(edge_pin, REFLEX_PCNT_SIG_CH0_IN0_IDX, false);
+    esp_rom_gpio_connect_in_signal(level_pin, REFLEX_PCNT_CTRL_CH0_IN0_IDX, false);
+
+    REFLEX_REG(REFLEX_PCNT_U0_CONF2_REG) =
+        (((uint32_t)(uint16_t)high_limit & REFLEX_PCNT_LIM_MASK) << REFLEX_PCNT_CNT_H_LIM_S) |
+        (((uint32_t)(uint16_t)low_limit & REFLEX_PCNT_LIM_MASK) << REFLEX_PCNT_CNT_L_LIM_S);
+
+    /* Establish the state rather than inherit it.
+     *
+     * The filter and all four watch-event enables come up *set* out of reset,
+     * and a read-modify-write that only touches the mode fields leaves them
+     * that way. That version of this function counted correctly — the same
+     * value ESP-IDF's driver produced — while leaving the peripheral filtering
+     * pulses shorter than the reset threshold and arming events nothing
+     * handles. It was caught only by comparing conf0 against what ESP-IDF
+     * leaves: 0x00043c10 against 0x00040010, four bits apart, no difference in
+     * behaviour on this signal and a real one on a faster edge.
+     *
+     * The filter threshold itself is left as found, which is what ESP-IDF also
+     * does; it is inert with the filter off. */
+    uint32_t c0 = REFLEX_REG(REFLEX_PCNT_U0_CONF0_REG);
+    c0 &= ~(REFLEX_PCNT_FILTER_EN | REFLEX_PCNT_THR_ZERO_EN | REFLEX_PCNT_THR_H_LIM_EN |
+            REFLEX_PCNT_THR_L_LIM_EN | REFLEX_PCNT_THR_THRES0_EN | REFLEX_PCNT_THR_THRES1_EN);
+    c0 &= ~((REFLEX_PCNT_MODE_MASK << REFLEX_PCNT_CH0_POS_MODE_S) |
+            (REFLEX_PCNT_MODE_MASK << REFLEX_PCNT_CH0_NEG_MODE_S) |
+            (REFLEX_PCNT_MODE_MASK << REFLEX_PCNT_CH0_HCTRL_MODE_S) |
+            (REFLEX_PCNT_MODE_MASK << REFLEX_PCNT_CH0_LCTRL_MODE_S));
+    c0 |= (PCNT_MODE_INCREASE << REFLEX_PCNT_CH0_POS_MODE_S) |
+          (PCNT_MODE_HOLD << REFLEX_PCNT_CH0_NEG_MODE_S);
+    REFLEX_REG(REFLEX_PCNT_U0_CONF0_REG) = c0;
+
+    /* Zero the count, then run. CTRL carries all four units, so this touches
+     * unit 0's bits and leaves the other three exactly as they were — they come
+     * up held in reset, and clearing that would quietly start them. */
+    uint32_t ctrl = REFLEX_REG(REFLEX_PCNT_CTRL_REG);
+    REFLEX_REG(REFLEX_PCNT_CTRL_REG) = ctrl | REFLEX_PCNT_CNT_RST_U0;
+    REFLEX_REG(REFLEX_PCNT_CTRL_REG) = ctrl & ~(REFLEX_PCNT_CNT_RST_U0 | REFLEX_PCNT_CNT_PAUSE_U0);
+    return REFLEX_OK;
+}
+
+int reflex_hal_pcnt_read(void) {
+    /* The count is 16 bits and signed — the unit counts down as readily as up,
+     * and a plain widening read turns -1 into 65535. */
+    uint32_t raw = REFLEX_REG(REFLEX_PCNT_U0_CNT_REG) & REFLEX_PCNT_CNT_MASK;
+    return (int)(int16_t)(uint16_t)raw;
+}
+
+void reflex_hal_pcnt_stop(void) {
+    REFLEX_REG(REFLEX_PCNT_CTRL_REG) |= REFLEX_PCNT_CNT_PAUSE_U0;
+}
+
+void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out) {
+    if (!out) return;
+    out->conf0 = REFLEX_REG(REFLEX_PCNT_U0_CONF0_REG);
+    out->conf1 = REFLEX_REG(REFLEX_PCNT_U0_CONF1_REG);
+    out->conf2 = REFLEX_REG(REFLEX_PCNT_U0_CONF2_REG);
+    out->ctrl = REFLEX_REG(REFLEX_PCNT_CTRL_REG);
+    out->pcr = REFLEX_REG(REFLEX_PCR_PCNT_CONF_REG);
+}
+
 void reflex_hal_write_raw(const char *data, int len) {
     usj_write_bytes(data, len);
 }

@@ -24,6 +24,7 @@
 #include "soc/pmu_reg.h"
 #include "soc/pcr_reg.h"
 #include "soc/ledc_reg.h"
+#include "soc/pcnt_reg.h"
 #include "soc/extmem_reg.h"
 #include "soc/assist_debug_reg.h"
 #include "soc/spi_mem_reg.h"
@@ -168,6 +169,42 @@ _Static_assert(REFLEX_PCR_LEDC_RST_EN == (uint32_t)(PCR_LEDC_RST_EN),
                "REFLEX_PCR_LEDC_RST_EN diverges from PCR_LEDC_RST_EN");
 _Static_assert(REFLEX_PCR_LEDC_SCLK_EN == (uint32_t)(PCR_LEDC_SCLK_EN),
                "REFLEX_PCR_LEDC_SCLK_EN diverges from PCR_LEDC_SCLK_EN");
+_Static_assert(REFLEX_DR_REG_PCNT_BASE == (uint32_t)(DR_REG_PCNT_BASE),
+               "REFLEX_DR_REG_PCNT_BASE diverges from DR_REG_PCNT_BASE");
+_Static_assert(REFLEX_PCNT_U0_CONF0_REG == (uint32_t)(PCNT_U0_CONF0_REG),
+               "REFLEX_PCNT_U0_CONF0_REG diverges from PCNT_U0_CONF0_REG");
+_Static_assert(REFLEX_PCNT_U0_CONF1_REG == (uint32_t)(PCNT_U0_CONF1_REG),
+               "REFLEX_PCNT_U0_CONF1_REG diverges from PCNT_U0_CONF1_REG");
+_Static_assert(REFLEX_PCNT_U0_CONF2_REG == (uint32_t)(PCNT_U0_CONF2_REG),
+               "REFLEX_PCNT_U0_CONF2_REG diverges from PCNT_U0_CONF2_REG");
+_Static_assert(REFLEX_PCNT_U0_CNT_REG == (uint32_t)(PCNT_U0_CNT_REG),
+               "REFLEX_PCNT_U0_CNT_REG diverges from PCNT_U0_CNT_REG");
+_Static_assert(REFLEX_PCNT_CTRL_REG == (uint32_t)(PCNT_CTRL_REG),
+               "REFLEX_PCNT_CTRL_REG diverges from PCNT_CTRL_REG");
+_Static_assert(REFLEX_PCNT_FILTER_EN == (uint32_t)(PCNT_FILTER_EN_U0),
+               "REFLEX_PCNT_FILTER_EN diverges from PCNT_FILTER_EN_U0");
+_Static_assert(REFLEX_PCNT_THR_ZERO_EN == (uint32_t)(PCNT_THR_ZERO_EN_U0),
+               "REFLEX_PCNT_THR_ZERO_EN diverges from PCNT_THR_ZERO_EN_U0");
+_Static_assert(REFLEX_PCNT_THR_H_LIM_EN == (uint32_t)(PCNT_THR_H_LIM_EN_U0),
+               "REFLEX_PCNT_THR_H_LIM_EN diverges from PCNT_THR_H_LIM_EN_U0");
+_Static_assert(REFLEX_PCNT_THR_L_LIM_EN == (uint32_t)(PCNT_THR_L_LIM_EN_U0),
+               "REFLEX_PCNT_THR_L_LIM_EN diverges from PCNT_THR_L_LIM_EN_U0");
+_Static_assert(REFLEX_PCNT_THR_THRES0_EN == (uint32_t)(PCNT_THR_THRES0_EN_U0),
+               "REFLEX_PCNT_THR_THRES0_EN diverges from PCNT_THR_THRES0_EN_U0");
+_Static_assert(REFLEX_PCNT_THR_THRES1_EN == (uint32_t)(PCNT_THR_THRES1_EN_U0),
+               "REFLEX_PCNT_THR_THRES1_EN diverges from PCNT_THR_THRES1_EN_U0");
+_Static_assert(REFLEX_PCNT_CNT_RST_U0 == (uint32_t)(PCNT_PULSE_CNT_RST_U0),
+               "REFLEX_PCNT_CNT_RST_U0 diverges from PCNT_PULSE_CNT_RST_U0");
+_Static_assert(REFLEX_PCNT_CNT_PAUSE_U0 == (uint32_t)(PCNT_CNT_PAUSE_U0),
+               "REFLEX_PCNT_CNT_PAUSE_U0 diverges from PCNT_CNT_PAUSE_U0");
+_Static_assert(REFLEX_PCNT_CTRL_CLK_EN == (uint32_t)(PCNT_CLK_EN),
+               "REFLEX_PCNT_CTRL_CLK_EN diverges from PCNT_CLK_EN");
+_Static_assert(REFLEX_PCR_PCNT_CONF_REG == (uint32_t)(PCR_PCNT_CONF_REG),
+               "REFLEX_PCR_PCNT_CONF_REG diverges from PCR_PCNT_CONF_REG");
+_Static_assert(REFLEX_PCR_PCNT_CLK_EN == (uint32_t)(PCR_PCNT_CLK_EN),
+               "REFLEX_PCR_PCNT_CLK_EN diverges from PCR_PCNT_CLK_EN");
+_Static_assert(REFLEX_PCR_PCNT_RST_EN == (uint32_t)(PCR_PCNT_RST_EN),
+               "REFLEX_PCR_PCNT_RST_EN diverges from PCR_PCNT_RST_EN");
 _Static_assert(REFLEX_SPI_MEM_MMU_PAGE_SIZE == (uint32_t)(SPI_MEM_MMU_PAGE_SIZE),
                "REFLEX_SPI_MEM_MMU_PAGE_SIZE diverges from SPI_MEM_MMU_PAGE_SIZE");
 _Static_assert(REFLEX_LEDC_TIMER_SEL_MASK == (uint32_t)(LEDC_TIMER_SEL_CH0_V),
@@ -180,6 +217,12 @@ _Static_assert(REFLEX_LEDC_CLK_DIV_MASK == (uint32_t)(LEDC_CLK_DIV_TIMER0_V),
                "REFLEX_LEDC_CLK_DIV_MASK diverges from LEDC_CLK_DIV_TIMER0_V");
 _Static_assert(REFLEX_PCR_LEDC_SCLK_SEL_MASK == (uint32_t)(PCR_LEDC_SCLK_SEL_V),
                "REFLEX_PCR_LEDC_SCLK_SEL_MASK diverges from PCR_LEDC_SCLK_SEL_V");
+_Static_assert(REFLEX_PCNT_MODE_MASK == (uint32_t)(PCNT_CH0_POS_MODE_U0_V),
+               "REFLEX_PCNT_MODE_MASK diverges from PCNT_CH0_POS_MODE_U0_V");
+_Static_assert(REFLEX_PCNT_LIM_MASK == (uint32_t)(PCNT_CNT_H_LIM_U0_V),
+               "REFLEX_PCNT_LIM_MASK diverges from PCNT_CNT_H_LIM_U0_V");
+_Static_assert(REFLEX_PCNT_CNT_MASK == (uint32_t)(PCNT_PULSE_CNT_U0_V),
+               "REFLEX_PCNT_CNT_MASK diverges from PCNT_PULSE_CNT_U0_V");
 _Static_assert(REFLEX_SPI_MEM_MMU_PAGE_SIZE_S == (uint32_t)(SPI_MEM_MMU_PAGE_SIZE_S),
                "REFLEX_SPI_MEM_MMU_PAGE_SIZE_S diverges from SPI_MEM_MMU_PAGE_SIZE_S");
 _Static_assert(REFLEX_LEDC_TIMER_SEL_S == (uint32_t)(LEDC_TIMER_SEL_CH0_S),
@@ -192,6 +235,18 @@ _Static_assert(REFLEX_LEDC_CLK_DIV_S == (uint32_t)(LEDC_CLK_DIV_TIMER0_S),
                "REFLEX_LEDC_CLK_DIV_S diverges from LEDC_CLK_DIV_TIMER0_S");
 _Static_assert(REFLEX_PCR_LEDC_SCLK_SEL_S == (uint32_t)(PCR_LEDC_SCLK_SEL_S),
                "REFLEX_PCR_LEDC_SCLK_SEL_S diverges from PCR_LEDC_SCLK_SEL_S");
+_Static_assert(REFLEX_PCNT_CH0_POS_MODE_S == (uint32_t)(PCNT_CH0_POS_MODE_U0_S),
+               "REFLEX_PCNT_CH0_POS_MODE_S diverges from PCNT_CH0_POS_MODE_U0_S");
+_Static_assert(REFLEX_PCNT_CH0_NEG_MODE_S == (uint32_t)(PCNT_CH0_NEG_MODE_U0_S),
+               "REFLEX_PCNT_CH0_NEG_MODE_S diverges from PCNT_CH0_NEG_MODE_U0_S");
+_Static_assert(REFLEX_PCNT_CH0_HCTRL_MODE_S == (uint32_t)(PCNT_CH0_HCTRL_MODE_U0_S),
+               "REFLEX_PCNT_CH0_HCTRL_MODE_S diverges from PCNT_CH0_HCTRL_MODE_U0_S");
+_Static_assert(REFLEX_PCNT_CH0_LCTRL_MODE_S == (uint32_t)(PCNT_CH0_LCTRL_MODE_U0_S),
+               "REFLEX_PCNT_CH0_LCTRL_MODE_S diverges from PCNT_CH0_LCTRL_MODE_U0_S");
+_Static_assert(REFLEX_PCNT_CNT_H_LIM_S == (uint32_t)(PCNT_CNT_H_LIM_U0_S),
+               "REFLEX_PCNT_CNT_H_LIM_S diverges from PCNT_CNT_H_LIM_U0_S");
+_Static_assert(REFLEX_PCNT_CNT_L_LIM_S == (uint32_t)(PCNT_CNT_L_LIM_U0_S),
+               "REFLEX_PCNT_CNT_L_LIM_S diverges from PCNT_CNT_L_LIM_U0_S");
 _Static_assert(REFLEX_SOC_IRAM_LOW == (uint32_t)(SOC_IRAM_LOW),
                "REFLEX_SOC_IRAM_LOW diverges from SOC_IRAM_LOW");
 _Static_assert(REFLEX_SOC_IRAM_HIGH == (uint32_t)(SOC_IRAM_HIGH),
@@ -204,6 +259,10 @@ _Static_assert(REFLEX_TIMG_WDT_WKEY_VALUE == (uint32_t)(TIMG_WDT_WKEY_VALUE),
                "REFLEX_TIMG_WDT_WKEY_VALUE diverges from TIMG_WDT_WKEY_VALUE");
 _Static_assert(REFLEX_LEDC_LS_SIG_OUT0_IDX == (uint32_t)(LEDC_LS_SIG_OUT0_IDX),
                "REFLEX_LEDC_LS_SIG_OUT0_IDX diverges from LEDC_LS_SIG_OUT0_IDX");
+_Static_assert(REFLEX_PCNT_SIG_CH0_IN0_IDX == (uint32_t)(PCNT_SIG_CH0_IN0_IDX),
+               "REFLEX_PCNT_SIG_CH0_IN0_IDX diverges from PCNT_SIG_CH0_IN0_IDX");
+_Static_assert(REFLEX_PCNT_CTRL_CH0_IN0_IDX == (uint32_t)(PCNT_CTRL_CH0_IN0_IDX),
+               "REFLEX_PCNT_CTRL_CH0_IN0_IDX diverges from PCNT_CTRL_CH0_IN0_IDX");
 _Static_assert(REFLEX_IO_MUX_MCU_SEL_V == (uint32_t)(MCU_SEL),
                "REFLEX_IO_MUX_MCU_SEL_V diverges from MCU_SEL");
 _Static_assert(REFLEX_SOC_SYSTIMER_FIXED_DIVIDER == (uint32_t)(SOC_SYSTIMER_FIXED_DIVIDER),

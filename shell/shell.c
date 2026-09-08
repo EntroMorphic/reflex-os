@@ -11,7 +11,6 @@
 #if !CONFIG_IDF_TARGET_ESP32C6
 #include "driver/ledc.h"
 #endif
-#include "driver/pulse_cnt.h"
 #include "driver/rmt_tx.h"
 #include "driver/rmt_encoder.h"
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
@@ -365,37 +364,19 @@ static void reflex_shell_bonsai_exp5_run(void) {
      * channel attached, which fails and leaks the unit exactly as before. Three
      * hand-written unwinds is why the bug existed; a single one is why it will
      * not come back. */
-    pcnt_unit_handle_t pcnt = NULL;
-    pcnt_channel_handle_t p_ch = NULL;
     rmt_channel_handle_t rmt_ch = NULL;
     rmt_encoder_handle_t encoder = NULL;
-    bool pcnt_started = false, pcnt_enabled = false, rmt_enabled = false;
+    bool pcnt_started = false, rmt_enabled = false;
     bool gpio6_taken = false;
     const char *failed_at = NULL;
 
-    pcnt_unit_config_t ucfg = {.low_limit = -1000, .high_limit = 1000};
-    if (pcnt_new_unit(&ucfg, &pcnt) != REFLEX_OK) {
-        failed_at = "pcnt_new_unit";
-        goto cleanup;
-    }
-
-    pcnt_chan_config_t ch = { .edge_gpio_num = 4, .level_gpio_num = 6 };
-    if (pcnt_new_channel(pcnt, &ch, &p_ch) != REFLEX_OK) {
-        failed_at = "pcnt_new_channel";
-        goto cleanup;
-    }
-    if (pcnt_channel_set_edge_action(p_ch, PCNT_CHANNEL_EDGE_ACTION_INCREASE,
-                                     PCNT_CHANNEL_EDGE_ACTION_HOLD) != REFLEX_OK) {
-        failed_at = "pcnt_channel_set_edge_action";
-        goto cleanup;
-    }
-    if (pcnt_unit_enable(pcnt) != REFLEX_OK) {
-        failed_at = "pcnt_unit_enable";
-        goto cleanup;
-    }
-    pcnt_enabled = true;
-    if (pcnt_unit_start(pcnt) != REFLEX_OK) {
-        failed_at = "pcnt_unit_start";
+    /* Reflex's own PCNT. Tier E: this is what driver/pulse_cnt.h was here for.
+     *
+     * One call replaces new_unit / new_channel / set_edge_action / enable /
+     * start, because that is the whole of what this experiment ever used: one
+     * unit, one channel, counting rising edges on pin 4 while pin 6 gates. */
+    if (reflex_hal_pcnt_start(4, 6, -1000, 1000) != REFLEX_OK) {
+        failed_at = "reflex_hal_pcnt_start";
         goto cleanup;
     }
     pcnt_started = true;
@@ -462,9 +443,19 @@ static void reflex_shell_bonsai_exp5_run(void) {
      * though it were the answer. */
     rmt_tx_wait_all_done(rmt_ch, 1000);
 
-    int count = 0;
-    pcnt_unit_get_count(pcnt, &count);
+    int count = reflex_hal_pcnt_read();
     printf("bonsai exp5 intersect overlap=%d (expected 10)\n", count);
+    {
+        /* Same readback the PWM path carries, and for the same reason: it is
+         * what lets a Reflex driver be checked against the one it replaces
+         * register for register rather than declared equivalent. */
+        reflex_pcnt_snapshot_t pc;
+        reflex_hal_pcnt_snapshot(&pc);
+        printf("bonsai exp5 pcnt conf0=0x%08lx conf1=0x%08lx conf2=0x%08lx "
+               "ctrl=0x%08lx pcr=0x%08lx\n",
+               (unsigned long)pc.conf0, (unsigned long)pc.conf1, (unsigned long)pc.conf2,
+               (unsigned long)pc.ctrl, (unsigned long)pc.pcr);
+    }
     if (count != 10) {
         /* An experiment that misses its own stated expectation has not
          * succeeded, and saying #R:+1,ok when it does is how a broken
@@ -480,12 +471,11 @@ cleanup:
     if (encoder) rmt_del_encoder(encoder);
     if (rmt_enabled) rmt_disable(rmt_ch);
     if (rmt_ch) rmt_del_channel(rmt_ch);
-    if (pcnt_started) pcnt_unit_stop(pcnt);
-    if (pcnt_enabled) pcnt_unit_disable(pcnt);
-    /* The channel must go before the unit, or pcnt_del_unit refuses with
-     * "channel 0 still in working" and the unit is leaked for good. */
-    if (p_ch) pcnt_del_channel(p_ch);
-    if (pcnt) pcnt_del_unit(pcnt);
+    /* No unit or channel to hand back any more. The leak that made this
+     * cleanup path matter was ESP-IDF's allocator refusing to free a unit whose
+     * channel was still attached; there is no allocator now, and pausing is the
+     * whole of it. */
+    if (pcnt_started) reflex_hal_pcnt_stop();
     /* Hand GPIO 6 back. Leaving a pin driven is a side effect the caller did
      * not ask for, and `make hw-test` runs this five times. */
     /* Back to an input, which is how the pin was found. */

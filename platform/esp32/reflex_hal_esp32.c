@@ -132,6 +132,26 @@ reflex_err_t reflex_hal_pwm_init(uint32_t freq_hz, uint8_t duty_res_bits, uint32
     return REFLEX_ERR_NOT_SUPPORTED;
 }
 
+reflex_err_t reflex_hal_pcnt_start(uint32_t edge_pin, uint32_t level_pin, int16_t low_limit,
+                                   int16_t high_limit) {
+    (void)edge_pin;
+    (void)level_pin;
+    (void)low_limit;
+    (void)high_limit;
+    return REFLEX_ERR_NOT_SUPPORTED;
+}
+
+int reflex_hal_pcnt_read(void) {
+    return 0;
+}
+
+void reflex_hal_pcnt_stop(void) {}
+
+void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out) {
+    if (!out) return;
+    memset(out, 0, sizeof *out);
+}
+
 void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out) {
     if (!out) return;
     memset(out, 0, sizeof *out);

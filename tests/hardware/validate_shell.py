@@ -349,6 +349,19 @@ def validate(port, r):
         b.raw("led off")
 
     first = b.raw("bonsai exp5 run")
+
+    # PCNT is Reflex's own on the C6, checked the same way LEDC was: these are
+    # the exact registers ESP-IDF's driver left behind, captured from this board
+    # before the swap. The first attempt at the driver counted correctly while
+    # leaving the filter and all four watch-event enables set — they come up
+    # that way out of reset — and only this comparison showed it.
+    IDF_PCNT = ("conf0=0x00040010 conf1=0x00000000 conf2=0xfc1803e8 "
+                "ctrl=0x00000054 pcr=0x00000001")
+    pcnt_line = next((l for l in first.splitlines() if "pcnt conf0=" in l), "")
+    if pcnt_line and "conf0=0x00000000" not in pcnt_line:
+        r.check("Reflex PCNT matches ESP-IDF register for register",
+                IDF_PCNT in pcnt_line, pcnt_line)
+
     if "not wired for this target" in first:
         # The experiment hardcodes C6 pins, and GPIO 6 is a flash pin on the
         # classic ESP32 — running it there resets the board, so it refuses.
