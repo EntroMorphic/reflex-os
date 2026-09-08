@@ -837,8 +837,7 @@ static void shell_cmd_status(int argc, char *argv[]) {
     {
         uint32_t dropped = reflex_hal_console_dropped();
         if (dropped) {
-            printf("console: %lu byte(s) DROPPED — receive ring overran\n",
-                   (unsigned long)dropped);
+            printf("console: %lu byte(s) DROPPED — receive ring overran\n", (unsigned long)dropped);
         }
     }
 #endif
@@ -1661,7 +1660,110 @@ static void reflex_shell_dispatch(int argc, char *argv[]) {
  * dropping is correct and hanging is not. Bounded is the property that breaks
  * the deadlock — the shell always returns to its loop, always drains the ring,
  * and always re-arms receive. */
-static void shell_echo(char c) { reflex_hal_write_raw(&c, 1); }
+/* Write straight at the endpoint while holding the lock everything else uses.
+ *
+ * Bypassing stdio is what makes the prompt leave the chip, but it also leaves
+ * the shell's own output outside the mutual exclusion that had been keeping it
+ * apart from the supervisor task's logging. Both write the same FIFO. The
+ * result is a log line landing inside a command's response — measured, not
+ * feared: with these writes unlocked the hardware suite failed roughly three
+ * runs in ten, once with "I (GOOSE_SUPERVISOR) snapshot saved" spliced into
+ * the middle of a reply, where main failed none in five.
+ *
+ * flockfile is the same lock printf takes, so holding it across the flush and
+ * the direct write orders the two paths against every other writer without
+ * inventing a second lock for them to disagree with.
+ *
+ * Deliberately not a critical section: reflex_hal_write_raw waits up to 50 ms
+ * for a host that is not reading, and no interrupt should be held off for
+ * that. */
+static void console_write_locked(const char *text, int len) {
+    flockfile(stdout);
+    fflush(stdout);
+    reflex_hal_write_raw(text, len);
+    funlockfile(stdout);
+}
+
+/* Echo through a small buffer rather than a write per character.
+ *
+ * reflex_hal_write_raw ends every call by setting WR_DONE, which hands the
+ * bytes to the USB endpoint as a packet. One character per packet means one
+ * host frame per character, so a thirteen-character command takes thirteen
+ * milliseconds to appear — and a host that reads on a timeout sees the echo
+ * arrive split across reads, with a line's first character landing in one and
+ * the rest in the next. Against the hardware suite that reads as garbled
+ * responses ("AccessDenied: urpose set x"), which is not corruption: every
+ * byte is present and in order, just spread across more reads than the caller
+ * expected.
+ *
+ * Buffering collapses a typed line into a packet or two. It is flushed on
+ * end-of-line, when full, and whenever the input ring runs dry, so a partly
+ * typed line still appears immediately to a human at a terminal. */
+static char s_echo_buf[64];
+static int s_echo_len;
+
+static void shell_echo_flush(void) {
+    if (s_echo_len > 0) {
+        /* Drain stdio first. Command output goes through buffered printf and
+         * echo goes straight at the endpoint register, so without this the two
+         * paths interleave by whoever flushes first — and the direct one wins.
+         * The visible effect is a reply arriving after the echo of the command
+         * that came *after* it, which reads from the host as every response
+         * being one behind: the suite sends a command, reads, and is handed the
+         * previous command's text followed by its own echo. Ordering, not loss;
+         * every byte was there, in the wrong sequence. */
+        console_write_locked(s_echo_buf, s_echo_len);
+        s_echo_len = 0;
+    }
+}
+
+/* Emit the prompt ourselves rather than leaving it to printf.
+ *
+ * ESP-IDF's console, with no driver installed, hands bytes to the endpoint but
+ * only marks the packet complete when it sees a newline. "reflex> " has none,
+ * so an fflush is not enough: the prompt reaches the hardware FIFO and stays
+ * there, unsent, until some later write marks a packet done — which is the
+ * echo of the *next* command. From the host every reply then looks one behind,
+ * because the prompt that ends an exchange arrives at the head of the one
+ * after it. Measured directly: `auth role admin` returned its full reply and
+ * its outcome marker, then nothing for eight seconds, and the missing prompt
+ * turned up prefixed to the following command.
+ *
+ * reflex_hal_write_raw completes the packet unconditionally, so the prompt
+ * leaves when it is written. stdout is drained first to keep the two paths in
+ * order. */
+static void shell_prompt(const char *text, int len) {
+    console_write_locked(text, len);
+}
+
+static void shell_echo(char c) {
+    if (c == '\n') {
+#if !SOC_USB_SERIAL_JTAG_SUPPORTED
+        /* Where ESP-IDF still owns the console it translates outgoing newlines
+         * itself, so adding the carriage return here produces "\r\r\n" and the
+         * suite's wire-format check catches it. Only the target whose console
+         * Reflex owns has to supply its own. */
+        if (s_echo_len == (int)sizeof s_echo_buf) shell_echo_flush();
+        s_echo_buf[s_echo_len++] = '\n';
+        shell_echo_flush();
+        return;
+#endif
+        /* CRLF, because the rest of the console emits CRLF.
+         *
+         * The removed ESP-IDF driver was translating outgoing newlines, so
+         * echoing a bare LF here puts the command and the first line of its
+         * response on one line for any terminal that needs the carriage
+         * return — and the suite checks for exactly that, since a response
+         * sharing a line with its echo is unreadable and unparseable alike. */
+        if (s_echo_len + 2 > (int)sizeof s_echo_buf) shell_echo_flush();
+        s_echo_buf[s_echo_len++] = '\r';
+        s_echo_buf[s_echo_len++] = '\n';
+        shell_echo_flush();
+        return;
+    }
+    if (s_echo_len == (int)sizeof s_echo_buf) shell_echo_flush();
+    s_echo_buf[s_echo_len++] = c;
+}
 
 void reflex_shell_run(void) {
     char line[REFLEX_SHELL_LINE_MAX]; size_t len = 0; bool overflowed = false;
@@ -1701,15 +1803,47 @@ void reflex_shell_run(void) {
         uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
     }
 #endif
-    printf("reflex> "); fflush(stdout);
+    shell_prompt("reflex> ", 8);
     while (1) {
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
-        uint8_t ch; int r = reflex_hal_console_read(&ch) ? 1 : 0;
+        uint8_t ch;
+        int r = reflex_hal_console_read(&ch) ? 1 : 0;
 #else
         int ch = getchar(); int r = (ch != EOF) ? 1 : 0;
 #endif
 
-        if (r <= 0) { reflex_task_delay_ms(50); continue; }
+        if (r <= 0) {
+            shell_echo_flush();
+#if SOC_USB_SERIAL_JTAG_SUPPORTED && defined(REFLEX_CONSOLE_RX_DIAG)
+            /* Off by default; build with -DREFLEX_CONSOLE_RX_DIAG=1 to enable.
+             *
+             * Kept rather than deleted because it is the only way to
+             * interrogate a board that has stopped answering commands:
+             * transmit and receive share one interrupt line, so the failures
+             * that break input tend to break the shell's ability to report
+             * them. This reports from the idle path, over transmit, whether
+             * the handler ran, how many bytes it buffered, and whether anyone
+             * consumed them — which separates three faults that otherwise look
+             * identical from the host. It found the last one. */
+            static uint32_t idle_ticks;
+            if ((idle_ticks++ % 40u) == 0u) {
+                reflex_console_debug_t d;
+                reflex_hal_console_debug(&d);
+                char line[160];
+                int n = snprintf(line, sizeof line,
+                                 "[rxdiag] inst=%d isr=%lu bytes=%lu head=%lu tail=%lu "
+                                 "ena=0x%08lx raw=0x%08lx conf=0x%08lx\n",
+                                 (int)d.installed, (unsigned long)d.isr_count,
+                                 (unsigned long)d.isr_bytes, (unsigned long)d.head,
+                                 (unsigned long)d.tail, (unsigned long)d.int_ena,
+                                 (unsigned long)d.int_raw, (unsigned long)d.ep1_conf);
+                if (n > 0)
+                    reflex_hal_write_raw(line, n < (int)sizeof line ? n : (int)sizeof line - 1);
+            }
+#endif
+            reflex_task_delay_ms(50);
+            continue;
+        }
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
         /* Raw bytes now, so line endings are ours to normalise.
          *
@@ -1768,7 +1902,9 @@ void reflex_shell_run(void) {
                 shell_outcome_format(rbuf, sizeof(rbuf), s_outcome);
                 printf("%s\n", rbuf);
             }
-            len = 0; overflowed = false; printf("\nreflex> "); fflush(stdout);
+            len = 0;
+            overflowed = false;
+            shell_prompt("\nreflex> ", 9);
         } else if (ch == 0x08 || ch == 0x7F) {
             /* Backspace / DEL. Without this the byte was appended to the line
              * and echoed, so `statuX<DEL>s` dispatched as `statuX\x7fs` and a
@@ -1788,8 +1924,9 @@ void reflex_shell_run(void) {
             if (len < REFLEX_SHELL_LINE_MAX - 1) {
                 line[len++] = ch;
                 shell_echo((char)ch);
+            } else {
+                overflowed = true;
             }
-            else { overflowed = true; }
         }
     }
 }

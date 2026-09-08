@@ -313,11 +313,39 @@ def validate(port, r):
         got = b.raw(f"tapestry signal {LIVE_CELL} {bad}")
         r.check(f"tapestry rejects state {bad!r}", "must be -1, 0 or 1" in got, got)
 
-    before = b.cell_state(SYS_CELL)
     got = b.raw(f"tapestry signal {SYS_CELL} 1")
     r.check("tapestry refuses a sys.* cell", "refusing to signal" in got, got)
-    r.check(f"sys cell unchanged ({before} -> {b.cell_state(SYS_CELL)})",
-            before == b.cell_state(SYS_CELL), before)
+
+    # Establish that the cell is quiet before trusting it to stay put.
+    #
+    # The supervisor rewrites sys.kernel.disposition on every policy pass, from
+    # live engaged/withheld counts (goose_supervisor.c) — so a bare
+    # before/after comparison is asserting something the system never promised,
+    # and fails whenever a pass lands between the two reads. The old form was
+    # worse than it looked: it sampled the cell a second time for the label and
+    # a third for the comparison, so it compared the first read against the
+    # third with two command round-trips in between. It passed by being lucky
+    # about timing, and a change that shifted timing at all could unmask it
+    # without breaking anything.
+    #
+    # A trial only counts when the cell reads the same either side of a control
+    # round-trip; otherwise the supervisor is active and the trial says nothing.
+    # Then the same comparison is made across the refused signal, which is the
+    # property actually under test: a refusal must not write.
+    for _ in range(5):
+        first = b.cell_state(SYS_CELL)
+        b.raw("status")               # a round-trip that must not change it
+        if first != b.cell_state(SYS_CELL):
+            continue                  # supervisor wrote; trial void
+        b.raw(f"tapestry signal {SYS_CELL} 1")
+        after = b.cell_state(SYS_CELL)
+        r.check(f"a refused sys.* signal does not write ({first} -> {after})",
+                first == after, after)
+        break
+    else:
+        r.skip("a refused sys.* signal does not write",
+               "the supervisor rewrote sys.kernel.disposition during every "
+               "attempt, so no trial could isolate the signal's effect")
     got = b.raw("tapestry signal sys.does.not.exist 1")
     r.check("sys refusal precedes resolution", "refusing to signal" in got and "not found" not in got, got)
 

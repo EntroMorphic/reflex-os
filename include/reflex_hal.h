@@ -197,6 +197,22 @@ bool reflex_hal_console_read(uint8_t *out);
  */
 uint32_t reflex_hal_console_dropped(void);
 
+/* Diagnostic snapshot of the USB-serial-JTAG receive path. Present so a board
+ * that cannot be commanded can still be interrogated over the one channel that
+ * works, which is transmit. */
+typedef struct {
+    uint32_t isr_count;
+    uint32_t isr_bytes;
+    uint32_t head;
+    uint32_t tail;
+    uint32_t int_ena;
+    uint32_t int_raw;
+    uint32_t ep1_conf;
+    bool installed;
+} reflex_console_debug_t;
+
+void reflex_hal_console_debug(reflex_console_debug_t *out);
+
 void reflex_hal_random_fill(uint8_t *buf, size_t len);
 /** @brief Read the factory MAC. Doubles as this board's mesh identity, so it
  *  is what self-arc suppression and the peer table compare against. */
