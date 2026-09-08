@@ -642,11 +642,22 @@ of reset and a read-modify-write inherits them. Behaviourally identical on a
 1 ms signal; not on a fast edge; invisible to any check that only reads the
 count. **Tier E 3 -> 2, on-path 18 -> 17.**
 
-What remains in Tier E is RMT, across `rmt_tx` and `rmt_encoder`. It is the hard one — channel memory, an
-encoder abstraction and a completion signal — and `bonsai exp5`'s open question
-(two of ten pulses counted) sits on exactly that path, so the loopback should be
-understood before a Reflex RMT driver is written, or a porting bug and the
-existing fault will be indistinguishable.
+**Tier E is clear.** RMT was the last of it, and owning it answered the question
+that had been open beside it. `bonsai exp5` counted 2 of the 10 pulses it sent
+for as long as ESP-IDF drove the transmit side; it counts 10 of 10 now, with the
+RMT and PCNT registers byte-for-byte identical to ESP-IDF's in both cases. The
+pad's input buffer was never enabled, so the counter could not see the signal
+being driven at it — `io_loop_back` is deprecated in this ESP-IDF version.
+Removing that single `IO_MUX_FUN_IE` write takes the count from 10 to 0 with
+every register unchanged, which is the isolation.
+
+Worth keeping as the method rather than the anecdote: three earlier guesses were
+tried on hardware and rejected, all aimed at a pin that was already correct.
+What found it was making the two implementations comparable register for
+register, so that "identical configuration, different behaviour" became a
+statement about where the fault could *not* be.
+
+**Tier E 2 -> 0, on-path total 17 -> 15**, from 23 when this began.
 
 The general lesson is the one already in `CONTRIBUTING.md`: five of these six
 were found by an experiment that isolated one variable, and none by reading the

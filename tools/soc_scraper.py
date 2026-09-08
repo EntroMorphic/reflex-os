@@ -173,6 +173,36 @@ REGS = [
     ("REFLEX_PCR_PCNT_CONF_REG",  "PCR_PCNT_CONF_REG",  "PCR",  "PCNT_CONF", None, "peripheral clock and reset"),
     ("REFLEX_PCR_PCNT_CLK_EN",    "PCR_PCNT_CLK_EN",    "PCR",  "PCNT_CONF", "PCNT_CLK_EN",  ""),
     ("REFLEX_PCR_PCNT_RST_EN",    "PCR_PCNT_RST_EN",    "PCR",  "PCNT_CONF", "PCNT_RST_EN",  "asserted means held in reset"),
+
+    # --- RMT, the last peripheral Tier E borrows ---
+    # IDF names the transmit configuration RMT_CH0CONF0_REG where the SVD calls
+    # it CH%s_TX_CONF0, and suffixes its fields with the channel; the bridge
+    # proves the two describe the same register regardless.
+    ("REFLEX_DR_REG_RMT_BASE",     "DR_REG_RMT_BASE",     "RMT", None,             None, "peripheral base, not a register"),
+    ("REFLEX_RMT_CH0_TX_CONF0_REG","RMT_CH0CONF0_REG",    "RMT", "CH%s_TX_CONF0",  None, "channel 0 transmit config"),
+    ("REFLEX_RMT_CH0DATA_REG",     "RMT_CH0DATA_REG",     "RMT", "CH%sDATA",       None, "the FIFO window onto channel memory"),
+    ("REFLEX_RMT_CH0_TX_LIM_REG",  "RMT_CH0_TX_LIM_REG",  "RMT", "CH%s_TX_LIM",    None, ""),
+    ("REFLEX_RMT_SYS_CONF_REG",    "RMT_SYS_CONF_REG",    "RMT", "SYS_CONF",       None, "clock source and the FIFO/memory access mode; IDF doubles the prefix on its SCLK fields (RMT_RMT_SCLK_*)"),
+    ("REFLEX_RMT_INT_RAW_REG",     "RMT_INT_RAW_REG",     "RMT", "INT_RAW",        None, ""),
+    ("REFLEX_RMT_INT_CLR_REG",     "RMT_INT_CLR_REG",     "RMT", "INT_CLR",        None, ""),
+    ("REFLEX_RMT_TX_START",        "RMT_TX_START_CH0",    "RMT", "CH%s_TX_CONF0",  "TX_START",     ""),
+    ("REFLEX_RMT_MEM_RD_RST",      "RMT_MEM_RD_RST_CH0",  "RMT", "CH%s_TX_CONF0",  "MEM_RD_RST",   "rewind the read pointer"),
+    ("REFLEX_RMT_APB_MEM_RST",     "RMT_APB_MEM_RST_CH0", "RMT", "CH%s_TX_CONF0",  "APB_MEM_RST",  "rewind the write pointer"),
+    ("REFLEX_RMT_TX_STOP",         "RMT_TX_STOP_CH0",     "RMT", "CH%s_TX_CONF0",  "TX_STOP",      ""),
+    ("REFLEX_RMT_IDLE_OUT_EN",     "RMT_IDLE_OUT_EN_CH0", "RMT", "CH%s_TX_CONF0",  "IDLE_OUT_EN",  ""),
+    ("REFLEX_RMT_MEM_TX_WRAP_EN",  "RMT_MEM_TX_WRAP_EN_CH0","RMT","CH%s_TX_CONF0", "MEM_TX_WRAP_EN",""),
+    ("REFLEX_RMT_CARRIER_EFF_EN",  "RMT_CARRIER_EFF_EN_CH0","RMT","CH%s_TX_CONF0", "CARRIER_EFF_EN","left set, as ESP-IDF leaves it; inert with the carrier off"),
+    ("REFLEX_RMT_CARRIER_OUT_LV",  "RMT_CARRIER_OUT_LV_CH0","RMT","CH%s_TX_CONF0", "CARRIER_OUT_LV",""),
+    ("REFLEX_RMT_LOOP_STOP_EN",    "RMT_LOOP_STOP_EN_CH0",  "RMT","CH%s_TX_LIM",   "LOOP_STOP_EN",  ""),
+    ("REFLEX_RMT_CONF_UPDATE",     "RMT_CONF_UPDATE_CH0", "RMT", "CH%s_TX_CONF0",  "CONF_UPDATE",  "latch the channel config"),
+    ("REFLEX_RMT_APB_FIFO_MASK",   "RMT_APB_FIFO_MASK",   "RMT", "SYS_CONF",       "APB_FIFO_MASK","1 addresses channel memory directly"),
+    ("REFLEX_RMT_SCLK_ACTIVE",     "RMT_RMT_SCLK_ACTIVE",     "RMT", "SYS_CONF",       "SCLK_ACTIVE",  ""),
+    ("REFLEX_RMT_CH0_TX_END_INT_RAW","RMT_CH0_TX_END_INT_RAW","RMT","INT_RAW",     "CH%s_TX_END",  "transmission complete"),
+    ("REFLEX_PCR_RMT_CONF_REG",      "PCR_RMT_CONF_REG",      "PCR", "RMT_CONF",      None, "peripheral clock and reset"),
+    ("REFLEX_PCR_RMT_SCLK_CONF_REG", "PCR_RMT_SCLK_CONF_REG", "PCR", "RMT_SCLK_CONF", None, ""),
+    ("REFLEX_PCR_RMT_CLK_EN",        "PCR_RMT_CLK_EN",        "PCR", "RMT_CONF",      "RMT_CLK_EN",  ""),
+    ("REFLEX_PCR_RMT_RST_EN",        "PCR_RMT_RST_EN",        "PCR", "RMT_CONF",      "RMT_RST_EN",  "asserted means held in reset"),
+    ("REFLEX_PCR_RMT_SCLK_EN",       "PCR_RMT_SCLK_EN",       "PCR", "RMT_SCLK_CONF", "SCLK_EN",     ""),
 ]
 
 # Value masks: (1 << bitWidth) - 1 rather than a single bit.
@@ -186,6 +216,15 @@ WIDTH_MASKS = [
     ("REFLEX_PCNT_MODE_MASK",        "PCNT_CH0_POS_MODE_U0_V",  "PCNT", "U%s_CONF0", "CH0_POS_MODE", "all four mode fields are 2 bits"),
     ("REFLEX_PCNT_LIM_MASK",         "PCNT_CNT_H_LIM_U0_V",     "PCNT", "U%s_CONF2", "CNT_H_LIM",    ""),
     ("REFLEX_PCNT_CNT_MASK",         "PCNT_PULSE_CNT_U0_V",     "PCNT", "U%s_CNT",   "CNT",          "16-bit, read as signed"),
+    ("REFLEX_RMT_DIV_CNT_MASK",      "RMT_DIV_CNT_CH0_V",       "RMT",  "CH%s_TX_CONF0", "DIV_CNT",  "channel clock divider"),
+    ("REFLEX_RMT_MEM_SIZE_MASK",     "RMT_MEM_SIZE_CH0_V",      "RMT",  "CH%s_TX_CONF0", "MEM_SIZE", "in 48-word blocks"),
+    ("REFLEX_RMT_SCLK_DIV_NUM_MASK", "RMT_RMT_SCLK_DIV_NUM_V",      "RMT",  "SYS_CONF",  "SCLK_DIV_NUM", ""),
+    ("REFLEX_RMT_SCLK_SEL_MASK",     "RMT_RMT_SCLK_SEL_V",          "RMT",  "SYS_CONF",  "SCLK_SEL",     ""),
+    ("REFLEX_RMT_TX_LIM_MASK",       "RMT_TX_LIM_CH0_V",            "RMT",  "CH%s_TX_LIM", "TX_LIM",     ""),
+    ("REFLEX_PCR_RMT_SCLK_DIV_A_MASK",  "PCR_RMT_SCLK_DIV_A_V",   "PCR", "RMT_SCLK_CONF", "SCLK_DIV_A",   ""),
+    ("REFLEX_PCR_RMT_SCLK_DIV_B_MASK",  "PCR_RMT_SCLK_DIV_B_V",   "PCR", "RMT_SCLK_CONF", "SCLK_DIV_B",   ""),
+    ("REFLEX_PCR_RMT_SCLK_DIV_NUM_MASK","PCR_RMT_SCLK_DIV_NUM_V", "PCR", "RMT_SCLK_CONF", "SCLK_DIV_NUM", ""),
+    ("REFLEX_PCR_RMT_SCLK_SEL_MASK",    "PCR_RMT_SCLK_SEL_V",     "PCR", "RMT_SCLK_CONF", "SCLK_SEL",     ""),
 ]
 
 # Field shifts. REFLEX_REG_SET_FIELD takes mask and shift explicitly rather
@@ -205,6 +244,15 @@ SHIFTS = [
     ("REFLEX_PCNT_CH0_LCTRL_MODE_S", "PCNT_CH0_LCTRL_MODE_U0_S", "PCNT", "U%s_CONF0", "CH0_LCTRL_MODE", ""),
     ("REFLEX_PCNT_CNT_H_LIM_S",      "PCNT_CNT_H_LIM_U0_S",      "PCNT", "U%s_CONF2", "CNT_H_LIM",      ""),
     ("REFLEX_PCNT_CNT_L_LIM_S",      "PCNT_CNT_L_LIM_U0_S",      "PCNT", "U%s_CONF2", "CNT_L_LIM",      ""),
+    ("REFLEX_RMT_DIV_CNT_S",         "RMT_DIV_CNT_CH0_S",        "RMT",  "CH%s_TX_CONF0", "DIV_CNT",  ""),
+    ("REFLEX_RMT_MEM_SIZE_S",        "RMT_MEM_SIZE_CH0_S",       "RMT",  "CH%s_TX_CONF0", "MEM_SIZE", ""),
+    ("REFLEX_RMT_SCLK_DIV_NUM_S",    "RMT_RMT_SCLK_DIV_NUM_S",       "RMT",  "SYS_CONF",  "SCLK_DIV_NUM", ""),
+    ("REFLEX_RMT_SCLK_SEL_S",        "RMT_RMT_SCLK_SEL_S",           "RMT",  "SYS_CONF",  "SCLK_SEL",     ""),
+    ("REFLEX_RMT_TX_LIM_S",          "RMT_TX_LIM_CH0_S",         "RMT",  "CH%s_TX_LIM", "TX_LIM",     ""),
+    ("REFLEX_PCR_RMT_SCLK_DIV_A_S",  "PCR_RMT_SCLK_DIV_A_S",     "PCR", "RMT_SCLK_CONF", "SCLK_DIV_A",   ""),
+    ("REFLEX_PCR_RMT_SCLK_DIV_B_S",  "PCR_RMT_SCLK_DIV_B_S",     "PCR", "RMT_SCLK_CONF", "SCLK_DIV_B",   ""),
+    ("REFLEX_PCR_RMT_SCLK_DIV_NUM_S","PCR_RMT_SCLK_DIV_NUM_S",   "PCR", "RMT_SCLK_CONF", "SCLK_DIV_NUM", ""),
+    ("REFLEX_PCR_RMT_SCLK_SEL_S",    "PCR_RMT_SCLK_SEL_S",       "PCR", "RMT_SCLK_CONF", "SCLK_SEL",     ""),
 ]
 
 # Not in the SVD. Each states where it does come from.
@@ -218,6 +266,7 @@ LITERALS = [
     ("REFLEX_PCNT_SIG_CH0_IN0_IDX", "PCNT_SIG_CH0_IN0_IDX",  101, "GPIO matrix signal index; gpio_sig_map, not the SVD. Unit 0 channel 0 edge input"),
     ("REFLEX_PCNT_CTRL_CH0_IN0_IDX","PCNT_CTRL_CH0_IN0_IDX", 103, "GPIO matrix signal index; the level/control input gating the same channel"),
     ("REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT", "GPIO_MATRIX_CONST_ZERO_INPUT", 0x3C, "gpio_pins.h, not the SVD. Routing this into a signal index is how the matrix disconnects an input"),
+    ("REFLEX_RMT_SIG_OUT0_IDX", "RMT_SIG_OUT0_IDX", 71, "GPIO matrix signal index; gpio_sig_map, not the SVD. Guessed as 51 first and the bridge rejected it, which is the entire point of the bridge"),
     ("REFLEX_IO_MUX_MCU_SEL_V",    "MCU_SEL",              0x7,        "IO_MUX function-select field mask (3 bits)"),
     ("REFLEX_SOC_SYSTIMER_FIXED_DIVIDER", "SOC_SYSTIMER_FIXED_DIVIDER", 1, "capability flag from soc_caps.h"),
     ("REFLEX_INTR_SRC_SYSTIMER_TARGET1", "ETS_SYSTIMER_TARGET1_INTR_SOURCE", 58,
@@ -345,6 +394,7 @@ def render_bridge(bridge):
         "#include \"soc/ledc_reg.h\"",
         "#include \"soc/pcnt_reg.h\"",
         "#include \"soc/gpio_pins.h\"",
+        "#include \"soc/rmt_reg.h\"",
         "#include \"soc/extmem_reg.h\"",
         "#include \"soc/assist_debug_reg.h\"",
         "#include \"soc/spi_mem_reg.h\"",

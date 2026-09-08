@@ -8,13 +8,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Fenced on the target, not on a capability macro.
+ *
+ * SOC_USB_SERIAL_JTAG_SUPPORTED reads correctly only if soc_caps.h has already
+ * been included, and this file was getting that transitively through
+ * driver/rmt_tx.h. Removing that include as part of owning RMT left the first
+ * `#if` here evaluating an *undefined* macro: it took the else branch, pulled
+ * in driver/uart.h, and uart.h then defined the macro so every later guard in
+ * the file evaluated the other way. The build still worked, by accident of
+ * include order, while quietly reacquiring the two UART includes Tier E had
+ * already shed — which is how the independence checker's build-agreement test
+ * caught it.
+ *
+ * CONFIG_IDF_TARGET_ESP32C6 comes from sdkconfig.h, which the build force-
+ * includes into every source file, so it cannot be undefined at the point of
+ * use. */
 #if !CONFIG_IDF_TARGET_ESP32C6
 #include "driver/ledc.h"
-#endif
-#include "driver/rmt_tx.h"
-#include "driver/rmt_encoder.h"
-#if SOC_USB_SERIAL_JTAG_SUPPORTED
-#else
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
 #endif
@@ -364,8 +374,6 @@ static void reflex_shell_bonsai_exp5_run(void) {
      * channel attached, which fails and leaks the unit exactly as before. Three
      * hand-written unwinds is why the bug existed; a single one is why it will
      * not come back. */
-    rmt_channel_handle_t rmt_ch = NULL;
-    rmt_encoder_handle_t encoder = NULL;
     bool pcnt_started = false, rmt_enabled = false;
     bool gpio6_taken = false;
     const char *failed_at = NULL;
@@ -381,20 +389,13 @@ static void reflex_shell_bonsai_exp5_run(void) {
     }
     pcnt_started = true;
 
-    rmt_tx_channel_config_t rcfg = {
-        .gpio_num = 4,
-        .clk_src = RMT_CLK_SRC_DEFAULT,
-        .resolution_hz = 1000000, // 1MHz
-        .mem_block_symbols = 64,
-        .trans_queue_depth = 4,
-        .flags.io_loop_back = 1,
-    };
-    if (rmt_new_tx_channel(&rcfg, &rmt_ch) != REFLEX_OK) {
-        failed_at = "rmt_new_tx_channel";
-        goto cleanup;
-    }
-    if (rmt_enable(rmt_ch) != REFLEX_OK) {
-        failed_at = "rmt_enable";
+    /* Reflex's own RMT. Tier E: the last two includes this file borrowed.
+     *
+     * Same shape as before — 1 MHz resolution on pin 4, with the pin's input
+     * left enabled so the counter reading the same pad sees what is
+     * transmitted, which is what io_loop_back was asking for. */
+    if (reflex_hal_rmt_tx_init(4, 1000000) != REFLEX_OK) {
+        failed_at = "reflex_hal_rmt_tx_init";
         goto cleanup;
     }
     rmt_enabled = true;
@@ -417,31 +418,17 @@ static void reflex_shell_bonsai_exp5_run(void) {
     reflex_hal_gpio_set_level(6, 1); // High to enable (keeping it simple)
     gpio6_taken = true;
 
-    rmt_symbol_word_t pulses[10];
+    uint32_t pulses[10];
     for (int i = 0; i < 10; i++) {
-        pulses[i].duration0 = 1000;
-        pulses[i].level0 = 1;
-        pulses[i].duration1 = 1000;
-        pulses[i].level1 = 0;
-    }
-    rmt_transmit_config_t tcfg = { .loop_count = 0 };
-    rmt_copy_encoder_config_t ecfg = {};
-    if (rmt_new_copy_encoder(&ecfg, &encoder) != REFLEX_OK) {
-        failed_at = "rmt_new_copy_encoder";
-        goto cleanup;
-    }
-    if (rmt_transmit(rmt_ch, encoder, pulses, 10, &tcfg) != REFLEX_OK) {
-        failed_at = "rmt_transmit";
-        goto cleanup;
+        pulses[i] = reflex_hal_rmt_symbol(1000, true, 1000, false);
     }
 
-    /* Wait for the transmission rather than for a fixed interval.
-     *
-     * rmt_transmit queues and returns, so the count below was read whenever
-     * 100ms happened to land relative to a 20ms pulse train. A delay is not a
-     * synchronisation primitive, and the experiment reported whatever it saw as
-     * though it were the answer. */
-    rmt_tx_wait_all_done(rmt_ch, 1000);
+    /* Transmit and wait for the channel to say it is done, rather than for an
+     * interval that might or might not cover it. */
+    if (reflex_hal_rmt_tx_symbols(pulses, 10, 1000000) != REFLEX_OK) {
+        failed_at = "reflex_hal_rmt_tx_symbols";
+        goto cleanup;
+    }
 
     int count = reflex_hal_pcnt_read();
     printf("bonsai exp5 intersect overlap=%d (expected 10)\n", count);
@@ -449,6 +436,12 @@ static void reflex_shell_bonsai_exp5_run(void) {
         /* Same readback the PWM path carries, and for the same reason: it is
          * what lets a Reflex driver be checked against the one it replaces
          * register for register rather than declared equivalent. */
+        reflex_rmt_snapshot_t rm;
+        reflex_hal_rmt_snapshot(&rm);
+        printf("bonsai exp5 rmt conf0=0x%08lx sys=0x%08lx lim=0x%08lx "
+               "pcr=0x%08lx sclk=0x%08lx\n",
+               (unsigned long)rm.tx_conf0, (unsigned long)rm.sys_conf, (unsigned long)rm.tx_lim,
+               (unsigned long)rm.pcr, (unsigned long)rm.pcr_sclk);
         reflex_pcnt_snapshot_t pc;
         reflex_hal_pcnt_snapshot(&pc);
         printf("bonsai exp5 pcnt conf0=0x%08lx conf1=0x%08lx conf2=0x%08lx "
@@ -468,9 +461,7 @@ cleanup:
         printf("bonsai exp5: %s failed\n", failed_at);
         outcome(SHELL_FAILED);
     }
-    if (encoder) rmt_del_encoder(encoder);
-    if (rmt_enabled) rmt_disable(rmt_ch);
-    if (rmt_ch) rmt_del_channel(rmt_ch);
+    if (rmt_enabled) reflex_hal_rmt_release();
     /* No unit or channel to hand back any more. The leak that made this
      * cleanup path matter was ESP-IDF's allocator refusing to free a unit whose
      * channel was still attached; there is no allocator now, and pausing is the
@@ -980,7 +971,7 @@ static void shell_cmd_status(int argc, char *argv[]) {
      * is enough for the circuit breaker but useless for spotting a slow leak —
      * the thresholds sit at 8K/16K against ~300K free, so a leak is invisible
      * until it is already critical. Soak runs need the raw number. */
-#if SOC_USB_SERIAL_JTAG_SUPPORTED
+#if CONFIG_IDF_TARGET_ESP32C6
     /* Console input loss, printed only when it has happened.
      *
      * Reflex owns console RX now, so a full receive ring is Reflex's own
@@ -1949,7 +1940,7 @@ static void shell_prompt(const char *text, int len) {
 
 static void shell_echo(char c) {
     if (c == '\n') {
-#if !SOC_USB_SERIAL_JTAG_SUPPORTED
+#if !CONFIG_IDF_TARGET_ESP32C6
         /* Where ESP-IDF still owns the console it translates outgoing newlines
          * itself, so adding the carriage return here produces "\r\r\n" and the
          * suite's wire-format check catches it. Only the target whose console
@@ -1978,10 +1969,10 @@ static void shell_echo(char c) {
 
 void reflex_shell_run(void) {
     char line[REFLEX_SHELL_LINE_MAX]; size_t len = 0; bool overflowed = false;
-#if SOC_USB_SERIAL_JTAG_SUPPORTED
+#if CONFIG_IDF_TARGET_ESP32C6
     bool s_last_was_cr = false;
 #endif
-#if SOC_USB_SERIAL_JTAG_SUPPORTED
+#if CONFIG_IDF_TARGET_ESP32C6
     /* Reflex owns console receive on this target.
      *
      * This installed ESP-IDF's USB-serial-JTAG driver and read through it. The
@@ -2016,7 +2007,7 @@ void reflex_shell_run(void) {
 #endif
     shell_prompt("reflex> ", 8);
     while (1) {
-#if SOC_USB_SERIAL_JTAG_SUPPORTED
+#if CONFIG_IDF_TARGET_ESP32C6
         uint8_t ch;
         int r = reflex_hal_console_read(&ch) ? 1 : 0;
 #else
@@ -2025,7 +2016,7 @@ void reflex_shell_run(void) {
 
         if (r <= 0) {
             shell_echo_flush();
-#if SOC_USB_SERIAL_JTAG_SUPPORTED && defined(REFLEX_CONSOLE_RX_DIAG)
+#if CONFIG_IDF_TARGET_ESP32C6 && defined(REFLEX_CONSOLE_RX_DIAG)
             /* Off by default; build with -DREFLEX_CONSOLE_RX_DIAG=1 to enable.
              *
              * Kept rather than deleted because it is the only way to
@@ -2055,7 +2046,7 @@ void reflex_shell_run(void) {
             reflex_task_delay_ms(50);
             continue;
         }
-#if SOC_USB_SERIAL_JTAG_SUPPORTED
+#if CONFIG_IDF_TARGET_ESP32C6
         /* Raw bytes now, so line endings are ours to normalise.
          *
          * The removed usb_serial_jtag_vfs_set_rx_line_endings(CRLF) was doing

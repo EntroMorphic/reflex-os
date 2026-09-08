@@ -357,6 +357,26 @@ def validate(port, r):
     # that way out of reset — and only this comparison showed it.
     IDF_PCNT = ("conf0=0x00040010 conf1=0x00000000 conf2=0xfc1803e8 "
                 "ctrl=0x00000054 pcr=0x00000001")
+    IDF_RMT = ("conf0=0x00525050 sys=0x05000011 lim=0x00200030 "
+               "pcr=0x00000001 sclk=0x00500040")
+    rmt_line = next((l for l in first.splitlines() if "rmt conf0=" in l), "")
+    if not rmt_line or "sclk=0x00000000" in rmt_line:
+        r.skip("Reflex RMT matches ESP-IDF register for register",
+               "this target does not run the experiment, so there is no Reflex "
+               "RMT configuration to compare")
+    else:
+        r.check("Reflex RMT matches ESP-IDF register for register",
+                IDF_RMT in rmt_line, rmt_line)
+
+    # The experiment counts every pulse it sends now. It read 2 of 10 for as
+    # long as ESP-IDF drove the transmit side, with both peripherals configured
+    # identically — the pad's input buffer was never enabled, so the counter
+    # could not see the signal. Isolated by removing that one bit from the
+    # Reflex driver, which drops the count to 0 while every register stays the
+    # same. Asserting the number keeps that from silently regressing.
+    if "overlap=" in first:
+        r.check("`bonsai exp5` counts every pulse it sends",
+                "overlap=10 (expected 10)" in first, first[:90])
     pcnt_line = next((l for l in first.splitlines() if "pcnt conf0=" in l), "")
     if not pcnt_line or "conf0=0x00000000" in pcnt_line:
         # Say so rather than vanish. A check that disappears on one target

@@ -248,6 +248,24 @@ void reflex_hal_pcnt_release(void);
 
 void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out);
 
+/* Remote-control transmit. Reflex's own on the C6, replacing driver/rmt_tx.h
+ * and driver/rmt_encoder.h for the fixed pulse train `bonsai exp5` sends. */
+typedef struct {
+    uint32_t tx_conf0;
+    uint32_t sys_conf;
+    uint32_t tx_lim;
+    uint32_t pcr;
+    uint32_t pcr_sclk;
+} reflex_rmt_snapshot_t;
+
+uint32_t reflex_hal_rmt_symbol(uint16_t dur0, bool lvl0, uint16_t dur1, bool lvl1);
+reflex_err_t reflex_hal_rmt_tx_init(uint32_t pin, uint32_t resolution_hz);
+reflex_err_t reflex_hal_rmt_tx_symbols(const uint32_t *symbols, uint32_t count,
+                                       uint32_t timeout_us);
+void reflex_hal_rmt_release(void);
+
+void reflex_hal_rmt_snapshot(reflex_rmt_snapshot_t *out);
+
 void reflex_hal_random_fill(uint8_t *buf, size_t len);
 /** @brief Read the factory MAC. Doubles as this board's mesh identity, so it
  *  is what self-arc suppression and the peer table compare against. */

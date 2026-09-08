@@ -889,6 +889,132 @@ void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out) {
     out->pcr_sclk = REFLEX_REG(REFLEX_PCR_LEDC_SCLK_CONF_REG);
 }
 
+/* ---- RMT -------------------------------------------------------------- */
+
+/* Channel memory. ESP-IDF places it by linker script — `PROVIDE (RMTMEM =
+ * 0x60006400)` in esp32c6.peripherals.ld — so there is no macro for the SoC
+ * bridge to compare against and the offset is stated here instead, against a
+ * base that *is* bridge-verified. It is not taken on trust: a wrong address
+ * means the channel transmits nothing at all, which the equivalence check and
+ * exp5's own count both show immediately. */
+#define RMT_CH0_MEM (REFLEX_DR_REG_RMT_BASE + 0x400u)
+
+/* One 48-word block per channel; two of them cover the 64 symbols exp5 asks
+ * for, which is why ESP-IDF leaves MEM_SIZE at 2. */
+#define RMT_MEM_WORDS_PER_BLOCK 48u
+
+/* The clock ESP-IDF selects for this channel, read back from the configuration
+ * it left rather than derived: PCR picks source 1 with no division, and the
+ * channel's own DIV_CNT of 80 turns it into the 1 MHz exp5 asked for. So the
+ * source is 80 MHz. */
+#define RMT_SCLK_SEL_80M 1u
+#define RMT_SRC_HZ 80000000u
+
+uint32_t reflex_hal_rmt_symbol(uint16_t dur0, bool lvl0, uint16_t dur1, bool lvl1) {
+    /* A symbol is two runs packed into one word: 15 bits of duration and a
+     * level, twice. Durations are in channel ticks, so they mean whatever
+     * resolution the channel was configured for. */
+    return ((uint32_t)(dur0 & 0x7FFFu)) | ((uint32_t)(lvl0 ? 1u : 0u) << 15) |
+           ((uint32_t)(dur1 & 0x7FFFu) << 16) | ((uint32_t)(lvl1 ? 1u : 0u) << 31);
+}
+
+reflex_err_t reflex_hal_rmt_tx_init(uint32_t pin, uint32_t resolution_hz) {
+    if (pin >= 31u || resolution_hz == 0u) return REFLEX_ERR_INVALID_ARG;
+    uint32_t div = RMT_SRC_HZ / resolution_hz;
+    if (div == 0u || div > (REFLEX_RMT_DIV_CNT_MASK + 1u)) return REFLEX_ERR_INVALID_ARG;
+    /* The field holds 0 for a divide of 256; every other value is itself. */
+    uint32_t div_field = (div == 256u) ? 0u : div;
+
+    REFLEX_REG(REFLEX_PCR_RMT_CONF_REG) |= REFLEX_PCR_RMT_CLK_EN;
+    REFLEX_REG(REFLEX_PCR_RMT_CONF_REG) &= ~REFLEX_PCR_RMT_RST_EN;
+
+    uint32_t sclk = REFLEX_REG(REFLEX_PCR_RMT_SCLK_CONF_REG);
+    sclk &= ~((REFLEX_PCR_RMT_SCLK_DIV_A_MASK << REFLEX_PCR_RMT_SCLK_DIV_A_S) |
+              (REFLEX_PCR_RMT_SCLK_DIV_B_MASK << REFLEX_PCR_RMT_SCLK_DIV_B_S) |
+              (REFLEX_PCR_RMT_SCLK_DIV_NUM_MASK << REFLEX_PCR_RMT_SCLK_DIV_NUM_S) |
+              (REFLEX_PCR_RMT_SCLK_SEL_MASK << REFLEX_PCR_RMT_SCLK_SEL_S));
+    sclk |= (1u << REFLEX_PCR_RMT_SCLK_DIV_B_S) | (RMT_SCLK_SEL_80M << REFLEX_PCR_RMT_SCLK_SEL_S) |
+            REFLEX_PCR_RMT_SCLK_EN;
+    REFLEX_REG(REFLEX_PCR_RMT_SCLK_CONF_REG) = sclk;
+
+    /* APB_FIFO_MASK selects addressing the channel memory directly rather than
+     * pushing symbols through the FIFO window, which is what the memory writes
+     * below depend on. */
+    REFLEX_REG(REFLEX_RMT_SYS_CONF_REG) =
+        REFLEX_RMT_APB_FIFO_MASK | (1u << REFLEX_RMT_SCLK_DIV_NUM_S) |
+        (RMT_SCLK_SEL_80M << REFLEX_RMT_SCLK_SEL_S) | REFLEX_RMT_SCLK_ACTIVE;
+
+    REFLEX_REG(REFLEX_RMT_CH0_TX_LIM_REG) =
+        ((RMT_MEM_WORDS_PER_BLOCK & REFLEX_RMT_TX_LIM_MASK) << REFLEX_RMT_TX_LIM_S) |
+        REFLEX_RMT_LOOP_STOP_EN;
+
+    /* CARRIER_EFF_EN and CARRIER_OUT_LV are left set because that is what
+     * ESP-IDF leaves, and they are inert while CARRIER_EN is clear. Matching
+     * them is not cargo cult: the PCNT driver counted correctly while four bits
+     * off ESP-IDF's configuration, and only an exact comparison found it. */
+    REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG) =
+        REFLEX_RMT_MEM_TX_WRAP_EN | REFLEX_RMT_IDLE_OUT_EN |
+        ((div_field & REFLEX_RMT_DIV_CNT_MASK) << REFLEX_RMT_DIV_CNT_S) |
+        ((2u & REFLEX_RMT_MEM_SIZE_MASK) << REFLEX_RMT_MEM_SIZE_S) | REFLEX_RMT_CARRIER_EFF_EN |
+        REFLEX_RMT_CARRIER_OUT_LV;
+    REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG) |= REFLEX_RMT_CONF_UPDATE;
+
+    /* Drive the pin, and leave its input enabled so a peripheral reading the
+     * same pad still sees the signal — the loopback exp5 needs to count its own
+     * output. */
+    reflex_hal_gpio_init_output(pin);
+    REFLEX_REG(IO_MUX_PIN_REG(pin)) |= IO_MUX_FUN_IE_BIT;
+    esp_rom_gpio_connect_out_signal(pin, REFLEX_RMT_SIG_OUT0_IDX, false, false);
+    return REFLEX_OK;
+}
+
+reflex_err_t reflex_hal_rmt_tx_symbols(const uint32_t *symbols, uint32_t count,
+                                       uint32_t timeout_us) {
+    if (!symbols || count == 0u) return REFLEX_ERR_INVALID_ARG;
+    /* Two blocks, less one word for the end marker. */
+    if (count >= 2u * RMT_MEM_WORDS_PER_BLOCK) return REFLEX_ERR_INVALID_ARG;
+
+    volatile uint32_t *mem = (volatile uint32_t *)RMT_CH0_MEM;
+    for (uint32_t i = 0; i < count; i++)
+        mem[i] = symbols[i];
+    /* A zero-duration word ends the transmission; without it the channel runs
+     * on into whatever the memory happens to hold. */
+    mem[count] = 0u;
+
+    REFLEX_REG(REFLEX_RMT_INT_CLR_REG) = REFLEX_RMT_CH0_TX_END_INT_RAW;
+    REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG) |= REFLEX_RMT_MEM_RD_RST | REFLEX_RMT_APB_MEM_RST;
+    REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG) |= REFLEX_RMT_CONF_UPDATE;
+    REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG) |= REFLEX_RMT_TX_START;
+
+    uint64_t start = reflex_hal_time_us();
+    while (!(REFLEX_REG(REFLEX_RMT_INT_RAW_REG) & REFLEX_RMT_CH0_TX_END_INT_RAW)) {
+        if ((reflex_hal_time_us() - start) > timeout_us) {
+            REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG) |= REFLEX_RMT_TX_STOP;
+            REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG) |= REFLEX_RMT_CONF_UPDATE;
+            return REFLEX_ERR_TIMEOUT;
+        }
+    }
+    REFLEX_REG(REFLEX_RMT_INT_CLR_REG) = REFLEX_RMT_CH0_TX_END_INT_RAW;
+    return REFLEX_OK;
+}
+
+void reflex_hal_rmt_release(void) {
+    /* Same debt the counter had: stop, hand the pin back, gate the clock. */
+    REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG) |= REFLEX_RMT_TX_STOP;
+    REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG) |= REFLEX_RMT_CONF_UPDATE;
+    REFLEX_REG(REFLEX_RMT_INT_CLR_REG) = REFLEX_RMT_CH0_TX_END_INT_RAW;
+    REFLEX_REG(REFLEX_PCR_RMT_CONF_REG) &= ~REFLEX_PCR_RMT_CLK_EN;
+}
+
+void reflex_hal_rmt_snapshot(reflex_rmt_snapshot_t *out) {
+    if (!out) return;
+    out->tx_conf0 = REFLEX_REG(REFLEX_RMT_CH0_TX_CONF0_REG);
+    out->sys_conf = REFLEX_REG(REFLEX_RMT_SYS_CONF_REG);
+    out->tx_lim = REFLEX_REG(REFLEX_RMT_CH0_TX_LIM_REG);
+    out->pcr = REFLEX_REG(REFLEX_PCR_RMT_CONF_REG);
+    out->pcr_sclk = REFLEX_REG(REFLEX_PCR_RMT_SCLK_CONF_REG);
+}
+
 /* ---- PCNT ------------------------------------------------------------- */
 
 /* Count up on a rising edge, hold on a falling one.

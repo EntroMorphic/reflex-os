@@ -179,6 +179,58 @@
 #define REFLEX_PCR_PCNT_CLK_EN 0x00000001u
 /* PCR.PCNT_CONF.PCNT_RST_EN bit 1 — asserted means held in reset */
 #define REFLEX_PCR_PCNT_RST_EN 0x00000002u
+/* RMT base — peripheral base, not a register */
+#define REFLEX_DR_REG_RMT_BASE 0x60006000u
+/* RMT.CH%s_TX_CONF0 @ base+0x10 — channel 0 transmit config */
+#define REFLEX_RMT_CH0_TX_CONF0_REG 0x60006010u
+/* RMT.CH%sDATA @ base+0x0 — the FIFO window onto channel memory */
+#define REFLEX_RMT_CH0DATA_REG 0x60006000u
+/* RMT.CH%s_TX_LIM @ base+0x58 */
+#define REFLEX_RMT_CH0_TX_LIM_REG 0x60006058u
+/* RMT.SYS_CONF @ base+0x68 — clock source and the FIFO/memory access mode; IDF doubles the prefix
+ * on its SCLK fields (RMT_RMT_SCLK_*) */
+#define REFLEX_RMT_SYS_CONF_REG 0x60006068u
+/* RMT.INT_RAW @ base+0x38 */
+#define REFLEX_RMT_INT_RAW_REG 0x60006038u
+/* RMT.INT_CLR @ base+0x44 */
+#define REFLEX_RMT_INT_CLR_REG 0x60006044u
+/* RMT.CH%s_TX_CONF0.TX_START bit 0 */
+#define REFLEX_RMT_TX_START 0x00000001u
+/* RMT.CH%s_TX_CONF0.MEM_RD_RST bit 1 — rewind the read pointer */
+#define REFLEX_RMT_MEM_RD_RST 0x00000002u
+/* RMT.CH%s_TX_CONF0.APB_MEM_RST bit 2 — rewind the write pointer */
+#define REFLEX_RMT_APB_MEM_RST 0x00000004u
+/* RMT.CH%s_TX_CONF0.TX_STOP bit 7 */
+#define REFLEX_RMT_TX_STOP 0x00000080u
+/* RMT.CH%s_TX_CONF0.IDLE_OUT_EN bit 6 */
+#define REFLEX_RMT_IDLE_OUT_EN 0x00000040u
+/* RMT.CH%s_TX_CONF0.MEM_TX_WRAP_EN bit 4 */
+#define REFLEX_RMT_MEM_TX_WRAP_EN 0x00000010u
+/* RMT.CH%s_TX_CONF0.CARRIER_EFF_EN bit 20 — left set, as ESP-IDF leaves it; inert with the carrier
+ * off */
+#define REFLEX_RMT_CARRIER_EFF_EN 0x00100000u
+/* RMT.CH%s_TX_CONF0.CARRIER_OUT_LV bit 22 */
+#define REFLEX_RMT_CARRIER_OUT_LV 0x00400000u
+/* RMT.CH%s_TX_LIM.LOOP_STOP_EN bit 21 */
+#define REFLEX_RMT_LOOP_STOP_EN 0x00200000u
+/* RMT.CH%s_TX_CONF0.CONF_UPDATE bit 24 — latch the channel config */
+#define REFLEX_RMT_CONF_UPDATE 0x01000000u
+/* RMT.SYS_CONF.APB_FIFO_MASK bit 0 — 1 addresses channel memory directly */
+#define REFLEX_RMT_APB_FIFO_MASK 0x00000001u
+/* RMT.SYS_CONF.SCLK_ACTIVE bit 26 */
+#define REFLEX_RMT_SCLK_ACTIVE 0x04000000u
+/* RMT.INT_RAW.CH%s_TX_END bit 0 — transmission complete */
+#define REFLEX_RMT_CH0_TX_END_INT_RAW 0x00000001u
+/* PCR.RMT_CONF @ base+0x2C — peripheral clock and reset */
+#define REFLEX_PCR_RMT_CONF_REG 0x6009602Cu
+/* PCR.RMT_SCLK_CONF @ base+0x30 */
+#define REFLEX_PCR_RMT_SCLK_CONF_REG 0x60096030u
+/* PCR.RMT_CONF.RMT_CLK_EN bit 0 */
+#define REFLEX_PCR_RMT_CLK_EN 0x00000001u
+/* PCR.RMT_CONF.RMT_RST_EN bit 1 — asserted means held in reset */
+#define REFLEX_PCR_RMT_RST_EN 0x00000002u
+/* PCR.RMT_SCLK_CONF.SCLK_EN bit 22 */
+#define REFLEX_PCR_RMT_SCLK_EN 0x00400000u
 /* SPI0.SPI_MEM_MMU_POWER_CTRL.SPI_MMU_PAGE_SIZE width 2 — field value mask */
 #define REFLEX_SPI_MEM_MMU_PAGE_SIZE 0x00000003u
 /* LEDC.CH%s_CONF0.TIMER_SEL width 2 */
@@ -197,6 +249,24 @@
 #define REFLEX_PCNT_LIM_MASK 0x0000FFFFu
 /* PCNT.U%s_CNT.CNT width 16 — 16-bit, read as signed */
 #define REFLEX_PCNT_CNT_MASK 0x0000FFFFu
+/* RMT.CH%s_TX_CONF0.DIV_CNT width 8 — channel clock divider */
+#define REFLEX_RMT_DIV_CNT_MASK 0x000000FFu
+/* RMT.CH%s_TX_CONF0.MEM_SIZE width 3 — in 48-word blocks */
+#define REFLEX_RMT_MEM_SIZE_MASK 0x00000007u
+/* RMT.SYS_CONF.SCLK_DIV_NUM width 8 */
+#define REFLEX_RMT_SCLK_DIV_NUM_MASK 0x000000FFu
+/* RMT.SYS_CONF.SCLK_SEL width 2 */
+#define REFLEX_RMT_SCLK_SEL_MASK 0x00000003u
+/* RMT.CH%s_TX_LIM.TX_LIM width 9 */
+#define REFLEX_RMT_TX_LIM_MASK 0x000001FFu
+/* PCR.RMT_SCLK_CONF.SCLK_DIV_A width 6 */
+#define REFLEX_PCR_RMT_SCLK_DIV_A_MASK 0x0000003Fu
+/* PCR.RMT_SCLK_CONF.SCLK_DIV_B width 6 */
+#define REFLEX_PCR_RMT_SCLK_DIV_B_MASK 0x0000003Fu
+/* PCR.RMT_SCLK_CONF.SCLK_DIV_NUM width 8 */
+#define REFLEX_PCR_RMT_SCLK_DIV_NUM_MASK 0x000000FFu
+/* PCR.RMT_SCLK_CONF.SCLK_SEL width 2 */
+#define REFLEX_PCR_RMT_SCLK_SEL_MASK 0x00000003u
 /* SPI0.SPI_MEM_MMU_POWER_CTRL.SPI_MMU_PAGE_SIZE bit 3 — field shift */
 #define REFLEX_SPI_MEM_MMU_PAGE_SIZE_S 0x00000003u
 /* LEDC.CH%s_CONF0.TIMER_SEL bit 0 */
@@ -221,6 +291,24 @@
 #define REFLEX_PCNT_CNT_H_LIM_S 0x00000000u
 /* PCNT.U%s_CONF2.CNT_L_LIM bit 16 */
 #define REFLEX_PCNT_CNT_L_LIM_S 0x00000010u
+/* RMT.CH%s_TX_CONF0.DIV_CNT bit 8 */
+#define REFLEX_RMT_DIV_CNT_S 0x00000008u
+/* RMT.CH%s_TX_CONF0.MEM_SIZE bit 16 */
+#define REFLEX_RMT_MEM_SIZE_S 0x00000010u
+/* RMT.SYS_CONF.SCLK_DIV_NUM bit 4 */
+#define REFLEX_RMT_SCLK_DIV_NUM_S 0x00000004u
+/* RMT.SYS_CONF.SCLK_SEL bit 24 */
+#define REFLEX_RMT_SCLK_SEL_S 0x00000018u
+/* RMT.CH%s_TX_LIM.TX_LIM bit 0 */
+#define REFLEX_RMT_TX_LIM_S 0x00000000u
+/* PCR.RMT_SCLK_CONF.SCLK_DIV_A bit 0 */
+#define REFLEX_PCR_RMT_SCLK_DIV_A_S 0x00000000u
+/* PCR.RMT_SCLK_CONF.SCLK_DIV_B bit 6 */
+#define REFLEX_PCR_RMT_SCLK_DIV_B_S 0x00000006u
+/* PCR.RMT_SCLK_CONF.SCLK_DIV_NUM bit 12 */
+#define REFLEX_PCR_RMT_SCLK_DIV_NUM_S 0x0000000Cu
+/* PCR.RMT_SCLK_CONF.SCLK_SEL bit 20 */
+#define REFLEX_PCR_RMT_SCLK_SEL_S 0x00000014u
 /* literal — CPU memory map, not a peripheral: HP SRAM instruction bus window */
 #define REFLEX_SOC_IRAM_LOW 0x40800000u
 /* literal — CPU memory map */
@@ -240,6 +328,9 @@
 /* literal — gpio_pins.h, not the SVD. Routing this into a signal index is how the matrix
  * disconnects an input */
 #define REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT 0x0000003Cu
+/* literal — GPIO matrix signal index; gpio_sig_map, not the SVD. Guessed as 51 first and the bridge
+ * rejected it, which is the entire point of the bridge */
+#define REFLEX_RMT_SIG_OUT0_IDX 0x00000047u
 /* literal — IO_MUX function-select field mask (3 bits) */
 #define REFLEX_IO_MUX_MCU_SEL_V 0x00000007u
 /* literal — capability flag from soc_caps.h */
