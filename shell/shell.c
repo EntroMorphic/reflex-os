@@ -25,6 +25,13 @@
  * use. */
 #if !CONFIG_IDF_TARGET_ESP32C6
 #include "driver/ledc.h"
+#if !CONFIG_IDF_TARGET_ESP32C6
+/* Only the classic ESP32 branch needs it: there LEDC is ESP-IDF's, and giving
+ * the peripheral back means giving its GPIO reservation back too. Kept out of
+ * the C6 build so the independence count does not gain a header it never
+ * calls. */
+#include "esp_private/esp_gpio_reserve.h"
+#endif
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
 #endif
@@ -265,6 +272,21 @@ static void reflex_shell_bonsai_exp3a_status(void) {
 }
 
 static void reflex_shell_bonsai_exp4_route(int orient) {
+    if (orient == 0 && !reflex_shell_bonsai_exp4.ledc_initialized) {
+        /* Detach with nothing attached: there is no peripheral to give back.
+         *
+         * Without this the init path below runs first, so `detach` from a cold
+         * boot configured LEDC for the sole purpose of releasing it one line
+         * later. It also matters for the readback: the snapshot reads LEDC
+         * registers, and it is only safe there because init has ungated the
+         * peripheral. Skipping init without skipping the read would be a read
+         * of a gated peripheral. */
+        esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, REFLEX_SIG_GPIO_OUT_IDX, false, false);
+        reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_ZERO;
+        printf("bonsai exp4 route orient=%s\n",
+               reflex_shell_bonsai_edge_name(reflex_shell_bonsai_exp4.route));
+        return;
+    }
     if (!reflex_shell_bonsai_exp4.ledc_initialized) {
 #if CONFIG_IDF_TARGET_ESP32C6
         /* Reflex's own LEDC. Tier E: this is what driver/ledc.h was here for.
@@ -321,6 +343,7 @@ static void reflex_shell_bonsai_exp4_route(int orient) {
          * is how that stops being possible — and it is what let the Reflex LEDC
          * driver be checked against the ESP-IDF one it replaces, register for
          * register, rather than declared equivalent. */
+#if CONFIG_IDF_TARGET_ESP32C6
         reflex_pwm_snapshot_t pwm;
         reflex_hal_pwm_snapshot(&pwm);
         printf("bonsai exp4 ledc timer=0x%08lx ch0=0x%08lx duty=0x%08lx "
@@ -328,6 +351,14 @@ static void reflex_shell_bonsai_exp4_route(int orient) {
                (unsigned long)pwm.timer_conf, (unsigned long)pwm.ch_conf0,
                (unsigned long)pwm.ch_duty, (unsigned long)pwm.pcr_conf,
                (unsigned long)pwm.pcr_sclk);
+#else
+        /* The classic ESP32 has no snapshot: its reflex_hal_pwm_snapshot zeroes
+         * the struct and returns. Printing that produced a line of five zeros
+         * that looked exactly like a register readback of a dead peripheral —
+         * a readback incapable of failing, which is worse than none. Say so
+         * instead of showing numbers that were never read. */
+        printf("bonsai exp4 ledc readback=unavailable (no snapshot on this target)\n");
+#endif
     }
     if (orient == 1) {
         esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, REFLEX_LEDC_LS_SIG_OUT0_IDX, false, false);
@@ -338,15 +369,30 @@ static void reflex_shell_bonsai_exp4_route(int orient) {
     } else {
         esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, REFLEX_SIG_GPIO_OUT_IDX, false, false);
         reflex_shell_bonsai_exp4.route = REFLEX_BONSAI_EDGE_ZERO;
-#if CONFIG_IDF_TARGET_ESP32C6
         /* Detach means give the peripheral back, not just re-route the pin.
          *
          * This left LEDC ungated, clocked and running for the rest of the boot
          * with only the pin pointed elsewhere. PCNT and RMT both got a release;
-         * PWM did not, and an audit for that asymmetry is what turned it up. */
+         * PWM did not, and an audit for that asymmetry turned it up.
+         *
+         * Both targets, not just the one Reflex owns. The first version of this
+         * fix was inside a C6-only guard, which left the identical leak in
+         * place on the classic ESP32 — where the peripheral is ESP-IDF's, so
+         * the release is ESP-IDF's `ledc_stop`. A defect fixed on one target
+         * and left on the other is not fixed. */
+#if CONFIG_IDF_TARGET_ESP32C6
         reflex_hal_pwm_release();
-        reflex_shell_bonsai_exp4.ledc_initialized = false;
+#else
+        /* Two things are held, so two things come back. ledc_stop parks the
+         * channel, but ledc_channel_config also took an esp_gpio_reserve on the
+         * LED pin's output path and ledc_stop does not give that back. The
+         * board said so: a second `connect` after a `detach` printed "GPIO 2 is
+         * not usable, maybe conflict with others" — LEDC finding its own stale
+         * reservation from the first attach. */
+        ledc_stop(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
+        esp_gpio_revoke(BIT64(REFLEX_LED_PIN));
 #endif
+        reflex_shell_bonsai_exp4.ledc_initialized = false;
     }
     printf("bonsai exp4 route orient=%s\n", reflex_shell_bonsai_edge_name(reflex_shell_bonsai_exp4.route));
 }

@@ -873,6 +873,16 @@ the pin to plain GPIO and left LEDC ungated, clocked and running for the rest of
 the boot. PCNT and RMT were given releases earlier in this work; PWM was
 overlooked. It has one now, and `detach` calls it.
 
+That fix was itself incomplete twice over, and both halves were found by looking
+rather than by reasoning. It was written inside `#if CONFIG_IDF_TARGET_ESP32C6`,
+so the classic ESP32 — where `bonsai exp4` also runs — kept the leak the fix
+existed to remove; it now calls `ledc_stop` there. And `ledc_stop` is only half a
+release: `ledc_channel_config` takes an `esp_gpio_reserve` on the pin's output
+path that it does not return, which the board announced on the second `connect`
+as *"GPIO 2 is not usable, maybe conflict with others"*. `esp_gpio_revoke`
+completes it. ESP-IDF's own reservation bookkeeping turned out to be a better
+witness to a complete release than the readback we print ourselves.
+
 Two acquisitions are deliberately permanent and stay that way:
 `reflex_hal_console_init`, because the console outlives everything that could
 release it, and `reflex_hal_temp_init`, because the sensor is read continuously.
