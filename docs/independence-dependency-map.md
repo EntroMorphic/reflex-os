@@ -620,7 +620,11 @@ rather than at the peripheral's shared `INT_ENA`, which is necessary because
 that register also carries the transmit interrupt and writing it from an ISR
 wedges stdout — seen as a board emitting a single byte, `I`, and going silent.
 
-Tier E on-path includes: **8 -> 6**.
+Tier E on-path includes: **8 -> 6**, and then to **4** once the checker stopped
+counting the UART console includes that `#if SOC_USB_SERIAL_JTAG_SUPPORTED`
+already fences off — the C6 build had never included them. What remains in
+Tier E is four peripheral drivers: `ledc`, `pulse_cnt`, `rmt_tx`,
+`rmt_encoder`. The console is no longer among them.
 
 The general lesson is the one already in `CONTRIBUTING.md`: five of these six
 were found by an experiment that isolated one variable, and none by reading the

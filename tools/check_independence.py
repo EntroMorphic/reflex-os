@@ -97,7 +97,7 @@ def scan():
                         lines = fh.readlines()
                 except OSError:
                     continue
-                for n, line in enumerate(lines, 1):
+                for n, line in _active_lines(lines):
                     m = INCLUDE_RE.match(line)
                     if not m:
                         continue
@@ -111,6 +111,77 @@ def scan():
                     else:
                         on.append(rec)
     return on, off, unknown
+
+
+# Symbols whose value is fixed on the independence path (ESP32-C6 with the
+# 802.15.4 radio). Anything else is treated as unknown and both of its branches
+# are counted, which keeps the measurement conservative.
+PATH_SYMBOLS = {
+    "SOC_USB_SERIAL_JTAG_SUPPORTED": True,
+    "CONFIG_REFLEX_RADIO_802154": True,
+}
+
+COND_RE = re.compile(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b\s*(.*)$")
+
+
+def _eval_cond(kind, expr):
+    """True / False for a condition this tool understands, None otherwise.
+
+    Deliberately tiny: it recognises a bare symbol and a negated one, which is
+    the whole vocabulary the on-path sources use to fence off code that belongs
+    to the other target. Anything more elaborate returns None and is counted.
+    """
+    expr = expr.split("//")[0].split("/*")[0].strip()
+    if kind == "ifdef":
+        return PATH_SYMBOLS.get(expr)
+    if kind == "ifndef":
+        v = PATH_SYMBOLS.get(expr)
+        return None if v is None else not v
+    negated = expr.startswith("!")
+    if negated:
+        expr = expr[1:].strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expr):
+        return None
+    v = PATH_SYMBOLS.get(expr)
+    if v is None:
+        return None
+    return (not v) if negated else v
+
+
+def _active_lines(lines):
+    """Yield (lineno, text) for lines the independence build actually compiles.
+
+    Counting an include the build never sees is not a harmless overestimate: it
+    is the declared measure of independence reporting a dependency that does not
+    exist. `shell/shell.c` fences driver/uart.h and driver/uart_vfs.h behind
+    `#if SOC_USB_SERIAL_JTAG_SUPPORTED ... #else`, so the C6 build has never
+    included either — confirmed against the build's own dependency output —
+    while this tool counted both and put Tier E two higher than it was.
+    """
+    stack = []  # (active_here, condition_was_known, any_branch_taken)
+    for n, line in enumerate(lines, 1):
+        m = COND_RE.match(line)
+        if m:
+            kind, expr = m.group(1), m.group(2)
+            if kind in ("if", "ifdef", "ifndef"):
+                v = _eval_cond(kind, expr)
+                stack.append([True if v is None else v, v is not None, v is True])
+            elif kind == "elif" and stack:
+                top = stack[-1]
+                v = _eval_cond("if", expr)
+                if not top[1] or v is None:
+                    top[0], top[1] = True, False
+                else:
+                    top[0] = v and not top[2]
+                    top[2] = top[2] or top[0]
+            elif kind == "else" and stack:
+                top = stack[-1]
+                top[0] = True if not top[1] else not top[2]
+            elif kind == "endif" and stack:
+                stack.pop()
+            continue
+        if all(fr[0] for fr in stack):
+            yield n, line
 
 
 def counts(records):
