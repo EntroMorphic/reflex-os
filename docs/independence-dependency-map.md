@@ -698,6 +698,56 @@ None of that is a documentation problem, and none of it should be attempted
 without a bench and a way back — which, after the watchdog result above, Reflex
 does not yet have.
 
+### Tier C: the hand-off, run on hardware (2026-09-08)
+
+`kernel selftest` now performs the whole mtvec hand-off and starts the
+scheduler. In order: route and arm the tick, tell the trap handler which CPU
+line it lands on, release ESP-IDF's stack-pointer watchpoint, quiesce every
+PLIC line but the tick, disable both timer-group watchdogs, take mtvec, start.
+Each step is there because leaving it out was tried and observed.
+
+**It ran.** With FreeRTOS quiesced and Reflex's own trap vector installed, two
+tasks executed on the Reflex scheduler:
+
+```
+[kernel] tick on cpu_int=11
+[kernel] quiesced PLIC 0x0b000f24 -> 0x00000800
+[kernel] taking mtvec
+[kernel] starting scheduler (cooperative)...
+[kernel] task A: tick 0 (sys=1)
+[kernel] task B: tick 0 (sys=1)
+```
+
+That is C3's central question answered on silicon rather than argued.
+
+Three defects were found getting there, each by running it:
+
+- **ESP-IDF's stack-pointer watchpoint** is armed with the bounds of whichever
+  FreeRTOS task is running, so the first switch to a Reflex stack panicked.
+  Releasing it is necessary and *not sufficient*: FreeRTOS re-arms it on every
+  context switch, which is why quiescing has to happen in the same breath.
+- **Both timer-group watchdogs** are fed by FreeRTOS. Quiesce it and they fire:
+  `rst:0x8 (TG1_WDT_HPSYS)`, a few seconds after an otherwise clean start.
+  Reflex stands them down rather than feeding another kernel's liveness checks
+  — which does leave the hand-off uncovered, and the LP watchdog is not yet a
+  usable answer to that.
+- **`mscratch` was never initialised, and never re-established on exit.** The
+  vector's first instruction is `csrrw sp, mscratch, sp`, so the frame is
+  written wherever that register happens to point; and since entry leaves the
+  interrupted sp there, a second trap would build its frame on the task's own
+  stack.
+
+The last one carries an anomaly that is **not resolved**. With `mscratch` left
+uninitialised the hand-off got further — the two task lines above are from that
+build. With it set correctly the hand-off dies at the mtvec install itself,
+consistently across three runs. The fix is right on its face and the board
+disagrees. It is kept as the fix and recorded as unexplained, because
+"correct by reasoning, worse by measurement" is precisely the failure mode this
+document exists to catch. Resolving it is where C3 resumes.
+
+None of this changes what ships: `kernel selftest` is admin-gated, nothing calls
+it, and normal operation is untouched — C6 183/183, classic ESP32 177/177.
+
 ### Tier B: the sleep net, and why it is not yet enough (2026-09-08)
 
 `esp_sleep.h` is two calls, and the reason it is still here is not effort. Every

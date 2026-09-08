@@ -102,6 +102,18 @@ reflex_trap_entry:
     lw   t0, 128(sp)
     csrw mstatus, t0
 
+    /* Re-establish the trap stack for the next trap.
+     *
+     * Entry swaps sp with mscratch, so on the way in mscratch ends up holding
+     * the interrupted task's sp — and nothing put the trap stack back. The
+     * second trap would therefore swap that task sp into sp and build its
+     * frame on the task's own stack, on top of whatever the task was doing.
+     * The first trap after the vector was installed was the only one that
+     * could work, and even it only if mscratch happened to hold something
+     * usable. t0 is restored from the frame below, so it is free here. */
+    lw   t0, reflex_trap_stack_top
+    csrw mscratch, t0
+
     /* Restore x1-x31 */
     lw   x1,  0(sp)
     /* x2 (sp) restored last */

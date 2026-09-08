@@ -73,6 +73,14 @@ _Static_assert(REFLEX_TIMG0_WDTFEED_REG == (uint32_t)(TIMG_WDTFEED_REG(0)),
                "REFLEX_TIMG0_WDTFEED_REG diverges from TIMG_WDTFEED_REG(0)");
 _Static_assert(REFLEX_TIMG0_WDTWPROTECT_REG == (uint32_t)(TIMG_WDTWPROTECT_REG(0)),
                "REFLEX_TIMG0_WDTWPROTECT_REG diverges from TIMG_WDTWPROTECT_REG(0)");
+_Static_assert(REFLEX_TIMG0_WDTCONFIG0_REG == (uint32_t)(TIMG_WDTCONFIG0_REG(0)),
+               "REFLEX_TIMG0_WDTCONFIG0_REG diverges from TIMG_WDTCONFIG0_REG(0)");
+_Static_assert(REFLEX_TIMG1_WDTCONFIG0_REG == (uint32_t)(TIMG_WDTCONFIG0_REG(1)),
+               "REFLEX_TIMG1_WDTCONFIG0_REG diverges from TIMG_WDTCONFIG0_REG(1)");
+_Static_assert(REFLEX_TIMG1_WDTWPROTECT_REG == (uint32_t)(TIMG_WDTWPROTECT_REG(1)),
+               "REFLEX_TIMG1_WDTWPROTECT_REG diverges from TIMG_WDTWPROTECT_REG(1)");
+_Static_assert(REFLEX_TIMG_WDT_EN == (uint32_t)(TIMG_WDT_EN),
+               "REFLEX_TIMG_WDT_EN diverges from TIMG_WDT_EN");
 _Static_assert(REFLEX_LP_AON_STORE0_REG == (uint32_t)(LP_AON_STORE0_REG),
                "REFLEX_LP_AON_STORE0_REG diverges from LP_AON_STORE0_REG");
 _Static_assert(REFLEX_LP_AON_SYS_CFG_REG == (uint32_t)(LP_AON_SYS_CFG_REG),
@@ -386,6 +394,8 @@ _Static_assert(REFLEX_PCNT_CTRL_CH0_IN0_IDX == (uint32_t)(PCNT_CTRL_CH0_IN0_IDX)
                "REFLEX_PCNT_CTRL_CH0_IN0_IDX diverges from PCNT_CTRL_CH0_IN0_IDX");
 _Static_assert(REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT == (uint32_t)(GPIO_MATRIX_CONST_ZERO_INPUT),
                "REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT diverges from GPIO_MATRIX_CONST_ZERO_INPUT");
+_Static_assert(REFLEX_TIMG_WDT_WKEY == (uint32_t)(TIMG_WDT_WKEY_VALUE),
+               "REFLEX_TIMG_WDT_WKEY diverges from TIMG_WDT_WKEY_VALUE");
 _Static_assert(REFLEX_LP_WDT_WKEY == (uint32_t)(LP_WDT_WKEY_VALUE),
                "REFLEX_LP_WDT_WKEY diverges from LP_WDT_WKEY_VALUE");
 _Static_assert(REFLEX_SIG_GPIO_OUT_IDX == (uint32_t)(SIG_GPIO_OUT_IDX),

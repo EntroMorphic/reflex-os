@@ -68,6 +68,57 @@
  * tick, and leaves that peripheral's interrupt asserted forever. */
 static volatile int s_tick_cpu_int = -1;
 
+/* Point mtvec at Reflex's vector table.
+ *
+ * Direct mode: reflex_trap_entry is .align 4, so the low two bits are zero and
+ * the CSR takes the address as-is. Separated from reflex_kernel_startup so the
+ * hand-off can be exercised without also taking over task creation. */
+/* An anomaly worth stating before the code below, because the code below is
+ * correct and the board disagrees.
+ *
+ * With mscratch left as found — which is to say uninitialised — the hand-off
+ * got further: the scheduler started and ran both test tasks, printing
+ * `task A: tick 0 (sys=1)` and the same for B, before dying on the first tick.
+ * With mscratch set properly to a trap stack, it dies at the mtvec install
+ * itself, consistently, three runs.
+ *
+ * That inverts what should happen. A vector whose first instruction is
+ * `csrrw sp, mscratch, sp` cannot be correct with mscratch unset, so the fix
+ * below is right on its face; the machine says otherwise, and the disagreement
+ * is not understood. It is kept as the fix rather than reverted to the luckier
+ * version, and recorded here rather than smoothed over, because "correct by
+ * reasoning, worse by measurement" is the exact shape of the mistakes this
+ * file's history is made of. Resolving it is the next step of C3, not a
+ * footnote to it.
+ *
+ * ---
+ *
+ * The trap stack, and the pointer the vector swaps into sp.
+ *
+ * mscratch must hold this before the vector is installed: entry does
+ * `csrrw sp, mscratch, sp`, so whatever mscratch holds becomes the stack the
+ * 132-byte frame is written to. Nothing in the tree ever wrote mscratch, so
+ * the first trap after taking mtvec wrote that frame wherever the register
+ * happened to point.
+ *
+ * Defined in C rather than as a .bss block in the vector file, so the
+ * assembly's section layout is left exactly as it was — an earlier attempt put
+ * it there and moved the entry point's section along with it. */
+static uint32_t s_trap_stack[512] __attribute__((aligned(16)));
+uint32_t *const reflex_trap_stack_top = s_trap_stack + 512;
+
+void reflex_trap_install(void) {
+    /* mscratch first, then mtvec. The vector's first instruction swaps sp with
+     * mscratch, so installing the vector while mscratch is unset points the
+     * very next trap's frame at whatever that register happened to hold. */
+    __asm__ volatile("csrw mscratch, %0" : : "r"(reflex_trap_stack_top));
+    __asm__ volatile("la t0, reflex_trap_entry\n"
+                     "csrw mtvec, t0\n"
+                     :
+                     :
+                     : "t0");
+}
+
 void reflex_trap_set_tick_line(int cpu_int) {
     s_tick_cpu_int = cpu_int;
 }

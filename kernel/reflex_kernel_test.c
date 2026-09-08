@@ -27,20 +27,20 @@
 
 static void task_a(void *arg) {
     (void)arg;
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 20; i++) {
         esp_rom_printf("[kernel] task A: tick %d (sys=%lu)\n",
                        i, (unsigned long)reflex_sched_get_tick());
-        reflex_sched_delay_ms(500);
+        reflex_sched_delay_ms(100);
     }
     esp_rom_printf("[kernel] task A: done\n");
 }
 
 static void task_b(void *arg) {
     (void)arg;
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 20; i++) {
         esp_rom_printf("[kernel] task B: tick %d (sys=%lu)\n",
                        i, (unsigned long)reflex_sched_get_tick());
-        reflex_sched_delay_ms(700);
+        reflex_sched_delay_ms(130);
     }
     esp_rom_printf("[kernel] task B: done\n");
 }
@@ -77,14 +77,63 @@ void reflex_kernel_test(void) {
         return;
     }
 
-    /* Take the stack watchpoint back before switching stacks. Without this the
-     * first switch panics with a stack protection fault — the SP is inside the
-     * Reflex task's own stack, and ESP-IDF's guard is still armed with the
-     * bounds of the FreeRTOS task this was called from. */
+    /* --- the hand-off ---------------------------------------------------
+     *
+     * Everything below is one transaction: after mtvec is taken, ESP-IDF's
+     * dispatcher is gone and only Reflex's handler runs. The order is not
+     * arbitrary and each step exists because skipping it was tried.
+     *
+     * Route and arm the tick first, so its CPU line is known before the
+     * handler that must recognise it is installed. reflex_sched_start would do
+     * this itself, but by then it is too late to ask which line it chose. */
+    rc = reflex_sched_tick_start();
+    if (rc != REFLEX_OK) {
+        esp_rom_printf("[kernel] ERROR: tick start failed (0x%x)\n", (int)rc);
+        return;
+    }
+
+    reflex_intr_route_t tick;
+    reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &tick);
+    esp_rom_printf("[kernel] tick on cpu_int=%d\n", (int)tick.cpu_int);
+
+    /* Tell the handler which line is the tick. Without this it recognises
+     * nothing, leaves every interrupt unacknowledged, and the core stops. */
+    reflex_trap_set_tick_line((int)tick.cpu_int);
+
+    /* Take the stack watchpoint back. ESP-IDF arms it with the bounds of the
+     * FreeRTOS task this was called from, so the first switch to a Reflex
+     * stack panics — observed exactly that way, SP inside the Reflex task's
+     * own stack and the guard still holding the caller's bounds. Doing this
+     * alone was not enough: FreeRTOS re-arms it on every context switch, which
+     * is why the quiesce below has to come with it. */
     reflex_hal_stack_guard_disable();
+
+    /* Silence every line but the tick.
+     *
+     * Reflex's handler does not acknowledge a line it does not recognise —
+     * deliberately, since acknowledging one blind is worse — so any ESP-IDF
+     * interrupt left enabled asserts, is never cleared, and the machine stops.
+     * FreeRTOS's own tick is among them, and quiescing it is also what stops
+     * FreeRTOS re-arming the stack watchpoint. */
+    uint32_t saved_mask = reflex_hal_intr_quiesce_except(1u << tick.cpu_int);
+    esp_rom_printf("[kernel] quiesced PLIC 0x%08x -> 0x%08x\n", (unsigned)saved_mask,
+                   (unsigned)(1u << tick.cpu_int));
+
+    /* And stand down the timer-group watchdogs, which FreeRTOS was feeding.
+     * Without this the chip resets a few seconds in with TG1_WDT_HPSYS, after
+     * the scheduler has started perfectly well. */
+    reflex_hal_wdt_disable_timg();
+    esp_rom_printf("[kernel] timer-group watchdogs disabled\n");
+
+    esp_rom_printf("[kernel] taking mtvec\n");
+    reflex_trap_install();
 
     esp_rom_printf("[kernel] starting scheduler (cooperative)...\n");
     rc = reflex_sched_start();
+
+    /* If it ever returns, put the machine back the way it was found so the
+     * failure is reportable rather than silent. */
+    reflex_hal_intr_restore(saved_mask);
 
     esp_rom_printf("[kernel] ERROR: scheduler returned (0x%x)\n", (int)rc);
 }

@@ -54,6 +54,14 @@
 #define REFLEX_TIMG0_WDTFEED_REG 0x60008060u
 /* TIMG0.WDTWPROTECT @ base+0x64 */
 #define REFLEX_TIMG0_WDTWPROTECT_REG 0x60008064u
+/* TIMG0.WDTCONFIG0 @ base+0x48 */
+#define REFLEX_TIMG0_WDTCONFIG0_REG 0x60008048u
+/* TIMG1.WDTCONFIG0 @ base+0x48 */
+#define REFLEX_TIMG1_WDTCONFIG0_REG 0x60009048u
+/* TIMG1.WDTWPROTECT @ base+0x64 */
+#define REFLEX_TIMG1_WDTWPROTECT_REG 0x60009064u
+/* TIMG0.WDTCONFIG0.WDT_EN bit 31 — same bit in both groups */
+#define REFLEX_TIMG_WDT_EN 0x80000000u
 /* LP_AON.STORE0 @ base+0x0 — scratch, survives deep sleep */
 #define REFLEX_LP_AON_STORE0_REG 0x600B1000u
 /* LP_AON.SYS_CFG @ base+0x34 */
@@ -362,6 +370,8 @@
 /* literal — gpio_pins.h, not the SVD. Routing this into a signal index is how the matrix
  * disconnects an input */
 #define REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT 0x0000003Cu
+/* literal — hal/mwdt_ll.h, not the SVD. Unlocks a timer-group watchdog */
+#define REFLEX_TIMG_WDT_WKEY 0x50D83AA1u
 /* literal — hal/lpwdt_ll.h, not the SVD. Unlocks the watchdog registers */
 #define REFLEX_LP_WDT_WKEY 0x50D83AA1u
 /* literal — GPIO matrix signal index; gpio_sig_map, not the SVD. Routing this back onto a pin is

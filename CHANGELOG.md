@@ -32,6 +32,20 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Added
 
+- **The mtvec hand-off runs on hardware, and the Reflex scheduler executed tasks.** `kernel selftest` performs the whole sequence — route and arm the tick, tell the trap handler its CPU line, release ESP-IDF's stack-pointer watchpoint, quiesce every PLIC line but the tick, disable both timer-group watchdogs, take `mtvec`, start — and with FreeRTOS quiesced and Reflex's own vector installed, two tasks ran on the Reflex scheduler: `task A: tick 0 (sys=1)`, `task B: tick 0 (sys=1)`. C3's central question, answered on silicon.
+
+- **`reflex_hal_intr_quiesce_except` / `reflex_hal_intr_restore`**, and **`reflex_hal_wdt_disable_timg`**. Reflex's trap handler deliberately does not acknowledge a line it does not recognise, so any ESP-IDF interrupt left enabled asserts, is never cleared, and stops the core; and both timer-group watchdogs are fed by FreeRTOS, so quiescing it makes them fire (`rst:0x8 (TG1_WDT_HPSYS)`) a few seconds after an otherwise clean start. Constants through the bridge, 178 -> 183.
+
+- **The SoC scraper follows `derivedFrom`.** An SVD peripheral identical to another but for its base address carries no registers of its own, so `TIMG1.WDTCONFIG0` resolved as "absent from SVD" — true of the XML, false of the silicon. The bridge proving `TIMG1.WDTCONFIG0` equal to `TIMG_WDTCONFIG0_REG(1)` is what validates the handling.
+
+### Fixed
+
+- **`mscratch` was never initialised, and never re-established on trap exit.** The vector's first instruction is `csrrw sp, mscratch, sp`, so the 132-byte frame is written wherever that register happens to point — and since entry leaves the interrupted `sp` there, a second trap would build its frame on the task's own stack, on top of whatever the task was doing. Both halves fixed: a trap stack in `.bss` with `mscratch` set before `mtvec`, and the exit path putting it back.
+
+  **With an anomaly that is not resolved.** Left uninitialised, the hand-off got *further* — the two task lines above are from that build. Set correctly, it dies at the `mtvec` install itself, consistently across three runs. A vector that swaps an uninitialised register into `sp` cannot be correct, so the fix is right on its face, and the board disagrees. It is kept as the fix and recorded as unexplained rather than reverted to the luckier version, because "correct by reasoning, worse by measurement" is the exact shape of the mistakes this work keeps finding. That is where C3 resumes.
+
+  Nothing that ships is affected: `kernel selftest` is admin-gated, nothing calls it, and normal operation is untouched.
+
 - **`kernel selftest` starts the Reflex scheduler, and it gets further than the plan implied.** Nothing had ever called `reflex_sched_start`, so "does the scheduler work" had never been asked of hardware. It is now, from an admin-gated shell command that hands the calling task to the scheduler and does not give it back. On the independence build, where the tick runs at 1000 Hz, the scheduler **starts, picks a task, and reaches the first stack switch**.
 
   There it panics: `Guru Meditation Error: Core 0 panic'ed (Stack protection fault). Stack pointer: 0x408369b0   Stack bounds: 0x40825c28 - 0x40827e20`. The switch is not obviously wrong — that SP is inside the Reflex task's own stack. ESP-IDF arms a stack-pointer watchpoint with the bounds of whichever FreeRTOS task is running, and does not know Reflex's stacks exist.

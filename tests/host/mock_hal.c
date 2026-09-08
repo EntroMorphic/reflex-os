@@ -55,6 +55,14 @@ reflex_err_t reflex_hal_wdt_arm(uint32_t ms) {
 void reflex_hal_wdt_feed(void) {}
 void reflex_hal_wdt_disarm(void) {}
 void reflex_hal_stack_guard_disable(void) {}
+void reflex_hal_wdt_disable_timg(void) {}
+uint32_t reflex_hal_intr_quiesce_except(uint32_t keep_mask) {
+    (void)keep_mask;
+    return 0;
+}
+void reflex_hal_intr_restore(uint32_t mask) {
+    (void)mask;
+}
 bool reflex_hal_wdt_armed(void) {
     return false;
 }

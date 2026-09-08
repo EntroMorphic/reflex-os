@@ -320,6 +320,28 @@ void reflex_hal_wdt_disarm(void) {
  * Deliberately narrow: only the two SP spill bits are cleared, leaving the
  * area watchpoints alone. It is one-way for now, because whoever calls it is
  * about to stop returning. */
+/* Stand down both timer-group watchdogs.
+ *
+ * ESP-IDF arms these — the interrupt watchdog on one group, the task watchdog
+ * on the other — and both are fed from FreeRTOS. Quiesce FreeRTOS and nothing
+ * feeds them, so a few seconds after the mtvec hand-off the chip resets:
+ * observed exactly once as `rst:0x8 (TG1_WDT_HPSYS)`, with the scheduler having
+ * started cleanly first.
+ *
+ * Reflex takes them down rather than feeding them, because a scheduler that
+ * owns the machine should not be servicing another kernel's liveness checks.
+ * That does mean no watchdog covers the hand-off — which is a real gap, and
+ * the LP watchdog is not yet a usable answer to it. */
+void reflex_hal_wdt_disable_timg(void) {
+    REFLEX_REG(REFLEX_TIMG0_WDTWPROTECT_REG) = REFLEX_TIMG_WDT_WKEY;
+    REFLEX_REG(REFLEX_TIMG0_WDTCONFIG0_REG) &= ~REFLEX_TIMG_WDT_EN;
+    REFLEX_REG(REFLEX_TIMG0_WDTWPROTECT_REG) = 0u;
+
+    REFLEX_REG(REFLEX_TIMG1_WDTWPROTECT_REG) = REFLEX_TIMG_WDT_WKEY;
+    REFLEX_REG(REFLEX_TIMG1_WDTCONFIG0_REG) &= ~REFLEX_TIMG_WDT_EN;
+    REFLEX_REG(REFLEX_TIMG1_WDTWPROTECT_REG) = 0u;
+}
+
 void reflex_hal_stack_guard_disable(void) {
     REFLEX_REG(REFLEX_ASSIST_DEBUG_MONTR_ENA_REG) &=
         ~(REFLEX_ASSIST_DEBUG_SP_SPILL_MIN_ENA | REFLEX_ASSIST_DEBUG_SP_SPILL_MAX_ENA);
@@ -442,6 +464,39 @@ reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
 #define PLIC_MXINT_CLEAR      (PLIC_MX_BASE + 0x08)
 #define PLIC_MXINT_PRI(n)     (PLIC_MX_BASE + 0x10 + (n) * 4)
 #define PLIC_MXINT_THRESH     (PLIC_MX_BASE + 0x90)
+
+/* Silence every CPU interrupt line except the ones named, and report what was
+ * enabled before.
+ *
+ * Taking mtvec means Reflex's handler receives every interrupt the PLIC
+ * forwards, including the nine ESP-IDF has live — its own tick among them. The
+ * handler deliberately does not acknowledge a line it does not recognise,
+ * because acknowledging one blind is worse; so a line left enabled asserts,
+ * is not cleared, and the core stops making progress. Quiescing first is what
+ * makes the hand-off survivable rather than instantaneous deadlock.
+ *
+ * Returns the previous mask so the caller can put it back, which matters
+ * because the shell has to survive an experiment that fails. */
+uint32_t reflex_hal_intr_quiesce_except(uint32_t keep_mask) {
+    uint32_t saved;
+    __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(saved));
+    uint32_t prev = REFLEX_REG(PLIC_MXINT_ENABLE);
+    REFLEX_REG(PLIC_MXINT_ENABLE) = prev & keep_mask;
+    if (saved & 0x8u) {
+        __asm__ volatile("csrsi mstatus, 0x8");
+    }
+    return prev;
+}
+
+void reflex_hal_intr_restore(uint32_t mask) {
+    uint32_t saved;
+    __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(saved));
+    REFLEX_REG(PLIC_MXINT_ENABLE) = mask;
+    if (saved & 0x8u) {
+        __asm__ volatile("csrsi mstatus, 0x8");
+    }
+}
+
 /* C6 PLIC priorities run 1..7; the controller forwards only above THRESH. */
 #define REFLEX_PLIC_PRIO_MAX 7u
 /* C6 PLIC priorities run 1..7; 0 means never delivered. */

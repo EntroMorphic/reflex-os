@@ -108,6 +108,17 @@ void reflex_hal_wdt_regs(uint32_t *config0, uint32_t *config1);
 /* Release ESP-IDF's stack-pointer watchpoint, which is armed with FreeRTOS task
  * bounds and fires when a scheduler switches to a stack it does not know. */
 void reflex_hal_stack_guard_disable(void);
+
+/* Disable both timer-group watchdogs. ESP-IDF arms them and FreeRTOS feeds
+ * them, so they fire a few seconds after FreeRTOS is quiesced. */
+void reflex_hal_wdt_disable_timg(void);
+
+/* Quiesce every CPU interrupt line except those in keep_mask, returning the
+ * previous enable mask; and put a saved mask back. Needed before Reflex takes
+ * the trap vector, because its handler will not acknowledge a line it does not
+ * recognise and an unacknowledged level-triggered line stops the core. */
+uint32_t reflex_hal_intr_quiesce_except(uint32_t keep_mask);
+void reflex_hal_intr_restore(uint32_t mask);
 /** @brief Fill @p buf with hardware entropy. Used for the per-board Aura key
  *  and for arc nonces, so it must be a real RNG rather than a PRNG seeded at
  *  a predictable point in boot. */

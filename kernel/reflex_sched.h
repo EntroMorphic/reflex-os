@@ -191,6 +191,7 @@ void reflex_sched_tick_debug(uint32_t *ena, uint32_t *raw, uint32_t *st);
  * number services some other peripheral's interrupt as though it were the
  * tick and leaves that peripheral asserted forever.
  */
+void reflex_trap_install(void);
 void reflex_trap_set_tick_line(int cpu_int);
 int reflex_trap_get_tick_line(void);
 void reflex_sched_tick(void);

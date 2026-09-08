@@ -74,6 +74,14 @@ REGS = [
     # --- Boot0: timer-group watchdog ---
     ("REFLEX_TIMG0_WDTFEED_REG",       "TIMG_WDTFEED_REG(0)",     "TIMG0",  "WDTFEED",     None, "IDF indexes by group; Boot0 only uses group 0"),
     ("REFLEX_TIMG0_WDTWPROTECT_REG",   "TIMG_WDTWPROTECT_REG(0)", "TIMG0",  "WDTWPROTECT", None, ""),
+    # Both timer-group watchdogs, so the mtvec hand-off can stand them down.
+    # ESP-IDF arms these — the interrupt watchdog on one group, the task
+    # watchdog on the other — and once FreeRTOS is quiesced nothing feeds them.
+    # Observed as `rst:0x8 (TG1_WDT_HPSYS)` a few seconds after the hand-off.
+    ("REFLEX_TIMG0_WDTCONFIG0_REG",    "TIMG_WDTCONFIG0_REG(0)",  "TIMG0",  "WDTCONFIG0",  None, ""),
+    ("REFLEX_TIMG1_WDTCONFIG0_REG",    "TIMG_WDTCONFIG0_REG(1)",  "TIMG1",  "WDTCONFIG0",  None, ""),
+    ("REFLEX_TIMG1_WDTWPROTECT_REG",   "TIMG_WDTWPROTECT_REG(1)", "TIMG1",  "WDTWPROTECT", None, ""),
+    ("REFLEX_TIMG_WDT_EN",             "TIMG_WDT_EN",             "TIMG0",  "WDTCONFIG0",  "WDT_EN", "same bit in both groups"),
 
     # --- Boot0: always-on domain ---
     ("REFLEX_LP_AON_STORE0_REG",       "LP_AON_STORE0_REG",       "LP_AON", "STORE0",      None, "scratch, survives deep sleep"),
@@ -291,6 +299,7 @@ LITERALS = [
     ("REFLEX_PCNT_SIG_CH0_IN0_IDX", "PCNT_SIG_CH0_IN0_IDX",  101, "GPIO matrix signal index; gpio_sig_map, not the SVD. Unit 0 channel 0 edge input"),
     ("REFLEX_PCNT_CTRL_CH0_IN0_IDX","PCNT_CTRL_CH0_IN0_IDX", 103, "GPIO matrix signal index; the level/control input gating the same channel"),
     ("REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT", "GPIO_MATRIX_CONST_ZERO_INPUT", 0x3C, "gpio_pins.h, not the SVD. Routing this into a signal index is how the matrix disconnects an input"),
+    ("REFLEX_TIMG_WDT_WKEY", "TIMG_WDT_WKEY_VALUE", 0x50D83AA1, "hal/mwdt_ll.h, not the SVD. Unlocks a timer-group watchdog"),
     ("REFLEX_LP_WDT_WKEY", "LP_WDT_WKEY_VALUE", 0x50D83AA1, "hal/lpwdt_ll.h, not the SVD. Unlocks the watchdog registers"),
     ("REFLEX_SIG_GPIO_OUT_IDX", "SIG_GPIO_OUT_IDX", 128, "GPIO matrix signal index; gpio_sig_map, not the SVD. Routing this back onto a pin is how a peripheral output is detached, and it was a bare 128 in shell.c"),
     ("REFLEX_RMT_SIG_OUT0_IDX", "RMT_SIG_OUT0_IDX", 71, "GPIO matrix signal index; gpio_sig_map, not the SVD. Guessed as 51 first and the bridge rejected it, which is the entire point of the bridge"),
@@ -318,6 +327,21 @@ def load_svd():
                     int(f.findtext("bitOffset")), int(f.findtext("bitWidth")))
             regs[r.findtext("name")] = (int(r.findtext("addressOffset"), 0), fields)
         per[p.findtext("name")] = (int(base, 0), regs)
+
+    # Follow derivedFrom.
+    #
+    # An SVD peripheral that is identical to another but for its base address is
+    # written as <peripheral derivedFrom="TIMG0"> with no registers of its own.
+    # Without this, TIMG1 resolves to a base and nothing else, and asking for
+    # TIMG1.WDTCONFIG0 fails as "absent from SVD" — which is true of the XML and
+    # false of the silicon.
+    for p in root.iter("peripheral"):
+        name = p.findtext("name")
+        parent = p.get("derivedFrom")
+        if not parent or name not in per or per[name][1]:
+            continue
+        if parent in per:
+            per[name] = (per[name][0], per[parent][1])
     return per
 
 
