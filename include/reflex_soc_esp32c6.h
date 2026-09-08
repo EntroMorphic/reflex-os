@@ -15,6 +15,23 @@
 
 #include <stdint.h>
 
+/* LP_WDT.WDTCONFIG0 @ base+0x0 — stage actions, enable, pause-in-sleep */
+#define REFLEX_LP_WDT_CONFIG0_REG 0x600B1C00u
+/* LP_WDT.CONFIG1 @ base+0x4 — stage 0 timeout, in slow-clock ticks */
+#define REFLEX_LP_WDT_CONFIG1_REG 0x600B1C04u
+/* LP_WDT.WDTFEED @ base+0x14 */
+#define REFLEX_LP_WDT_FEED_REG 0x600B1C14u
+/* LP_WDT.WDTWPROTECT @ base+0x18 — write the key here to unlock the rest */
+#define REFLEX_LP_WDT_WPROTECT_REG 0x600B1C18u
+/* LP_WDT.WDTCONFIG0.WDT_EN bit 31 */
+#define REFLEX_LP_WDT_EN 0x80000000u
+/* LP_WDT.WDTCONFIG0.WDT_PAUSE_IN_SLP bit 9 — set means the watchdog stops while asleep; the net
+ * depends on it being clear */
+#define REFLEX_LP_WDT_PAUSE_IN_SLP 0x00000200u
+/* LP_WDT.WDTCONFIG0.WDT_PROCPU_RESET_EN bit 11 */
+#define REFLEX_LP_WDT_PROCPU_RESET_EN 0x00000800u
+/* LP_WDT.WDTCONFIG0.WDT_CHIP_RESET_EN bit 8 */
+#define REFLEX_LP_WDT_CHIP_RESET_EN 0x00000100u
 /* LP_WDT.SWD_CONF @ base+0x1C — super-watchdog config */
 #define REFLEX_LP_WDT_SWD_CONFIG_REG 0x600B1C1Cu
 /* LP_WDT.SWD_WPROTECT @ base+0x20 — super-watchdog write protect */
@@ -233,6 +250,10 @@
 #define REFLEX_PCR_RMT_SCLK_EN 0x00400000u
 /* SPI0.SPI_MEM_MMU_POWER_CTRL.SPI_MMU_PAGE_SIZE width 2 — field value mask */
 #define REFLEX_SPI_MEM_MMU_PAGE_SIZE 0x00000003u
+/* LP_WDT.WDTCONFIG0.WDT_STG0 width 3 — 3 bits: 0 off, 3 reset system, 4 reset RTC too */
+#define REFLEX_LP_WDT_STG_MASK 0x00000007u
+/* LP_WDT.WDTCONFIG0.WDT_SYS_RESET_LENGTH width 3 — same width as the CPU field */
+#define REFLEX_LP_WDT_RESET_LEN_MASK 0x00000007u
 /* LEDC.CH%s_CONF0.TIMER_SEL width 2 */
 #define REFLEX_LEDC_TIMER_SEL_MASK 0x00000003u
 /* LEDC.CH%s_DUTY.DUTY width 25 */
@@ -269,6 +290,12 @@
 #define REFLEX_PCR_RMT_SCLK_SEL_MASK 0x00000003u
 /* SPI0.SPI_MEM_MMU_POWER_CTRL.SPI_MMU_PAGE_SIZE bit 3 — field shift */
 #define REFLEX_SPI_MEM_MMU_PAGE_SIZE_S 0x00000003u
+/* LP_WDT.WDTCONFIG0.WDT_STG0 bit 28 */
+#define REFLEX_LP_WDT_STG0_S 0x0000001Cu
+/* LP_WDT.WDTCONFIG0.WDT_SYS_RESET_LENGTH bit 13 */
+#define REFLEX_LP_WDT_SYS_RESET_LEN_S 0x0000000Du
+/* LP_WDT.WDTCONFIG0.WDT_CPU_RESET_LENGTH bit 16 */
+#define REFLEX_LP_WDT_CPU_RESET_LEN_S 0x00000010u
 /* LEDC.CH%s_CONF0.TIMER_SEL bit 0 */
 #define REFLEX_LEDC_TIMER_SEL_S 0x00000000u
 /* LEDC.CH%s_DUTY.DUTY bit 0 */
@@ -328,6 +355,8 @@
 /* literal — gpio_pins.h, not the SVD. Routing this into a signal index is how the matrix
  * disconnects an input */
 #define REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT 0x0000003Cu
+/* literal — hal/lpwdt_ll.h, not the SVD. Unlocks the watchdog registers */
+#define REFLEX_LP_WDT_WKEY 0x50D83AA1u
 /* literal — GPIO matrix signal index; gpio_sig_map, not the SVD. Routing this back onto a pin is
  * how a peripheral output is detached, and it was a bare 128 in shell.c */
 #define REFLEX_SIG_GPIO_OUT_IDX 0x00000080u

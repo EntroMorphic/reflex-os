@@ -142,6 +142,13 @@ static void test_fails_closed(void) {
      * an unlisted command to the base role of whatever row it sat in. */
     CHECK("unknown command requires admin", ROLE1("no_such_command") == ROLE_ADMIN);
     CHECK("unknown is not known", !shell_command_known("no_such_command"));
+    /* kernel wdt reboots the board on purpose, so it is a reboot by another
+     * name and gated like one. The command beside it stays observer. */
+    CHECK("kernel is observer", ROLE1("kernel") == ROLE_OBSERVER);
+    CHECK("kernel tick is observer", ROLE2("kernel", "tick") == ROLE_OBSERVER);
+    CHECK("kernel wdt requires admin", ROLE2("kernel", "wdt") == ROLE_ADMIN);
+    CHECK("kernel wdt off requires admin", ROLE3("kernel", "wdt", "off") == ROLE_ADMIN);
+
     CHECK("NULL command requires admin", shell_required_role(NULL, 0, NULL) == ROLE_ADMIN);
 
     /* Escalation must not be dodgeable by an unknown sub-command: an

@@ -661,6 +661,41 @@ statement about where the fault could *not* be.
 to **8**, once the count stopped including files this configuration does not
 build. See below; the code did not change, the measurement did.
 
+### Tier B: the sleep net, and why it is not yet enough (2026-09-08)
+
+`esp_sleep.h` is two calls, and the reason it is still here is not effort. Every
+other dependency taken over this week failed loudly when it was wrong — a wrong
+LEDC divider still let the shell report it, a wrong RMT address showed as a
+count of zero, a cycle counter reading zero stopped the board enumerating. Get
+the sleep entry wrong and the board simply never wakes, with nothing running to
+say why, and recovery means hands on the hardware.
+
+The plan is to make that failure recoverable first. The low-power watchdog lives
+in the always-on domain, so armed before sleeping it should turn "never wakes"
+into "reboots a few seconds later" — which is the difference between an
+experiment that can be iterated and one that costs a bench visit each time.
+`reflex_hal_wdt_*` owns it, constants through the bridge, and `kernel wdt` arms
+it from the shell.
+
+**Awake it works, and it did not on the first attempt.** The configuration read
+back exactly as intended — enable set, stage action `RESET_RTC`, timeout right
+to the tick — and nothing happened, because both reset-signal length fields were
+zero: a 100 ns pulse that does not take, where ESP-IDF uses 3.2 us. Armed is not
+working, and only the readback showed it.
+
+**Across ESP-IDF's deep sleep it does not fire, and that is not understood.**
+Armed for 5 s and told to sleep 30, the board came back at 33.6 s on its own
+timer. `WDT_PAUSE_IN_SLP` was clear, and ESP-IDF's sleep path states plainly
+that a watchdog enabled in user code is left alone. Source and measurement
+disagree; neither has been discarded. Until that is resolved the net cannot be
+relied on for the case it exists for, so owning the sleep entry stays blocked —
+not on the writing, on the ability to survive getting it wrong.
+
+One property was learned the hard way and is now load-bearing: **the watchdog
+survives the reset it causes**, so any boot must disarm it. Arming it and
+letting it fire otherwise produces a reset loop that outlives the reset. The
+hardware suite recorded it precisely — 73 checks, then 0, then 0.
+
 ### The count was measuring the wrong thing twice over (2026-09-08)
 
 Reaching Tier E zero prompted a look at the instrument, and it was wrong in two

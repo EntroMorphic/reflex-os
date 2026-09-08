@@ -196,6 +196,99 @@ void reflex_hal_reboot(void) {
  * and are proved against ESP-IDF by `make soc-bridge` like the rest. */
 #define REFLEX_SLEEP_MAGIC 0x534C5000 /* "SLP\0" + duration in the low bits */
 
+/* ---- Low-power watchdog ------------------------------------------------
+ *
+ * A net under deep sleep. The reason sleep is the one dependency this file has
+ * not taken over is that getting the entry wrong does not report an error — the
+ * board simply never wakes, and nothing is left running to say why. Recovery
+ * means hands on the hardware.
+ *
+ * This watchdog lives in the always-on domain and, with WDT_PAUSE_IN_SLP clear,
+ * keeps counting while the rest of the chip is powered down. Armed before a
+ * sleep and disarmed after a successful wake, it turns "never wakes" into
+ * "reboots a few seconds later" — which is the difference between an experiment
+ * that can be iterated and one that costs a bench visit each time it is wrong.
+ *
+ * The net has to be proved before it is trusted. That it is armed is not
+ * evidence that it fires, and the assumption most likely to be wrong is the one
+ * that matters most: whether it really keeps running through the sleep
+ * power-down. */
+
+#define LP_WDT_STAGE_OFF 0u
+#define LP_WDT_STAGE_RESET_RTC 4u
+/* 7 == 3.2us, matching ESP-IDF. 0 is 100ns and does not take. */
+#define LP_WDT_RESET_LEN_3_2US 7u
+
+/* Nominal RC_SLOW. The exact rate is not published as a constant and drifts
+ * with temperature, so this is calibrated by measurement rather than trusted —
+ * a net that fires late is still a net, one that never fires is not. */
+#define LP_WDT_SLOW_HZ 136000u
+
+static void wdt_unlock(void) {
+    REFLEX_REG(REFLEX_LP_WDT_WPROTECT_REG) = REFLEX_LP_WDT_WKEY;
+}
+
+static void wdt_lock(void) {
+    REFLEX_REG(REFLEX_LP_WDT_WPROTECT_REG) = 0u;
+}
+
+reflex_err_t reflex_hal_wdt_arm(uint32_t timeout_ms) {
+    if (timeout_ms == 0u) return REFLEX_ERR_INVALID_ARG;
+    uint64_t ticks = ((uint64_t)timeout_ms * LP_WDT_SLOW_HZ) / 1000u;
+    if (ticks == 0u || ticks > 0xFFFFFFFFULL) return REFLEX_ERR_INVALID_ARG;
+
+    wdt_unlock();
+    REFLEX_REG(REFLEX_LP_WDT_CONFIG1_REG) = (uint32_t)ticks;
+    uint32_t c0 = REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG);
+    c0 &= ~(REFLEX_LP_WDT_STG_MASK << REFLEX_LP_WDT_STG0_S);
+    c0 |= (LP_WDT_STAGE_RESET_RTC << REFLEX_LP_WDT_STG0_S);
+    /* Clear, not set: this is the bit that decides whether the net exists at
+     * all while the chip is asleep, which is the only time it is needed. */
+    c0 &= ~REFLEX_LP_WDT_PAUSE_IN_SLP;
+    /* Reset pulse length, which ESP-IDF sets and the first version of this did
+     * not. Left at 0 the pulse is 100ns; the watchdog expired on schedule, the
+     * configuration read back exactly as intended, and the board carried on
+     * regardless. Armed is not the same as working, and the register readback
+     * is what showed the difference. 7 is 3.2us, which is what ESP-IDF uses. */
+    c0 &= ~((REFLEX_LP_WDT_RESET_LEN_MASK << REFLEX_LP_WDT_SYS_RESET_LEN_S) |
+            (REFLEX_LP_WDT_RESET_LEN_MASK << REFLEX_LP_WDT_CPU_RESET_LEN_S));
+    c0 |= (LP_WDT_RESET_LEN_3_2US << REFLEX_LP_WDT_SYS_RESET_LEN_S) |
+          (LP_WDT_RESET_LEN_3_2US << REFLEX_LP_WDT_CPU_RESET_LEN_S);
+    c0 |= REFLEX_LP_WDT_EN;
+    REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG) = c0;
+    REFLEX_REG(REFLEX_LP_WDT_FEED_REG) = 1u;
+    wdt_lock();
+    return REFLEX_OK;
+}
+
+void reflex_hal_wdt_feed(void) {
+    wdt_unlock();
+    REFLEX_REG(REFLEX_LP_WDT_FEED_REG) = 1u;
+    wdt_lock();
+}
+
+void reflex_hal_wdt_disarm(void) {
+    wdt_unlock();
+    uint32_t c0 = REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG);
+    c0 &= ~(REFLEX_LP_WDT_STG_MASK << REFLEX_LP_WDT_STG0_S);
+    c0 |= (LP_WDT_STAGE_OFF << REFLEX_LP_WDT_STG0_S);
+    c0 &= ~REFLEX_LP_WDT_EN;
+    REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG) = c0;
+    wdt_lock();
+}
+
+/* Read the configuration back. Armed is not the same as working: the first
+ * attempt at this net reported armed=1 and never fired, and the only way to
+ * tell why is to look at what the register actually holds. */
+void reflex_hal_wdt_regs(uint32_t *config0, uint32_t *config1) {
+    if (config0) *config0 = REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG);
+    if (config1) *config1 = REFLEX_REG(REFLEX_LP_WDT_CONFIG1_REG);
+}
+
+bool reflex_hal_wdt_armed(void) {
+    return (REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG) & REFLEX_LP_WDT_EN) != 0u;
+}
+
 int reflex_hal_sleep_wakeup_cause(void) {
     uint32_t cause = REFLEX_REG(REFLEX_PMU_SLP_WAKEUP_STATUS0_REG);
     if (cause & (1 << 0)) return 4;  /* LP timer → maps to ESP_SLEEP_WAKEUP_TIMER */

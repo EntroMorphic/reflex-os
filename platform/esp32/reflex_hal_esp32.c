@@ -154,6 +154,24 @@ void reflex_hal_rmt_snapshot(reflex_rmt_snapshot_t *out) {
     memset(out, 0, sizeof *out);
 }
 
+/* Not implemented on this target: the sleep net is a C6 concern, because the
+ * C6 is where Reflex intends to own the sleep entry. */
+reflex_err_t reflex_hal_wdt_arm(uint32_t timeout_ms) {
+    (void)timeout_ms;
+    return REFLEX_ERR_NOT_SUPPORTED;
+}
+
+void reflex_hal_wdt_feed(void) {}
+void reflex_hal_wdt_disarm(void) {}
+bool reflex_hal_wdt_armed(void) {
+    return false;
+}
+
+void reflex_hal_wdt_regs(uint32_t *c0, uint32_t *c1) {
+    if (c0) *c0 = 0;
+    if (c1) *c1 = 0;
+}
+
 void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out) {
     if (!out) return;
     memset(out, 0, sizeof *out);

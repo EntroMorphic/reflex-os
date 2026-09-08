@@ -49,6 +49,18 @@ BRIDGE = ROOT / "tools" / "soc_assert_bridge.c"
 #                      mask (1<<bitWidth)-1 when `mask_of_width` is set.
 REGS = [
     # --- Boot0: super-watchdog and RTC watchdog ---
+    # The main low-power watchdog. Reflex arms this across a deep sleep so that
+    # a sleep which never wakes resets the board instead of stranding it —
+    # WDT_PAUSE_IN_SLP is the field that decides whether the net is even armed
+    # while asleep, and it is the whole reason this is worth owning.
+    ("REFLEX_LP_WDT_CONFIG0_REG",      "LP_WDT_CONFIG0_REG",      "LP_WDT", "WDTCONFIG0",  None, "stage actions, enable, pause-in-sleep"),
+    ("REFLEX_LP_WDT_CONFIG1_REG",      "LP_WDT_CONFIG1_REG",      "LP_WDT", "CONFIG1",     None, "stage 0 timeout, in slow-clock ticks"),
+    ("REFLEX_LP_WDT_FEED_REG",         "LP_WDT_FEED_REG",         "LP_WDT", "WDTFEED",     None, ""),
+    ("REFLEX_LP_WDT_WPROTECT_REG",     "LP_WDT_WPROTECT_REG",     "LP_WDT", "WDTWPROTECT", None, "write the key here to unlock the rest"),
+    ("REFLEX_LP_WDT_EN",               "LP_WDT_WDT_EN",           "LP_WDT", "WDTCONFIG0",  "WDT_EN", ""),
+    ("REFLEX_LP_WDT_PAUSE_IN_SLP",     "LP_WDT_WDT_PAUSE_IN_SLP", "LP_WDT", "WDTCONFIG0",  "WDT_PAUSE_IN_SLP", "set means the watchdog stops while asleep; the net depends on it being clear"),
+    ("REFLEX_LP_WDT_PROCPU_RESET_EN",  "LP_WDT_WDT_PROCPU_RESET_EN", "LP_WDT", "WDTCONFIG0", "WDT_PROCPU_RESET_EN", ""),
+    ("REFLEX_LP_WDT_CHIP_RESET_EN",    "LP_WDT_WDT_CHIP_RESET_EN",   "LP_WDT", "WDTCONFIG0", "WDT_CHIP_RESET_EN", ""),
     ("REFLEX_LP_WDT_SWD_CONFIG_REG",   "LP_WDT_SWD_CONFIG_REG",   "LP_WDT", "SWD_CONF",    None, "super-watchdog config"),
     ("REFLEX_LP_WDT_SWD_WPROTECT_REG", "LP_WDT_SWD_WPROTECT_REG", "LP_WDT", "SWD_WPROTECT", None, "super-watchdog write protect"),
     ("REFLEX_LP_WDT_SWD_AUTO_FEED_EN", "LP_WDT_SWD_AUTO_FEED_EN", "LP_WDT", "SWD_CONF",    "SWD_AUTO_FEED_EN", ""),
@@ -208,6 +220,8 @@ REGS = [
 # Value masks: (1 << bitWidth) - 1 rather than a single bit.
 WIDTH_MASKS = [
     ("REFLEX_SPI_MEM_MMU_PAGE_SIZE", "SPI_MEM_MMU_PAGE_SIZE", "SPI0", "SPI_MEM_MMU_POWER_CTRL", "SPI_MMU_PAGE_SIZE", "field value mask"),
+    ("REFLEX_LP_WDT_STG_MASK",       "LP_WDT_WDT_STG0_V",     "LP_WDT", "WDTCONFIG0", "WDT_STG0",  "3 bits: 0 off, 3 reset system, 4 reset RTC too"),
+    ("REFLEX_LP_WDT_RESET_LEN_MASK", "LP_WDT_WDT_SYS_RESET_LENGTH_V", "LP_WDT", "WDTCONFIG0", "WDT_SYS_RESET_LENGTH", "same width as the CPU field"),
     ("REFLEX_LEDC_TIMER_SEL_MASK",   "LEDC_TIMER_SEL_CH0_V",    "LEDC", "CH%s_CONF0",   "TIMER_SEL",   ""),
     ("REFLEX_LEDC_DUTY_MASK",        "LEDC_DUTY_CH0_V",         "LEDC", "CH%s_DUTY",    "DUTY",        ""),
     ("REFLEX_LEDC_DUTY_RES_MASK",    "LEDC_TIMER0_DUTY_RES_V",  "LEDC", "TIMER%s_CONF", "DUTY_RES",    ""),
@@ -233,6 +247,9 @@ WIDTH_MASKS = [
 # names neither the field nor the call site.
 SHIFTS = [
     ("REFLEX_SPI_MEM_MMU_PAGE_SIZE_S", "SPI_MEM_MMU_PAGE_SIZE_S", "SPI0", "SPI_MEM_MMU_POWER_CTRL", "SPI_MMU_PAGE_SIZE", "field shift"),
+    ("REFLEX_LP_WDT_STG0_S",           "LP_WDT_WDT_STG0_S",       "LP_WDT", "WDTCONFIG0", "WDT_STG0", ""),
+    ("REFLEX_LP_WDT_SYS_RESET_LEN_S",  "LP_WDT_WDT_SYS_RESET_LENGTH_S", "LP_WDT", "WDTCONFIG0", "WDT_SYS_RESET_LENGTH", ""),
+    ("REFLEX_LP_WDT_CPU_RESET_LEN_S",  "LP_WDT_WDT_CPU_RESET_LENGTH_S", "LP_WDT", "WDTCONFIG0", "WDT_CPU_RESET_LENGTH", ""),
     ("REFLEX_LEDC_TIMER_SEL_S",   "LEDC_TIMER_SEL_CH0_S",   "LEDC", "CH%s_CONF0",   "TIMER_SEL",   ""),
     ("REFLEX_LEDC_DUTY_S",        "LEDC_DUTY_CH0_S",        "LEDC", "CH%s_DUTY",    "DUTY",        ""),
     ("REFLEX_LEDC_DUTY_RES_S",    "LEDC_TIMER0_DUTY_RES_S", "LEDC", "TIMER%s_CONF", "DUTY_RES",    ""),
@@ -266,6 +283,7 @@ LITERALS = [
     ("REFLEX_PCNT_SIG_CH0_IN0_IDX", "PCNT_SIG_CH0_IN0_IDX",  101, "GPIO matrix signal index; gpio_sig_map, not the SVD. Unit 0 channel 0 edge input"),
     ("REFLEX_PCNT_CTRL_CH0_IN0_IDX","PCNT_CTRL_CH0_IN0_IDX", 103, "GPIO matrix signal index; the level/control input gating the same channel"),
     ("REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT", "GPIO_MATRIX_CONST_ZERO_INPUT", 0x3C, "gpio_pins.h, not the SVD. Routing this into a signal index is how the matrix disconnects an input"),
+    ("REFLEX_LP_WDT_WKEY", "LP_WDT_WKEY_VALUE", 0x50D83AA1, "hal/lpwdt_ll.h, not the SVD. Unlocks the watchdog registers"),
     ("REFLEX_SIG_GPIO_OUT_IDX", "SIG_GPIO_OUT_IDX", 128, "GPIO matrix signal index; gpio_sig_map, not the SVD. Routing this back onto a pin is how a peripheral output is detached, and it was a bare 128 in shell.c"),
     ("REFLEX_RMT_SIG_OUT0_IDX", "RMT_SIG_OUT0_IDX", 71, "GPIO matrix signal index; gpio_sig_map, not the SVD. Guessed as 51 first and the bridge rejected it, which is the entire point of the bridge"),
     ("REFLEX_IO_MUX_MCU_SEL_V",    "MCU_SEL",              0x7,        "IO_MUX function-select field mask (3 bits)"),
@@ -388,6 +406,7 @@ def render_bridge(bridge):
         "#include \"soc/gpio_sig_map.h\"",
         "#include \"soc/io_mux_reg.h\"",
         "#include \"soc/lp_wdt_reg.h\"",
+        "#include \"hal/lpwdt_ll.h\"",
         "#include \"soc/lp_aon_reg.h\"",
         "#include \"soc/lp_analog_peri_reg.h\"",
         "#include \"soc/pmu_reg.h\"",

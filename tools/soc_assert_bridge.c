@@ -19,6 +19,7 @@
 #include "soc/gpio_sig_map.h"
 #include "soc/io_mux_reg.h"
 #include "soc/lp_wdt_reg.h"
+#include "hal/lpwdt_ll.h"
 #include "soc/lp_aon_reg.h"
 #include "soc/lp_analog_peri_reg.h"
 #include "soc/pmu_reg.h"
@@ -34,6 +35,22 @@
 #include "soc/wdt_periph.h"
 #include "soc/interrupts.h"
 
+_Static_assert(REFLEX_LP_WDT_CONFIG0_REG == (uint32_t)(LP_WDT_CONFIG0_REG),
+               "REFLEX_LP_WDT_CONFIG0_REG diverges from LP_WDT_CONFIG0_REG");
+_Static_assert(REFLEX_LP_WDT_CONFIG1_REG == (uint32_t)(LP_WDT_CONFIG1_REG),
+               "REFLEX_LP_WDT_CONFIG1_REG diverges from LP_WDT_CONFIG1_REG");
+_Static_assert(REFLEX_LP_WDT_FEED_REG == (uint32_t)(LP_WDT_FEED_REG),
+               "REFLEX_LP_WDT_FEED_REG diverges from LP_WDT_FEED_REG");
+_Static_assert(REFLEX_LP_WDT_WPROTECT_REG == (uint32_t)(LP_WDT_WPROTECT_REG),
+               "REFLEX_LP_WDT_WPROTECT_REG diverges from LP_WDT_WPROTECT_REG");
+_Static_assert(REFLEX_LP_WDT_EN == (uint32_t)(LP_WDT_WDT_EN),
+               "REFLEX_LP_WDT_EN diverges from LP_WDT_WDT_EN");
+_Static_assert(REFLEX_LP_WDT_PAUSE_IN_SLP == (uint32_t)(LP_WDT_WDT_PAUSE_IN_SLP),
+               "REFLEX_LP_WDT_PAUSE_IN_SLP diverges from LP_WDT_WDT_PAUSE_IN_SLP");
+_Static_assert(REFLEX_LP_WDT_PROCPU_RESET_EN == (uint32_t)(LP_WDT_WDT_PROCPU_RESET_EN),
+               "REFLEX_LP_WDT_PROCPU_RESET_EN diverges from LP_WDT_WDT_PROCPU_RESET_EN");
+_Static_assert(REFLEX_LP_WDT_CHIP_RESET_EN == (uint32_t)(LP_WDT_WDT_CHIP_RESET_EN),
+               "REFLEX_LP_WDT_CHIP_RESET_EN diverges from LP_WDT_WDT_CHIP_RESET_EN");
 _Static_assert(REFLEX_LP_WDT_SWD_CONFIG_REG == (uint32_t)(LP_WDT_SWD_CONFIG_REG),
                "REFLEX_LP_WDT_SWD_CONFIG_REG diverges from LP_WDT_SWD_CONFIG_REG");
 _Static_assert(REFLEX_LP_WDT_SWD_WPROTECT_REG == (uint32_t)(LP_WDT_SWD_WPROTECT_REG),
@@ -257,6 +274,10 @@ _Static_assert(REFLEX_PCR_RMT_SCLK_EN == (uint32_t)(PCR_RMT_SCLK_EN),
                "REFLEX_PCR_RMT_SCLK_EN diverges from PCR_RMT_SCLK_EN");
 _Static_assert(REFLEX_SPI_MEM_MMU_PAGE_SIZE == (uint32_t)(SPI_MEM_MMU_PAGE_SIZE),
                "REFLEX_SPI_MEM_MMU_PAGE_SIZE diverges from SPI_MEM_MMU_PAGE_SIZE");
+_Static_assert(REFLEX_LP_WDT_STG_MASK == (uint32_t)(LP_WDT_WDT_STG0_V),
+               "REFLEX_LP_WDT_STG_MASK diverges from LP_WDT_WDT_STG0_V");
+_Static_assert(REFLEX_LP_WDT_RESET_LEN_MASK == (uint32_t)(LP_WDT_WDT_SYS_RESET_LENGTH_V),
+               "REFLEX_LP_WDT_RESET_LEN_MASK diverges from LP_WDT_WDT_SYS_RESET_LENGTH_V");
 _Static_assert(REFLEX_LEDC_TIMER_SEL_MASK == (uint32_t)(LEDC_TIMER_SEL_CH0_V),
                "REFLEX_LEDC_TIMER_SEL_MASK diverges from LEDC_TIMER_SEL_CH0_V");
 _Static_assert(REFLEX_LEDC_DUTY_MASK == (uint32_t)(LEDC_DUTY_CH0_V),
@@ -293,6 +314,12 @@ _Static_assert(REFLEX_PCR_RMT_SCLK_SEL_MASK == (uint32_t)(PCR_RMT_SCLK_SEL_V),
                "REFLEX_PCR_RMT_SCLK_SEL_MASK diverges from PCR_RMT_SCLK_SEL_V");
 _Static_assert(REFLEX_SPI_MEM_MMU_PAGE_SIZE_S == (uint32_t)(SPI_MEM_MMU_PAGE_SIZE_S),
                "REFLEX_SPI_MEM_MMU_PAGE_SIZE_S diverges from SPI_MEM_MMU_PAGE_SIZE_S");
+_Static_assert(REFLEX_LP_WDT_STG0_S == (uint32_t)(LP_WDT_WDT_STG0_S),
+               "REFLEX_LP_WDT_STG0_S diverges from LP_WDT_WDT_STG0_S");
+_Static_assert(REFLEX_LP_WDT_SYS_RESET_LEN_S == (uint32_t)(LP_WDT_WDT_SYS_RESET_LENGTH_S),
+               "REFLEX_LP_WDT_SYS_RESET_LEN_S diverges from LP_WDT_WDT_SYS_RESET_LENGTH_S");
+_Static_assert(REFLEX_LP_WDT_CPU_RESET_LEN_S == (uint32_t)(LP_WDT_WDT_CPU_RESET_LENGTH_S),
+               "REFLEX_LP_WDT_CPU_RESET_LEN_S diverges from LP_WDT_WDT_CPU_RESET_LENGTH_S");
 _Static_assert(REFLEX_LEDC_TIMER_SEL_S == (uint32_t)(LEDC_TIMER_SEL_CH0_S),
                "REFLEX_LEDC_TIMER_SEL_S diverges from LEDC_TIMER_SEL_CH0_S");
 _Static_assert(REFLEX_LEDC_DUTY_S == (uint32_t)(LEDC_DUTY_CH0_S),
@@ -351,6 +378,8 @@ _Static_assert(REFLEX_PCNT_CTRL_CH0_IN0_IDX == (uint32_t)(PCNT_CTRL_CH0_IN0_IDX)
                "REFLEX_PCNT_CTRL_CH0_IN0_IDX diverges from PCNT_CTRL_CH0_IN0_IDX");
 _Static_assert(REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT == (uint32_t)(GPIO_MATRIX_CONST_ZERO_INPUT),
                "REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT diverges from GPIO_MATRIX_CONST_ZERO_INPUT");
+_Static_assert(REFLEX_LP_WDT_WKEY == (uint32_t)(LP_WDT_WKEY_VALUE),
+               "REFLEX_LP_WDT_WKEY diverges from LP_WDT_WKEY_VALUE");
 _Static_assert(REFLEX_SIG_GPIO_OUT_IDX == (uint32_t)(SIG_GPIO_OUT_IDX),
                "REFLEX_SIG_GPIO_OUT_IDX diverges from SIG_GPIO_OUT_IDX");
 _Static_assert(REFLEX_RMT_SIG_OUT0_IDX == (uint32_t)(RMT_SIG_OUT0_IDX),

@@ -48,6 +48,19 @@ reflex_err_t reflex_hal_gpio_connect_out(uint32_t p, uint32_t s, bool i, bool e)
 void reflex_hal_reboot(void) { }
 int reflex_hal_sleep_wakeup_cause(void) { return 0; }
 void reflex_hal_sleep_enter(uint64_t us) { s_mock_time_us += us; }
+reflex_err_t reflex_hal_wdt_arm(uint32_t ms) {
+    (void)ms;
+    return REFLEX_OK;
+}
+void reflex_hal_wdt_feed(void) {}
+void reflex_hal_wdt_disarm(void) {}
+bool reflex_hal_wdt_armed(void) {
+    return false;
+}
+void reflex_hal_wdt_regs(uint32_t *c0, uint32_t *c1) {
+    if (c0) *c0 = 0;
+    if (c1) *c1 = 0;
+}
 
 void reflex_hal_random_fill(uint8_t *buf, size_t len) {
     for (size_t i = 0; i < len; i++) buf[i] = (uint8_t)(rand() & 0xFF);

@@ -93,6 +93,13 @@ static uint8_t subcmd_min_role(const char *cmd, int argc, char *argv[]) {
          * introduces routes and starts a pulse task from operator-supplied
          * bytes — the privilege class of `vm loadhex`. */
         if (strcmp(sub, "load") == 0) return ROLE_ADMIN;
+    } else if (strcmp(cmd, "kernel") == 0) {
+        /* kernel/kernel tick = observer; kernel wdt = admin. Arming the
+         * low-power watchdog and not feeding it reboots the board on purpose,
+         * which is the whole reason it exists — a recovery net has to be proved
+         * to fire. That makes it a reboot by another name, and `reboot` is
+         * admin. Reading the disposition table beside it is not. */
+        if (strcmp(sub, "wdt") == 0) return ROLE_ADMIN;
     } else if (strcmp(cmd, "goonies") == 0) {
         /* goonies ls/find = observer; read = operator. `read` dereferences a
          * hardware register, and sampling one is a side effect, so it does not

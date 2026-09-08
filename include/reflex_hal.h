@@ -96,6 +96,14 @@ int  reflex_hal_sleep_wakeup_cause(void);
  * reboots, so either way execution does not continue past this call.
  */
 void reflex_hal_sleep_enter(uint64_t duration_us);
+
+/* Low-power watchdog: the recovery net for a sleep that never wakes. Lives in
+ * the always-on domain and keeps counting while the chip is powered down. */
+reflex_err_t reflex_hal_wdt_arm(uint32_t timeout_ms);
+void reflex_hal_wdt_feed(void);
+void reflex_hal_wdt_disarm(void);
+bool reflex_hal_wdt_armed(void);
+void reflex_hal_wdt_regs(uint32_t *config0, uint32_t *config1);
 /** @brief Fill @p buf with hardware entropy. Used for the per-board Aura key
  *  and for arc nonces, so it must be a real RNG rather than a PRNG seeded at
  *  a predictable point in boot. */

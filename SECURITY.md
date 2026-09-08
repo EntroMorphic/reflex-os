@@ -35,7 +35,12 @@ The shell implements capability-based role restriction. Every command has a mini
 | observer | 0 | Read-only: status, goonies ls/find, temp, telemetry display, vitals display |
 | agent | 1 | Observer + purpose set/clear, snapshot save/load |
 | operator | 2 | Agent + led, vm run/stop, mesh emit/ping/posture, bonsai, goonies read, tapestry signal (non-`sys.` cells) |
-| admin | 3 | Everything: reboot, sleep, aura setkey/clear, config set, vm loadhex, loom load, vitals override, snapshot clear, mesh peer add |
+| admin | 3 | Everything: reboot, sleep, `kernel wdt`, aura setkey/clear, config set, vm loadhex, loom load, vitals override, snapshot clear, mesh peer add |
+
+`kernel wdt` sits with `reboot` deliberately. It arms the low-power watchdog
+and does not feed it, so the board resets a few seconds later — a reboot by
+another name, and gated like one, while the `kernel` command beside it stays
+`observer`.
 
 The table above is enforced by `shell_required_role()` in `shell/shell_policy.c`, and every row of it — plus every sub-command escalation — is asserted in `tests/host/test_shell_policy.c`. The lookup fails closed: a command with no policy entry requires `admin` rather than defaulting to `observer`, so a command added to the shell without a matching policy entry is locked down rather than exposed.
 

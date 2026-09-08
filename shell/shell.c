@@ -1219,6 +1219,46 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
         shell_cmd_kernel_tick();
         return;
     }
+    if (argc >= 2 && strcmp(argv[1], "wdt") == 0) {
+        /* Arm or disarm the low-power watchdog, and read back whether it took.
+         *
+         * This exists to prove the recovery net for deep sleep before anything
+         * depends on it. Arming and then not feeding it reboots the board on
+         * purpose, which is why it is admin-only and why the hardware suite
+         * does not touch it — that suite is documented as never rebooting.
+         *
+         * Deliberately observable rather than clever: `kernel wdt 5000` arms,
+         * the shell keeps answering, and either the board comes back with its
+         * uptime reset a few seconds later or the net does not work. Both
+         * outcomes are safe, which is the point of testing it awake first. */
+        if (argc == 3 && strcmp(argv[2], "off") == 0) {
+            reflex_hal_wdt_disarm();
+            printf("kernel wdt: disarmed (armed=%d)\n", (int)reflex_hal_wdt_armed());
+            return;
+        }
+        if (argc == 3) {
+            long ms = strtol(argv[2], NULL, 10);
+            if (ms <= 0 || ms > 60000) {
+                printf("kernel wdt <1..60000 ms|off>\n");
+                outcome(SHELL_USAGE);
+                return;
+            }
+            reflex_err_t wrc = reflex_hal_wdt_arm((uint32_t)ms);
+            if (wrc != REFLEX_OK) {
+                printf("kernel wdt: arm failed rc=0x%x\n", wrc);
+                outcome(SHELL_FAILED);
+                return;
+            }
+            uint32_t c0 = 0, c1 = 0;
+            reflex_hal_wdt_regs(&c0, &c1);
+            printf("kernel wdt: armed %ldms, armed=%d conf0=0x%08lx conf1=%lu\n", ms,
+                   (int)reflex_hal_wdt_armed(), (unsigned long)c0, (unsigned long)c1);
+            return;
+        }
+        printf("kernel wdt <1..60000 ms|off>\n");
+        outcome(SHELL_USAGE);
+        return;
+    }
 #endif
     (void)argc; (void)argv;
     goose_cell_t *agg = goonies_resolve_cell("sys.kernel.disposition");
@@ -2015,6 +2055,20 @@ void reflex_shell_run(void) {
         uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
     }
 #endif
+    /* Disarm the low-power watchdog on the way up.
+     *
+     * It lives in the always-on domain, so it survives the reset it causes. Arm
+     * it, let it fire, and the board comes back with it still armed and fires
+     * again — a reset loop that outlives the reset, which is exactly what
+     * happened the first time this was tested: the hardware suite went 73
+     * checks, then 0, then 0. ESP-IDF's bootloader arms this and its app
+     * startup disarms it for the same reason.
+     *
+     * So the net is armed deliberately and only for the duration it is needed,
+     * and any boot clears it. A recovery net that bricks the board it was meant
+     * to recover is worse than none. */
+    reflex_hal_wdt_disarm();
+
     shell_prompt("reflex> ", 8);
     while (1) {
 #if CONFIG_IDF_TARGET_ESP32C6

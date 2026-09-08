@@ -9,6 +9,14 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Added
 
+- **A recovery net for deep sleep, proved rather than assumed — and it does not yet work where it is needed.** Owning the sleep entry is the one dependency whose failure mode is silent and unrecoverable: get it wrong and the board never wakes, with nothing left running to say why. The mitigation is the low-power watchdog, which lives in the always-on domain: armed before sleeping, it turns "never wakes" into "reboots a few seconds later". `reflex_hal_wdt_arm/feed/disarm/armed/regs` own it directly, constants through the SoC bridge (161 -> 175). `kernel wdt <ms|off>` arms it, gated at `admin` because it is a reboot by another name.
+
+  **Awake, it works: armed for 5000 ms, the board reset on schedule.** It did not on the first attempt, and the reason is worth recording — the configuration read back exactly as intended, `WDT_EN` set, stage action `RESET_RTC`, the timeout correct to the tick, and nothing happened. Both reset-signal length fields were zero, which is a 100 ns pulse that does not take. ESP-IDF sets 3.2 µs. *Armed is not the same as working*, and only reading the register back showed the difference.
+
+  **Across ESP-IDF's deep sleep, it does not fire — and that is unexplained.** Armed for 5 s and asked to sleep 30, the board returned at 33.6 s on its own timer. `WDT_PAUSE_IN_SLP` was clear at arm time, and ESP-IDF's own sleep path says in as many words that a watchdog enabled by user code is left alone. The source and the measurement disagree, and rather than pick one, this is recorded as measured and not understood. It matters because the whole plan for owning sleep rests on this net, and it is not yet trustworthy where it counts.
+
+- **The watchdog is disarmed on boot**, which is not a detail. It survives the reset it causes, so arming it and letting it fire brings the board back with it still armed, and it fires again. That reset loop is not hypothetical: it happened during this work, and the hardware suite recorded it exactly — 73 checks, then 0, then 0. ESP-IDF's bootloader arms this watchdog and its app startup disarms it for the same reason. A recovery net that bricks the board it exists to recover is worse than none.
+
 - **`sdkconfig.defaults.independence` and `make independence-build`.** The independence path is the C6 with the blob-free 802.15.4 radio, which is not the default backend — so until now every claim in `independence-dependency-map.md` referred to a configuration nobody could build with a single command. `make image-check BUILD=build_independence` reads that build.
 
 - **`make image-check` now cross-checks the include count against the linked image**, and the two agree: every remaining on-path include lives in an object that is actually linked.
