@@ -45,6 +45,17 @@
  * No #include for sdkconfig.h: the build force-includes it into every source
  * file, and adding it explicitly grew Tier F from 1 to 2 — which the
  * independence ratchet refused, correctly. */
+/* Asking for it on a target that cannot do it is an error, not a no-op.
+ *
+ * --wrap is applied only on the C6, and this file compiles to nothing
+ * elsewhere, so REFLEX_OWN_ENTRY on any other target would silently change
+ * nothing at all — a build that looks like it took the entry point and did not.
+ * Saying so is cheaper than discovering it from a map file. */
+#if defined(REFLEX_OWN_ENTRY) && !CONFIG_IDF_TARGET_ESP32C6
+#error                                                                                             \
+    "REFLEX_OWN_ENTRY is ESP32-C6 only: --wrap is not applied on this target, so the flag would do nothing"
+#endif
+
 #if CONFIG_IDF_TARGET_ESP32C6
 
 /* Refuse the combination at configure time rather than at link time.
@@ -134,9 +145,21 @@ void __wrap_esp_startup_start_app(void) {
     goto stall;
 
 fallback:
-    /* mtvec has not been taken at this point — the install is deliberately
+    /* Give the tick back before handing back.
+     *
+     * mtvec has not been taken at this point — the install is deliberately
      * after the tick check — so ESP-IDF's world is still intact and this is a
-     * genuine hand-back rather than a wish. */
+     * genuine hand-back rather than a wish. But reflex_sched_tick_start has
+     * already run in the case that matters: routed SYSTIMER TARGET1 to a CPU
+     * line, installed Reflex's handler, armed the comparator. Handing back
+     * without undoing that leaves Reflex's ISR firing a thousand times a second
+     * into a counter nobody reads, on an interrupt line ESP-IDF's allocator can
+     * no longer hand out — under a FreeRTOS that has no idea any of it happened.
+     *
+     * Safe to call unconditionally: it disarms the comparator and clears the
+     * peripheral enable whether or not they were ever set, and frees the
+     * handle only if there is one. */
+    reflex_sched_tick_stop();
     REFLEX_LOGW(TAG, "falling back to the FreeRTOS entry path");
     __real_esp_startup_start_app();
     return;

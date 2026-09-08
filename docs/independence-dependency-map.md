@@ -815,10 +815,37 @@ never been built:
   wish, because `mtvec` is deliberately installed *after* the check. A boot that
   is not independent, and a board that still works.
 
-**What remains before the flag can be turned on:** with FreeRTOS never started,
-ESP-IDF's console VFS, `esp_timer` and newlib's reentrancy have no scheduler
-underneath them. That is the real content of Tier F, and it is now reachable
-from a working mechanism rather than from an argument.
+**The fallback was then run, and it works.** Built with `REFLEX_OWN_ENTRY` on
+the default configuration — where the tick is dead — the board reports:
+
+```
+I (reflex.entry) Reflex owns the entry point; FreeRTOS was not started
+E (reflex.entry) tick is not running; handing back to FreeRTOS
+W (reflex.entry) falling back to the FreeRTOS entry path
+```
+
+and boots to a prompt. Reflex took the entry point, found the tick dead, gave it
+back and handed over. That is the safety mechanism demonstrated rather than
+asserted — which matters, because the last safety mechanism written here, the
+sleep watchdog, did not work and stranded a board.
+
+**But the board that comes back is not fully working.** That build boots and
+answers, and then fails the hardware suite outright (0 of 1, twice) where the
+default build passes 183 of 183. The fallback releases the tick through
+`reflex_sched_tick_stop`, which frees a CPU interrupt line through *Reflex's*
+allocator before ESP-IDF's world has started — so the two plausibly disagree
+about which lines are free, and the console is downstream of that. **A
+hypothesis, not a finding**; it has not been tested.
+
+So the honest status of the flag is: it cannot strand a board, and it does not
+yet yield a working one on a configuration where the tick is dead. On the
+independence build, where the tick runs, the fallback is not taken at all — and
+that path has not been run.
+
+**What remains before the flag can be turned on for real:** with FreeRTOS never
+started, ESP-IDF's console VFS, `esp_timer` and newlib's reentrancy have no
+scheduler underneath them. That is the real content of Tier F, and it is now
+reachable from a working mechanism rather than from an argument.
 
 ### Tier C: what "make it real" reached, and what it did not (2026-09-08)
 
