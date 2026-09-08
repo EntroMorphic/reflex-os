@@ -44,6 +44,16 @@ except ImportError:
 PROMPT = "reflex> "
 RESULT_RE = re.compile(r"^#R:([+-]?\d+),(\w+)$")
 
+# Output the board emits on its own schedule, not in answer to a command.
+#
+# ESP-IDF log lines ("I (GOOSE_SUPERVISOR) snapshot saved: ...") and the
+# kernel's supervisor notices arrive whenever the supervisor runs, which can be
+# in the middle of any exchange. Several checks compare a response for exact
+# equality — a denial must be the *whole* answer, so nothing leaks past the
+# guard — and that strictness is worth keeping. What it must not also assert is
+# that the board stayed silent about everything else, which it never promised.
+ASYNC_LINE_RE = re.compile(r"^(?:[IWEDV] \([^)]*\)|\[reflex\.[a-z]+\])\s")
+
 # A cell the fabric always seeds, used as a benign signal target.
 LIVE_CELL = "agency.led.intent"
 # A supervisor cell that `tapestry signal` must refuse.
@@ -169,10 +179,22 @@ class Board:
         than returned, so assertions keep comparing against the human text.
         """
         text = self._send(cmd, timeout)
-        for marker in (cmd + "\r\n", cmd + "\n", cmd):
-            if text.startswith(marker):
-                text = text[len(marker):]
+        # Identify the echo by its content, not by its position.
+        #
+        # The board emits supervisor telemetry on its own schedule, so a line
+        # like "I (GOOSE_SUPERVISOR) snapshot saved" can legitimately land
+        # between the write and the echo. Stripping only a leading echo then
+        # leaves the echo in the response, and checks that were reading the
+        # board's answer start reading the command back instead. That is the
+        # suite asserting something the system never promised — asynchronous
+        # output is not a fault, and a console that owns its own transmit path
+        # times it differently than ESP-IDF's buffered driver did.
+        lines = text.split("\n")
+        for i, line in enumerate(lines):
+            if line.rstrip("\r") == cmd:
+                del lines[i]
                 break
+        text = "\n".join(lines)
         text = text.replace(PROMPT, "")
         self.last_outcome = None
         kept = []
@@ -180,7 +202,7 @@ class Board:
             m = RESULT_RE.match(line.strip())
             if m:
                 self.last_outcome = (int(m.group(1)), m.group(2))
-            else:
+            elif not ASYNC_LINE_RE.match(line.strip()):
                 kept.append(line)
         return "\n".join(kept).strip()
 
