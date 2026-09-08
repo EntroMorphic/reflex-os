@@ -558,45 +558,75 @@ are measured rather than assumed:
   was installed.
 - **So RX must be interrupt-driven into a ring**, which is now possible because
   `reflex_hal_intr_alloc` works — the same path the scheduler tick is measured
-  on at 1000 Hz. Source 39, `SERIAL_OUT_RECV_PKT` (bit 2 of INT_RAW/ST/ENA/CLR),
-  with `SERIAL_OUT_EP_DATA_AVAIL` (bit 2 of EP1_CONF) gating the drain.
+  on at 1000 Hz. Source 48, `SERIAL_OUT_RECV_PKT` (bit 2 of INT_RAW/ST/ENA/CLR),
+  with `SERIAL_OUT_EP_DATA_AVAIL` (bit 2 of EP1_CONF) gating the drain. (An
+  earlier draft of this section said source 39; `make soc-bridge` disagreed
+  with it, which is what that gate is for.)
 - **stdio TX must move too.** `printf` reaches the wire through the VFS driver
   path, not through `reflex_hal_write_raw`'s direct register writes, so
   dropping the driver means routing stdio at the same time. That is why the
   Tier E include count does not fall until both halves land.
 
-**Attempted on hardware, and it does not work as scoped — the reason is
-structural, not a bug list.** Branch `tier-e-console-rx` carries the attempt.
+**Landed and hardware-validated (2026-09-07): 171/171 on ten consecutive runs,
+against main's 15/15, with the classic ESP32 back at its documented 170/171.**
+Receive and transmit moved together. The analysis above had reached that as a
+sequencing note — "stdio TX must move too" — and then, after the first attempt,
+as the stronger claim that Tier E's console work is one change and not two:
+receive alone is not a smaller first step, it is a step that cannot stand. That
+conclusion held. The reasoning offered for it did not.
 
-Owning receive means applying backpressure: the ISR must stop draining the FIFO
-when its ring is full, because emptying the FIFO is what ACKs the USB packet
-and a receiver that always drains never slows the host down. Measured without
-it: `console: 962 byte(s) DROPPED` on a 913-character line.
+The first attempt failed and the diagnosis recorded here — a deadlock between
+receive backpressure and a blocking transmit — described a real mechanism that
+was not what was actually happening. The console was dying because the handler
+acknowledged only its own bit on a line the peripheral shares between receive
+and transmit, so any other asserted bit left the level-triggered line asserted
+and the handler re-entered forever. That presents as a console with no output
+at all, because the task that would print never runs again — which reads as a
+transmit fault and is not one. It was found by disabling the receive interrupt
+and changing nothing else: full boot log with it off, not one byte with it on.
 
-But backpressure on receive deadlocks against a transmit path that blocks.
-`usj_write_bytes` spins until the host drains the IN endpoint, and a host
-driving the shell writes a whole line before it reads. So: the device stops
-ACKing OUT because its ring is full, the host blocks mid-write and therefore
-never reads, the device's IN endpoint fills, and the shell blocks in its echo
-and never calls the read that would re-arm the receiver. Both ends wait for the
-other. Observed as a console that serves short commands, passes 87 of 171
-checks, and then stops answering entirely.
+Four more faults sat behind it, none visible from the source and each masking
+the next:
 
-The ESP-IDF driver this replaces does not avoid that by being cleverer about
-receive. It avoids it by buffering **both** directions, so neither side blocks
-long enough to close the loop.
+- **A lost wakeup.** The handler cleared the interrupt after draining, so a
+  packet arriving mid-drain had its notification cleared while its bytes were
+  still in the FIFO. Nothing was left to announce them and no interrupt came
+  again. The console worked, then stopped for good — 86 checks in.
+- **A transmit timeout too short to be one.** 20000 spins is well under the
+  1 ms frame on which the host services the endpoint, so a host that had not
+  just polled lost the rest of the line. Now bounded in time, not iterations.
+- **A clock that reads as zero.** The replacement bound first used the standard
+  RISC-V cycle CSR. This part sets `SOC_CPU_HAS_CSR_PC`, moving the counter to
+  a vendor CSR, so the standard one reads zero — a deadline that never expires,
+  a console that spins forever, and a board that stops enumerating. It now uses
+  `reflex_hal_time_us`, already in the file, already reading SYSTIMER unit 0.
+  The registers behind it went into the SoC bridge rather than staying
+  hand-written in the HAL.
+- **A prompt that never left the chip.** ESP-IDF's console, with no driver
+  installed, completes a packet only on a newline. `reflex> ` has none, so
+  `fflush` was not enough: the prompt sat in the FIFO until the next command's
+  echo flushed it, and every reply looked one behind. The prompt now goes out
+  through Reflex's own write, which completes the packet unconditionally.
 
-So Tier E's console work is one change, not two: **receive and transmit have to
-move together.** That was written above as a sequencing note — "stdio TX must
-move too" — and it is stronger than that. RX alone is not a smaller first step;
-it is a step that cannot stand.
+And one that only appeared once the rest worked: writing directly at the
+endpoint took the shell's output out of the lock that had been keeping it apart
+from the supervisor task's logging. Both write the same FIFO, and a log line
+landed inside a reply — three failures in ten runs where main had none in five.
+The direct writes now hold `flockfile(stdout)`, the same lock `printf` takes.
 
-What the attempt established and is worth keeping: the ISR, ring and
-flow-control shape are right; `reflex_hal_intr_set_enabled` masks at the
-controller rather than at the peripheral's shared INT_ENA register, which is
-necessary because that register also carries the transmit interrupt ESP-IDF
-uses and writing it from an ISR wedges stdout — seen as a board emitting a
-single byte, `I`, and going silent.
+What the first attempt got right and is unchanged: the ISR, ring and
+flow-control shape; and `reflex_hal_intr_set_enabled` masking at the controller
+rather than at the peripheral's shared `INT_ENA`, which is necessary because
+that register also carries the transmit interrupt and writing it from an ISR
+wedges stdout — seen as a board emitting a single byte, `I`, and going silent.
+
+Tier E on-path includes: **8 -> 6**.
+
+The general lesson is the one already in `CONTRIBUTING.md`: five of these six
+were found by an experiment that isolated one variable, and none by reading the
+code. The receive path was blamed for four rounds while the fault was in the
+acknowledgement, the clock, the flush and the lock. `-DREFLEX_CONSOLE_RX_DIAG=1`
+exists now so the next one is a single reading rather than four rounds.
 
 **Done:** the register constants are Reflex's own. The SVD calls the peripheral
 `USB_DEVICE` where IDF calls it `USB_SERIAL_JTAG` — the mapping table records

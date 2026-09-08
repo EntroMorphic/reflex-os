@@ -103,6 +103,17 @@ REGS = [
 
     # --- systimer base (kernel scheduler + HAL time source) ---
     ("REFLEX_DR_REG_SYSTIMER_BASE",     "DR_REG_SYSTIMER_BASE",     "SYSTIMER", None, None, "peripheral base, not a register"),
+    # The counter itself, read through the value-latch handshake. Verified here
+    # rather than defined by hand in the HAL: the transmit timeout first used
+    # the standard RISC-V cycle CSR, which reads back as zero on this part
+    # because SOC_CPU_HAS_CSR_PC moves the counter to a vendor CSR. A zero
+    # clock never expires a deadline, so the console spun forever and the board
+    # stopped enumerating. Constants that decide whether a timeout can fire
+    # belong behind the bridge.
+    ("REFLEX_SYSTIMER_UNIT0_OP_REG",       "SYSTIMER_UNIT0_OP_REG",       "SYSTIMER", "UNIT0_OP",       None, "value-latch handshake"),
+    ("REFLEX_SYSTIMER_UNIT0_VALUE_LO_REG", "SYSTIMER_UNIT0_VALUE_LO_REG", "SYSTIMER", "UNIT0_VALUE_LO", None, "low half of the latched count"),
+    ("REFLEX_SYSTIMER_UNIT0_UPDATE",       "SYSTIMER_TIMER_UNIT0_UPDATE",      "SYSTIMER", "UNIT0_OP", "TIMER_UNIT0_UPDATE",      "write to latch"),
+    ("REFLEX_SYSTIMER_UNIT0_VALUE_VALID",  "SYSTIMER_TIMER_UNIT0_VALUE_VALID", "SYSTIMER", "UNIT0_OP", "TIMER_UNIT0_VALUE_VALID", "poll until latched"),
 
     # --- USB-serial-JTAG console (Tier E: owning console RX) ---
     # The SVD calls this peripheral USB_DEVICE; IDF calls it USB_SERIAL_JTAG.

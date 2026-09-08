@@ -74,6 +74,22 @@ to be retracted.
   will invalidate the descriptor across a reboot; on the classic ESP32, behind
   a USB-serial bridge, it does not. Do not compare counters across a
   connection without checking uptime.
+- **Ask a mute board a question instead of guessing.** When the shell stops
+  answering, build with `-DREFLEX_CONSOLE_RX_DIAG=1`:
+
+  ```bash
+  idf.py -DCMAKE_C_FLAGS=-DREFLEX_CONSOLE_RX_DIAG=1 build
+  ```
+
+  The idle path then reports, over transmit, whether the receive handler ran
+  (`isr`), how many bytes it buffered (`bytes`), and whether anything consumed
+  them (`head` versus `tail`), plus the peripheral's enable, raw-status and
+  endpoint registers. Receive and transmit share one interrupt line on the C6,
+  so a fault in either half tends to disable the shell's own ability to
+  describe it. Three failures that are indistinguishable from the host — the
+  handler never running, running and finding nothing, and buffering with no
+  consumer — are one reading apart with this on. It is what finally separated
+  them, after several cycles of reasoning that did not.
 
 ## Project Conventions
 

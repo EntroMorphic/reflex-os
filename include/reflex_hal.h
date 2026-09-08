@@ -165,6 +165,54 @@ static inline uint32_t reflex_intr_priority_for(uint32_t threshold) {
 
 void reflex_hal_intr_describe(int source, reflex_intr_route_t *out);
 
+/**
+ * @brief Start Reflex's own console receiver.
+ *
+ * Routes the console peripheral's receive interrupt and begins filling an
+ * internal ring. Required before reflex_hal_console_read returns anything, and
+ * must be called *instead of* installing a vendor console driver: the driver
+ * takes the receive FIFO, and a direct read would race it for the same bytes.
+ *
+ * @return REFLEX_OK, or the interrupt allocation failure.
+ */
+reflex_err_t reflex_hal_console_init(void);
+
+/**
+ * @brief Take one received byte, if any is waiting.
+ *
+ * Non-blocking by design. The interrupt captures bytes as they arrive, so a
+ * caller that polls slowly loses latency rather than data — which is the whole
+ * point of owning this path.
+ *
+ * @return true if a byte was written to @p out.
+ */
+bool reflex_hal_console_read(uint8_t *out);
+
+/**
+ * @brief Bytes discarded because the receive ring was full.
+ *
+ * Non-zero means the console lost input. Counted rather than silently
+ * overwritten, because a shell that drops characters mid-line and dispatches
+ * the remainder is the failure this subsystem exists to prevent.
+ */
+uint32_t reflex_hal_console_dropped(void);
+
+/* Diagnostic snapshot of the USB-serial-JTAG receive path. Present so a board
+ * that cannot be commanded can still be interrogated over the one channel that
+ * works, which is transmit. */
+typedef struct {
+    uint32_t isr_count;
+    uint32_t isr_bytes;
+    uint32_t head;
+    uint32_t tail;
+    uint32_t int_ena;
+    uint32_t int_raw;
+    uint32_t ep1_conf;
+    bool installed;
+} reflex_console_debug_t;
+
+void reflex_hal_console_debug(reflex_console_debug_t *out);
+
 void reflex_hal_random_fill(uint8_t *buf, size_t len);
 /** @brief Read the factory MAC. Doubles as this board's mesh identity, so it
  *  is what self-arc suppression and the peer table compare against. */
@@ -190,6 +238,19 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
                                    reflex_intr_handler_t handler, void *arg,
                                    reflex_intr_handle_t *out_handle);
 reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle);
+
+/**
+ * @brief Enable or mask one allocated interrupt line at the controller.
+ *
+ * For a driver that needs to throttle its own interrupt — a receiver whose ring
+ * is full, say — without touching the peripheral's shared interrupt-enable
+ * register. That register carries every interrupt the peripheral has, so a
+ * read-modify-write of it can disturb a path another owner is using.
+ *
+ * Safe to call from an ISR: it saves and restores the global interrupt-enable
+ * bit rather than setting it.
+ */
+reflex_err_t reflex_hal_intr_set_enabled(reflex_intr_handle_t handle, bool enabled);
 
 /**
  * @brief Tell the bootloader this boot reached a stable state.

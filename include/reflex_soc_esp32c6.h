@@ -87,6 +87,14 @@
 #define REFLEX_LP_AON_STORE1_REG 0x600B1004u
 /* SYSTIMER base — peripheral base, not a register */
 #define REFLEX_DR_REG_SYSTIMER_BASE 0x6000A000u
+/* SYSTIMER.UNIT0_OP @ base+0x4 — value-latch handshake */
+#define REFLEX_SYSTIMER_UNIT0_OP_REG 0x6000A004u
+/* SYSTIMER.UNIT0_VALUE_LO @ base+0x44 — low half of the latched count */
+#define REFLEX_SYSTIMER_UNIT0_VALUE_LO_REG 0x6000A044u
+/* SYSTIMER.UNIT0_OP.TIMER_UNIT0_UPDATE bit 30 — write to latch */
+#define REFLEX_SYSTIMER_UNIT0_UPDATE 0x40000000u
+/* SYSTIMER.UNIT0_OP.TIMER_UNIT0_VALUE_VALID bit 29 — poll until latched */
+#define REFLEX_SYSTIMER_UNIT0_VALUE_VALID 0x20000000u
 /* USB_DEVICE base — peripheral base; SVD name is USB_DEVICE */
 #define REFLEX_DR_REG_USB_SERIAL_JTAG_BASE 0x6000F000u
 /* USB_DEVICE.EP1 @ base+0x0 — FIFO data register, both directions */

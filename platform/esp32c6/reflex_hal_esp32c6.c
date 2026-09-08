@@ -20,9 +20,13 @@
 #include "reflex_regops.h"
 #include "reflex_soc_esp32c6.h"
 #define SYSTIMER_BASE_ADDR REFLEX_DR_REG_SYSTIMER_BASE
-#define SYSTIMER_UNIT0_OP       (SYSTIMER_BASE_ADDR + 0x04)
+/* Offsets and bits come from the SoC bridge, which proves them equal to
+ * ESP-IDF's, rather than from a hand-typed offset. The base address in this
+ * file was once wrong in exactly that way and reflex_hal_time_us returned zero
+ * for as long as it took to notice. */
+#define SYSTIMER_UNIT0_OP REFLEX_SYSTIMER_UNIT0_OP_REG
 #define SYSTIMER_UNIT0_VAL_HI   (SYSTIMER_BASE_ADDR + 0x40)
-#define SYSTIMER_UNIT0_VAL_LO   (SYSTIMER_BASE_ADDR + 0x44)
+#define SYSTIMER_UNIT0_VAL_LO REFLEX_SYSTIMER_UNIT0_VALUE_LO_REG
 /* XTAL 40 MHz through the C6's fixed 2.5 divider. */
 #define SYSTIMER_TICKS_PER_US 16u
 #include "reflex_rom_esp32c6.h"
@@ -82,9 +86,9 @@ uint64_t reflex_hal_time_us(void) {
      * while the base address was also wrong and the whole function returned 0.
      *
      * Bounded spin (max 20 iterations) — the latch completes in ~2 cycles. */
-    REFLEX_REG(SYSTIMER_UNIT0_OP) = (1U << 30);
+    REFLEX_REG(SYSTIMER_UNIT0_OP) = REFLEX_SYSTIMER_UNIT0_UPDATE;
     for (volatile int i = 0; i < 20; i++) {
-        if (REFLEX_REG(SYSTIMER_UNIT0_OP) & (1U << 29)) break;
+        if (REFLEX_REG(SYSTIMER_UNIT0_OP) & REFLEX_SYSTIMER_UNIT0_VALUE_VALID) break;
     }
     uint32_t lo = REFLEX_REG(SYSTIMER_UNIT0_VAL_LO);
     uint32_t hi = REFLEX_REG(SYSTIMER_UNIT0_VAL_HI);
@@ -447,6 +451,41 @@ void reflex_hal_intr_describe(int source, reflex_intr_route_t *out) {
     out->global_ie = (mstatus >> 3) & 1u; /* MIE */
 }
 
+/* Enable or mask one allocated interrupt line at the controller.
+ *
+ * Exists so a driver can throttle its own interrupt without touching the
+ * peripheral's INT_ENA register. That register is shared by every interrupt the
+ * peripheral has — on USB-serial-JTAG it carries the transmit path ESP-IDF's
+ * console still uses — and a read-modify-write of it from an ISR races code
+ * that never agreed to coordinate. Observed: the board emitted a single byte
+ * and went silent, which is a wedged stdout, not the receive failure it looked
+ * like.
+ *
+ * PLIC_MXINT_ENABLE is different in the one way that matters: every writer is
+ * Reflex's, and each brackets its read-modify-write with interrupts disabled,
+ * so on this single core the sequence is atomic against preemption.
+ *
+ * mstatus is saved and restored rather than unconditionally re-enabled: called
+ * from an ISR, MIE is already clear, and setting it would re-enable interrupts
+ * part-way through a handler. */
+reflex_err_t reflex_hal_intr_set_enabled(reflex_intr_handle_t handle, bool enabled) {
+    int cpu_int = (int)(uintptr_t)handle - 1;
+    if (cpu_int < REFLEX_INTR_MIN || cpu_int > REFLEX_INTR_MAX) {
+        return REFLEX_ERR_INVALID_ARG;
+    }
+    uint32_t saved;
+    __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(saved));
+    if (enabled) {
+        REFLEX_REG(PLIC_MXINT_ENABLE) |= (1U << cpu_int);
+    } else {
+        REFLEX_REG(PLIC_MXINT_ENABLE) &= ~(1U << cpu_int);
+    }
+    if (saved & 0x8u) {
+        __asm__ volatile("csrsi mstatus, 0x8");
+    }
+    return REFLEX_OK;
+}
+
 reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
     int cpu_int = (int)(uintptr_t)handle - 1;
     if (cpu_int < REFLEX_INTR_MIN || cpu_int > REFLEX_INTR_MAX)
@@ -505,13 +544,38 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
  *
  * Console output is best-effort by nature: if nobody is listening, dropping
  * the line is correct and hanging is not. */
-#define USJ_TX_SPIN_LIMIT     20000u
+/* Bound the transmit wait in time, not in loop iterations.
+ *
+ * The original bound was 20000 spins, which sounds generous and is not: the
+ * USB host services this endpoint on a frame boundary, once per millisecond at
+ * best, and 20000 iterations of a two-instruction poll elapse in well under
+ * that. Any host that had not polled recently — the normal state between reads
+ * — lost the rest of the line. It showed as a shell whose replies
+ * desynchronised from its prompts, echoes cut mid-word ("reflex> au"), because
+ * the discarded bytes were echo characters the harness was matching on.
+ *
+ * The clock is reflex_hal_time_us, already in this file and already reading
+ * SYSTIMER unit 0 — the same counter the scheduler tick comes from. It was
+ * reached for late: the first attempt hand-rolled a second reader against the
+ * RISC-V standard cycle CSR, which on this part reads back as zero, because
+ * SOC_CPU_HAS_CSR_PC moves the counter to a vendor CSR (0x7E2, which
+ * reflex_hal_cpu_cycles below has been reading correctly all along). A
+ * zero clock makes every elapsed-time test false, so the wait never expires —
+ * the first write with no reader attached spins forever, the USB device never
+ * finishes enumerating, and the board presents to the host as absent rather
+ * than as busy. That firmware had to be flashed out blind, and the cost of
+ * assuming a standard counter is exactly one such cycle.
+ *
+ * The budget covers the whole write, not each byte. Per byte it is ruinous:
+ * with no reader, a thousand-byte boot log costs fifty seconds. Per call the
+ * same budget costs 50 ms once, which nobody notices. */
+#define USJ_TX_TIMEOUT_US 50000u /* 50 ms */
 
 static void usj_write_bytes(const char *data, int len) {
+    uint64_t start = reflex_hal_time_us();
     for (int i = 0; i < len; i++) {
-        uint32_t spins = 0;
         while (!(REFLEX_REG(USJ_EP1_CONF) & USJ_IN_EP_DATA_FREE)) {
-            if (++spins > USJ_TX_SPIN_LIMIT) {
+            if ((reflex_hal_time_us() - start) > USJ_TX_TIMEOUT_US) {
                 /* No reader. Flush whatever made it into the FIFO and drop the
                  * rest of this line rather than blocking the caller forever. */
                 REFLEX_REG(USJ_EP1_CONF) |= USJ_WR_DONE;
@@ -521,6 +585,190 @@ static void usj_write_bytes(const char *data, int len) {
         REFLEX_REG(USJ_EP1_DATA) = (uint32_t)(uint8_t)data[i];
     }
     REFLEX_REG(USJ_EP1_CONF) |= USJ_WR_DONE;
+}
+
+/* --- Console RX: Reflex's own, interrupt-driven ---------------------------
+ *
+ * Tier E. The ESP-IDF USB-serial-JTAG driver owned this: it installed an RX
+ * ring and the shell read one byte at a time through usb_serial_jtag_read_bytes.
+ * Owning RX means not installing that driver, because it takes the OUT-endpoint
+ * FIFO and a direct read would race it for the same bytes.
+ *
+ * Polling cannot replace it. The shell idles for 50ms when no byte is waiting,
+ * and at 115200 baud the 64-byte FIFO fills in about 5.5ms — so a line arriving
+ * during an idle window overruns it several times before anyone looks. That is
+ * not a prediction: it is what happened before the driver was installed, and
+ * why it was installed.
+ *
+ * An interrupt decouples arrival from polling. The ISR drains the FIFO into
+ * this ring whenever the hardware says a packet landed, so the shell's idle
+ * delay costs latency and never a byte.
+ *
+ * Single producer (the ISR), single consumer (the shell task), on a single
+ * core: a plain head/tail ring needs no lock, provided each index is written by
+ * exactly one side and both are volatile so neither is cached across the
+ * boundary. */
+#define USJ_RX_RING_SIZE 2048u /* > REFLEX_SHELL_LINE_MAX, power of two */
+
+static volatile uint8_t s_usj_rx_ring[USJ_RX_RING_SIZE];
+static volatile uint32_t s_usj_rx_head; /* written by the ISR only  */
+static volatile uint32_t s_usj_rx_tail; /* written by the task only */
+static volatile uint32_t s_usj_rx_dropped;
+/* Set by the ISR when it stopped draining because the ring was full, cleared
+ * by the consumer when it re-enables the interrupt. */
+static volatile bool s_usj_rx_stalled;
+
+/* Diagnostic only: distinguishes "the handler never runs" from "it runs and
+ * finds nothing" from "it buffers and nobody consumes". */
+static volatile uint32_t s_usj_isr_count;
+static volatile uint32_t s_usj_isr_bytes;
+static reflex_intr_handle_t s_usj_intr;
+
+static void usj_rx_isr(void *arg) {
+    (void)arg;
+    s_usj_isr_count++;
+
+    /* Drain only while the ring has room, and stop otherwise — do not discard.
+     *
+     * Draining unconditionally and dropping on a full ring loses data under
+     * exactly the load that matters, and it does so for a reason worth stating:
+     * emptying the FIFO is what ACKs the USB packet. A receiver that always
+     * drains always ACKs, so the host never slows down, and a 913-character
+     * line arrives faster than a shell echoing byte by byte can consume it.
+     * Measured that way: 962 bytes dropped in one validation run.
+     *
+     * The ESP-IDF driver this replaces was not merely buffering — it was
+     * providing flow control. Leaving bytes in the hardware FIFO makes the
+     * endpoint stop accepting more, and the host blocks. That is the property
+     * to preserve, and a bigger ring would not have provided it. */
+    bool stalled = false;
+    for (;;) {
+        while (REFLEX_REG(REFLEX_USJ_EP1_CONF_REG) & REFLEX_USJ_OUT_EP_DATA_AVAIL) {
+            uint32_t head = s_usj_rx_head;
+            uint32_t next = (head + 1u) & (USJ_RX_RING_SIZE - 1u);
+            if (next == s_usj_rx_tail) {
+                /* Full: leave the rest in the FIFO and let the host wait. Mask
+                 * at the interrupt controller, not at REFLEX_USJ_INT_ENA_REG —
+                 * that register is shared with the transmit path and writing it
+                 * from here wedges stdout. */
+                reflex_hal_intr_set_enabled(s_usj_intr, false);
+                s_usj_rx_stalled = true;
+                stalled = true;
+                break;
+            }
+            s_usj_rx_ring[head] = (uint8_t)REFLEX_REG(REFLEX_USJ_EP1_REG);
+            s_usj_rx_head = next;
+            s_usj_isr_bytes++;
+        }
+
+        if (stalled) {
+            /* Acknowledge everything *except* our own bit. The bytes we did not
+             * take are still in the FIFO, and the packet notification is what
+             * will fetch us back to them: clearing it here would strand them
+             * with nothing left to announce their arrival. The line cannot
+             * storm meanwhile because it is masked at the controller, and
+             * reflex_hal_console_read re-enables it once there is room. */
+            uint32_t st = REFLEX_REG(REFLEX_USJ_INT_ST_REG);
+            REFLEX_REG(REFLEX_USJ_INT_CLR_REG) = st & ~REFLEX_USJ_OUT_RECV_PKT_INT;
+            return;
+        }
+
+        /* Acknowledge every bit that was asserted, not only ours.
+         *
+         * Source 48 is the peripheral's single interrupt line, shared by
+         * receive and transmit events. Clearing only the receive bit leaves any
+         * other asserted bit pending on a level-triggered line, so the handler
+         * re-enters immediately and forever and the core never runs anything
+         * else — which presents as a console that produces no output at all,
+         * because the task that would print never gets scheduled.
+         *
+         * Isolated by experiment: with this interrupt not enabled the console
+         * emits its full boot log; with it enabled and only our bit cleared,
+         * nothing. Nothing else differed. */
+        REFLEX_REG(REFLEX_USJ_INT_CLR_REG) = REFLEX_REG(REFLEX_USJ_INT_ST_REG);
+
+        /* Then look again before leaving, because the acknowledgement above is
+         * unconditional and a packet that arrived during the drain has just
+         * been acknowledged along with ours. Its bytes are still in the FIFO
+         * and its announcement is now gone, so returning here would leave them
+         * with nothing to fetch them and no interrupt would ever arrive again.
+         * The console works, then stops, and stays stopped.
+         *
+         * That is the shape the hardware suite showed: 86 tests pass, then the
+         * shell never answers again. The window is narrow enough that light
+         * interactive use never finds it and sustained traffic always does. */
+        if (!(REFLEX_REG(REFLEX_USJ_EP1_CONF_REG) & REFLEX_USJ_OUT_EP_DATA_AVAIL)) {
+            return;
+        }
+    }
+}
+
+reflex_err_t reflex_hal_console_init(void) {
+    if (s_usj_intr) return REFLEX_OK;
+    s_usj_rx_head = s_usj_rx_tail = s_usj_rx_dropped = 0;
+
+    /* Clear before enabling, so a packet that arrived during boot does not
+     * deliver immediately into a handler that has not been routed yet. */
+    REFLEX_REG(REFLEX_USJ_INT_CLR_REG) = REFLEX_USJ_OUT_RECV_PKT_INT;
+
+    reflex_err_t rc =
+        reflex_hal_intr_alloc(REFLEX_INTR_SRC_USB_SERIAL_JTAG, 0, usj_rx_isr, NULL, &s_usj_intr);
+    if (rc != REFLEX_OK) {
+        s_usj_intr = NULL;
+        return rc;
+    }
+    /* The one unavoidable write to the shared register: the peripheral will
+     * not raise the interrupt at all unless its own enable bit is set. Done
+     * once, at init, with interrupts disabled, and never touched again —
+     * throttling happens at the controller instead. */
+    {
+        uint32_t saved;
+        __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(saved));
+        REFLEX_REG(REFLEX_USJ_INT_ENA_REG) |= REFLEX_USJ_OUT_RECV_PKT_INT;
+        if (saved & 0x8u) {
+            __asm__ volatile("csrsi mstatus, 0x8");
+        }
+    }
+    return REFLEX_OK;
+}
+
+bool reflex_hal_console_read(uint8_t *out) {
+    if (!out) return false;
+    uint32_t tail = s_usj_rx_tail;
+    if (tail == s_usj_rx_head) {
+        /* Empty, but the ISR may have masked itself on a full ring and the
+         * consumer has since drained it. Re-arm here rather than only on a
+         * successful read, or a ring drained exactly to empty would never be
+         * refilled and the console would stop for good. */
+        if (s_usj_rx_stalled) {
+            s_usj_rx_stalled = false;
+            reflex_hal_intr_set_enabled(s_usj_intr, true);
+        }
+        return false;
+    }
+    *out = s_usj_rx_ring[tail];
+    s_usj_rx_tail = (tail + 1u) & (USJ_RX_RING_SIZE - 1u);
+    if (s_usj_rx_stalled) {
+        s_usj_rx_stalled = false;
+        reflex_hal_intr_set_enabled(s_usj_intr, true);
+    }
+    return true;
+}
+
+uint32_t reflex_hal_console_dropped(void) {
+    return s_usj_rx_dropped;
+}
+
+void reflex_hal_console_debug(reflex_console_debug_t *out) {
+    if (!out) return;
+    out->isr_count = s_usj_isr_count;
+    out->isr_bytes = s_usj_isr_bytes;
+    out->head = s_usj_rx_head;
+    out->tail = s_usj_rx_tail;
+    out->int_ena = REFLEX_REG(REFLEX_USJ_INT_ENA_REG);
+    out->int_raw = REFLEX_REG(REFLEX_USJ_INT_RAW_REG);
+    out->ep1_conf = REFLEX_REG(REFLEX_USJ_EP1_CONF_REG);
+    out->installed = (s_usj_intr != NULL);
 }
 
 void reflex_hal_write_raw(const char *data, int len) {

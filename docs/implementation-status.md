@@ -216,7 +216,7 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 
 **Status lives in [`independence-dependency-map.md`](independence-dependency-map.md)**, the single source of truth, and is measured rather than asserted: `make independence` reports the current surface by tier and `make independence-check` ratchets it in CI. Do not restate tier status here — that is exactly how the map drifted three ways before 2026-09-07.
 
-Summary at `641263b`: **23 ESP-IDF includes remain on the independence path** (C6 + 802.15.4). Tier A is clear. None of the 23 is in the substrate — all sit in platform backends, the kernel's FreeRTOS shims, or the shell's peripheral and console drivers. Tier F (build system, startup, heap, linker/memory layout, image format) is untouched and is what actually decides independence: FreeRTOS cannot leave the image while newlib pulls in `esp_timer` and `pthread`, regardless of who schedules.
+Summary (2026-09-07, after Tier E landed): **21 ESP-IDF includes remain on the independence path** (C6 + 802.15.4). Tier A is clear. None of the 23 is in the substrate — all sit in platform backends, the kernel's FreeRTOS shims, or the shell's peripheral drivers. The console is no longer among them: the C6 owns receive and transmit, hardware-validated at 171/171 across ten runs. Tier F (build system, startup, heap, linker/memory layout, image format) is untouched and is what actually decides independence: FreeRTOS cannot leave the image while newlib pulls in `esp_timer` and `pthread`, regardless of who schedules.
 
 
 ### Found during hardware validation, 2026-09-07 — all three closed
