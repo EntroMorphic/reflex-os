@@ -790,6 +790,80 @@ void reflex_hal_console_debug(reflex_console_debug_t *out) {
     out->installed = (s_usj_intr != NULL);
 }
 
+/* ---- LEDC: Reflex's own PWM, replacing driver/ledc.h -------------------- */
+
+/* Tier E. The one consumer is `bonsai exp4`, which drives a single channel off
+ * a single timer, so this owns exactly that and says so rather than pretending
+ * to be a general LEDC driver.
+ *
+ * Every register and field below comes from the SoC bridge, which proves each
+ * equal to the ESP-IDF macro it replaces. That is not ceremony: the transmit
+ * timeout in this same file was written against a hand-assumed CSR that reads
+ * as zero here, and reflex_hal_time_us once ran against a hand-typed base
+ * address that pointed at I2C. */
+
+#define LEDC_XTAL_HZ      40000000u
+#define LEDC_SCLK_SEL_XTAL 3u
+/* The duty register carries four fractional bits below the integer duty. */
+#define LEDC_DUTY_FRAC_BITS 4u
+
+reflex_err_t reflex_hal_pwm_init(uint32_t freq_hz, uint8_t duty_res_bits, uint32_t duty) {
+    if (freq_hz == 0u || duty_res_bits == 0u || duty_res_bits > 20u) {
+        return REFLEX_ERR_INVALID_ARG;
+    }
+    uint32_t max_duty = 1u << duty_res_bits;
+    if (duty > max_duty) return REFLEX_ERR_INVALID_ARG;
+
+    /* Output frequency is source / (divider * 2^resolution), with the divider
+     * held as Q10.8 — so the integer part is what gets multiplied by 256 here,
+     * not the result. Rejecting a divider below 1.0 matters: the field would
+     * silently truncate and the pin would run at a frequency nobody asked for,
+     * which is the kind of wrong that looks like working. */
+    uint64_t div_q8 = ((uint64_t)LEDC_XTAL_HZ << 8) / ((uint64_t)freq_hz * max_duty);
+    if (div_q8 < (1u << 8) || div_q8 > REFLEX_LEDC_CLK_DIV_MASK) {
+        return REFLEX_ERR_INVALID_ARG;
+    }
+
+    /* Ungate the peripheral and let it out of reset before writing anything
+     * into it. RST_EN asserted means held in reset, so this clears it. */
+    REFLEX_REG(REFLEX_PCR_LEDC_CONF_REG) |= REFLEX_PCR_LEDC_CLK_EN;
+    REFLEX_REG(REFLEX_PCR_LEDC_CONF_REG) &= ~REFLEX_PCR_LEDC_RST_EN;
+
+    uint32_t sclk = REFLEX_REG(REFLEX_PCR_LEDC_SCLK_CONF_REG);
+    sclk &= ~(REFLEX_PCR_LEDC_SCLK_SEL_MASK << REFLEX_PCR_LEDC_SCLK_SEL_S);
+    sclk |= (LEDC_SCLK_SEL_XTAL << REFLEX_PCR_LEDC_SCLK_SEL_S) | REFLEX_PCR_LEDC_SCLK_EN;
+    REFLEX_REG(REFLEX_PCR_LEDC_SCLK_CONF_REG) = sclk;
+
+    /* Timer 0. Written whole, which also clears RST — it reads high out of
+     * reset, and a timer left in reset produces no edges at all. */
+    uint32_t tconf =
+        (((uint32_t)duty_res_bits & REFLEX_LEDC_DUTY_RES_MASK) << REFLEX_LEDC_DUTY_RES_S) |
+        (((uint32_t)div_q8 & REFLEX_LEDC_CLK_DIV_MASK) << REFLEX_LEDC_CLK_DIV_S);
+    REFLEX_REG(REFLEX_LEDC_TIMER0_CONF_REG) = tconf;
+    REFLEX_REG(REFLEX_LEDC_TIMER0_CONF_REG) = tconf | REFLEX_LEDC_TIMER_PARA_UP;
+
+    /* Channel 0 on timer 0. Duty is latched by DUTY_START; the channel's own
+     * configuration by PARA_UP. Both are needed — setting the duty register
+     * alone changes nothing the output can see. */
+    REFLEX_REG(REFLEX_LEDC_CH0_HPOINT_REG) = 0u;
+    REFLEX_REG(REFLEX_LEDC_CH0_DUTY_REG) =
+        (duty << LEDC_DUTY_FRAC_BITS) & REFLEX_LEDC_DUTY_MASK;
+    REFLEX_REG(REFLEX_LEDC_CH0_CONF1_REG) = REFLEX_LEDC_DUTY_START;
+    REFLEX_REG(REFLEX_LEDC_CH0_CONF0_REG) =
+        ((0u & REFLEX_LEDC_TIMER_SEL_MASK) << REFLEX_LEDC_TIMER_SEL_S) |
+        REFLEX_LEDC_SIG_OUT_EN | REFLEX_LEDC_CH_PARA_UP;
+    return REFLEX_OK;
+}
+
+void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out) {
+    if (!out) return;
+    out->timer_conf = REFLEX_REG(REFLEX_LEDC_TIMER0_CONF_REG);
+    out->ch_conf0   = REFLEX_REG(REFLEX_LEDC_CH0_CONF0_REG);
+    out->ch_duty    = REFLEX_REG(REFLEX_LEDC_CH0_DUTY_REG);
+    out->pcr_conf   = REFLEX_REG(REFLEX_PCR_LEDC_CONF_REG);
+    out->pcr_sclk   = REFLEX_REG(REFLEX_PCR_LEDC_SCLK_CONF_REG);
+}
+
 void reflex_hal_write_raw(const char *data, int len) {
     usj_write_bytes(data, len);
 }

@@ -123,6 +123,20 @@ uint32_t reflex_hal_console_dropped(void) {
 /* No Reflex-owned receive path on this target, so there is nothing to report.
  * Zeroed rather than left undefined so a caller written for the C6 compiles
  * and reads a consistent "nothing happened" here. */
+/* ESP-IDF still owns LEDC on this target, so these report "not mine" rather
+ * than half-implementing a peripheral nobody here drives. */
+reflex_err_t reflex_hal_pwm_init(uint32_t freq_hz, uint8_t duty_res_bits, uint32_t duty) {
+    (void)freq_hz;
+    (void)duty_res_bits;
+    (void)duty;
+    return REFLEX_ERR_NOT_SUPPORTED;
+}
+
+void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out) {
+    if (!out) return;
+    memset(out, 0, sizeof *out);
+}
+
 void reflex_hal_console_debug(reflex_console_debug_t *out) {
     if (!out) return;
     memset(out, 0, sizeof *out);

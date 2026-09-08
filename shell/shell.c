@@ -8,7 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if !CONFIG_IDF_TARGET_ESP32C6
 #include "driver/ledc.h"
+#endif
 #include "driver/pulse_cnt.h"
 #include "driver/rmt_tx.h"
 #include "driver/rmt_encoder.h"
@@ -255,37 +257,68 @@ static void reflex_shell_bonsai_exp3a_status(void) {
 
 static void reflex_shell_bonsai_exp4_route(int orient) {
     if (!reflex_shell_bonsai_exp4.ledc_initialized) {
-        /* Bind the channel to the LED pin rather than to -1.
+#if CONFIG_IDF_TARGET_ESP32C6
+        /* Reflex's own LEDC. Tier E: this is what driver/ledc.h was here for.
          *
-         * The intent was to configure a channel without attaching a pin and
-         * then route the signal by hand below, which is a reasonable technique
-         * — but LEDC rejects -1 outright ("gpio_num argument is invalid"), so
-         * the channel was never configured. Nothing checked, so the handler
-         * went on to print the orientation it had not applied and report
-         * #R:+1,ok. This experiment has therefore never once driven the LED,
-         * and said otherwise every time.
+         * Checked against the driver it replaces rather than assumed
+         * equivalent — configured through ESP-IDF, the peripheral latched
+         * timer=0x00138808 ch0=0x00000004 duty=0x00000800 pcr=0x00000001
+         * sclk=0x00700000, and configured through this it latches the same. The
+         * readback below is what made that comparison possible, and it stays. */
+        if (reflex_hal_pwm_init(1000, 8, 128) != REFLEX_OK) {
+            printf("bonsai exp4: PWM init failed\n");
+            outcome(SHELL_FAILED);
+            return;
+        }
+#else
+        /* ESP-IDF still owns LEDC on the classic ESP32.
          *
-         * Binding the pin here is harmless: the manual routing below still
-         * decides orientation, and inversion is what it exists to control. */
-        ledc_timer_config_t t = { .speed_mode=LEDC_LOW_SPEED_MODE, .timer_num=LEDC_TIMER_0, .duty_resolution=LEDC_TIMER_8_BIT, .freq_hz=1000, .clk_cfg=LEDC_AUTO_CLK };
+         * The channel is bound to the LED pin rather than to -1. The intent was
+         * to configure a channel without attaching a pin and route the signal
+         * by hand below, which is a reasonable technique that LEDC rejects
+         * outright ("gpio_num argument is invalid") — and nothing checked, so
+         * this handler printed an orientation it had not applied and reported
+         * #R:+1,ok. It had therefore never once driven the LED. */
+        ledc_timer_config_t t = { .speed_mode = LEDC_LOW_SPEED_MODE,
+                                  .timer_num = LEDC_TIMER_0,
+                                  .duty_resolution = LEDC_TIMER_8_BIT,
+                                  .freq_hz = 1000,
+                                  .clk_cfg = LEDC_AUTO_CLK };
         if (ledc_timer_config(&t) != REFLEX_OK) {
             printf("bonsai exp4: LEDC timer config failed\n");
             outcome(SHELL_FAILED);
             return;
         }
-        ledc_channel_config_t c = {.speed_mode = LEDC_LOW_SPEED_MODE,
-                                   .channel = LEDC_CHANNEL_0,
-                                   .timer_sel = LEDC_TIMER_0,
-                                   .intr_type = LEDC_INTR_DISABLE,
-                                   .gpio_num = REFLEX_LED_PIN,
-                                   .duty = 128,
-                                   .hpoint = 0};
+        ledc_channel_config_t c = { .speed_mode = LEDC_LOW_SPEED_MODE,
+                                    .channel = LEDC_CHANNEL_0,
+                                    .timer_sel = LEDC_TIMER_0,
+                                    .intr_type = LEDC_INTR_DISABLE,
+                                    .gpio_num = REFLEX_LED_PIN,
+                                    .duty = 128,
+                                    .hpoint = 0 };
         if (ledc_channel_config(&c) != REFLEX_OK) {
             printf("bonsai exp4: LEDC channel config failed\n");
             outcome(SHELL_FAILED);
             return;
         }
+#endif
         reflex_shell_bonsai_exp4.ledc_initialized = true;
+    }
+    {
+        /* Report what the peripheral actually latched.
+         *
+         * The previous version of this handler printed an orientation it had
+         * not applied, because nothing looked. Reading the configuration back
+         * is how that stops being possible — and it is what let the Reflex LEDC
+         * driver be checked against the ESP-IDF one it replaces, register for
+         * register, rather than declared equivalent. */
+        reflex_pwm_snapshot_t pwm;
+        reflex_hal_pwm_snapshot(&pwm);
+        printf("bonsai exp4 ledc timer=0x%08lx ch0=0x%08lx duty=0x%08lx "
+               "pcr=0x%08lx sclk=0x%08lx\n",
+               (unsigned long)pwm.timer_conf, (unsigned long)pwm.ch_conf0,
+               (unsigned long)pwm.ch_duty, (unsigned long)pwm.pcr_conf,
+               (unsigned long)pwm.pcr_sclk);
     }
     if (orient == 1) {
         esp_rom_gpio_connect_out_signal(REFLEX_LED_PIN, REFLEX_LEDC_LS_SIG_OUT0_IDX, false, false);
@@ -396,9 +429,11 @@ static void reflex_shell_bonsai_exp5_run(void) {
      * RMT's io_loop_back sets up. Neither is kept — a change that cannot show a
      * result is not a fix, and this file has reverted speculative changes for
      * that reason before. */
-    gpio_config_t io = { .pin_bit_mask = (1ULL << 6), .mode = GPIO_MODE_OUTPUT };
-    gpio_config(&io);
-    gpio_set_level(6, 1); // High to enable (keeping it simple)
+    /* Reflex's own GPIO, which this file already had available and was
+     * reaching past to driver/gpio.h for — a header it was only receiving
+     * transitively through driver/ledc.h in the first place. */
+    reflex_hal_gpio_init_output(6);
+    reflex_hal_gpio_set_level(6, 1); // High to enable (keeping it simple)
     gpio6_taken = true;
 
     rmt_symbol_word_t pulses[10];
@@ -453,7 +488,8 @@ cleanup:
     if (pcnt) pcnt_del_unit(pcnt);
     /* Hand GPIO 6 back. Leaving a pin driven is a side effect the caller did
      * not ask for, and `make hw-test` runs this five times. */
-    if (gpio6_taken) gpio_reset_pin(6);
+    /* Back to an input, which is how the pin was found. */
+    if (gpio6_taken) reflex_hal_gpio_init_input(6, false);
 #endif
 }
 

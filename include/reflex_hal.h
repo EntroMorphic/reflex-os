@@ -213,6 +213,23 @@ typedef struct {
 
 void reflex_hal_console_debug(reflex_console_debug_t *out);
 
+/* PWM. Reflex's own on the C6, replacing driver/ledc.h for the single channel
+ * `bonsai exp4` drives; ESP-IDF still owns it on the classic ESP32. */
+reflex_err_t reflex_hal_pwm_init(uint32_t freq_hz, uint8_t duty_res_bits, uint32_t duty);
+
+/* What the peripheral latched, so a caller can check the configuration took
+ * rather than assume a write landed — the same question the console's
+ * diagnostic answers for receive. */
+typedef struct {
+    uint32_t timer_conf;
+    uint32_t ch_conf0;
+    uint32_t ch_duty;
+    uint32_t pcr_conf;
+    uint32_t pcr_sclk;
+} reflex_pwm_snapshot_t;
+
+void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out);
+
 void reflex_hal_random_fill(uint8_t *buf, size_t len);
 /** @brief Read the factory MAC. Doubles as this board's mesh identity, so it
  *  is what self-arc suppression and the peer table compare against. */

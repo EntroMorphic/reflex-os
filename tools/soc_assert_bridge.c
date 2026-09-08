@@ -23,6 +23,7 @@
 #include "soc/lp_analog_peri_reg.h"
 #include "soc/pmu_reg.h"
 #include "soc/pcr_reg.h"
+#include "soc/ledc_reg.h"
 #include "soc/extmem_reg.h"
 #include "soc/assist_debug_reg.h"
 #include "soc/spi_mem_reg.h"
@@ -135,10 +136,62 @@ _Static_assert(
 _Static_assert(
     REFLEX_USJ_OUT_RECV_PKT_INT == (uint32_t)(USB_SERIAL_JTAG_SERIAL_OUT_RECV_PKT_INT_ENA),
     "REFLEX_USJ_OUT_RECV_PKT_INT diverges from USB_SERIAL_JTAG_SERIAL_OUT_RECV_PKT_INT_ENA");
+_Static_assert(REFLEX_DR_REG_LEDC_BASE == (uint32_t)(DR_REG_LEDC_BASE),
+               "REFLEX_DR_REG_LEDC_BASE diverges from DR_REG_LEDC_BASE");
+_Static_assert(REFLEX_LEDC_CH0_CONF0_REG == (uint32_t)(LEDC_CH0_CONF0_REG),
+               "REFLEX_LEDC_CH0_CONF0_REG diverges from LEDC_CH0_CONF0_REG");
+_Static_assert(REFLEX_LEDC_CH0_HPOINT_REG == (uint32_t)(LEDC_CH0_HPOINT_REG),
+               "REFLEX_LEDC_CH0_HPOINT_REG diverges from LEDC_CH0_HPOINT_REG");
+_Static_assert(REFLEX_LEDC_CH0_DUTY_REG == (uint32_t)(LEDC_CH0_DUTY_REG),
+               "REFLEX_LEDC_CH0_DUTY_REG diverges from LEDC_CH0_DUTY_REG");
+_Static_assert(REFLEX_LEDC_CH0_CONF1_REG == (uint32_t)(LEDC_CH0_CONF1_REG),
+               "REFLEX_LEDC_CH0_CONF1_REG diverges from LEDC_CH0_CONF1_REG");
+_Static_assert(REFLEX_LEDC_TIMER0_CONF_REG == (uint32_t)(LEDC_TIMER0_CONF_REG),
+               "REFLEX_LEDC_TIMER0_CONF_REG diverges from LEDC_TIMER0_CONF_REG");
+_Static_assert(REFLEX_LEDC_SIG_OUT_EN == (uint32_t)(LEDC_SIG_OUT_EN_CH0),
+               "REFLEX_LEDC_SIG_OUT_EN diverges from LEDC_SIG_OUT_EN_CH0");
+_Static_assert(REFLEX_LEDC_CH_PARA_UP == (uint32_t)(LEDC_PARA_UP_CH0),
+               "REFLEX_LEDC_CH_PARA_UP diverges from LEDC_PARA_UP_CH0");
+_Static_assert(REFLEX_LEDC_DUTY_START == (uint32_t)(LEDC_DUTY_START_CH0),
+               "REFLEX_LEDC_DUTY_START diverges from LEDC_DUTY_START_CH0");
+_Static_assert(REFLEX_LEDC_TIMER_RST == (uint32_t)(LEDC_TIMER0_RST),
+               "REFLEX_LEDC_TIMER_RST diverges from LEDC_TIMER0_RST");
+_Static_assert(REFLEX_LEDC_TIMER_PARA_UP == (uint32_t)(LEDC_TIMER0_PARA_UP),
+               "REFLEX_LEDC_TIMER_PARA_UP diverges from LEDC_TIMER0_PARA_UP");
+_Static_assert(REFLEX_PCR_LEDC_CONF_REG == (uint32_t)(PCR_LEDC_CONF_REG),
+               "REFLEX_PCR_LEDC_CONF_REG diverges from PCR_LEDC_CONF_REG");
+_Static_assert(REFLEX_PCR_LEDC_SCLK_CONF_REG == (uint32_t)(PCR_LEDC_SCLK_CONF_REG),
+               "REFLEX_PCR_LEDC_SCLK_CONF_REG diverges from PCR_LEDC_SCLK_CONF_REG");
+_Static_assert(REFLEX_PCR_LEDC_CLK_EN == (uint32_t)(PCR_LEDC_CLK_EN),
+               "REFLEX_PCR_LEDC_CLK_EN diverges from PCR_LEDC_CLK_EN");
+_Static_assert(REFLEX_PCR_LEDC_RST_EN == (uint32_t)(PCR_LEDC_RST_EN),
+               "REFLEX_PCR_LEDC_RST_EN diverges from PCR_LEDC_RST_EN");
+_Static_assert(REFLEX_PCR_LEDC_SCLK_EN == (uint32_t)(PCR_LEDC_SCLK_EN),
+               "REFLEX_PCR_LEDC_SCLK_EN diverges from PCR_LEDC_SCLK_EN");
 _Static_assert(REFLEX_SPI_MEM_MMU_PAGE_SIZE == (uint32_t)(SPI_MEM_MMU_PAGE_SIZE),
                "REFLEX_SPI_MEM_MMU_PAGE_SIZE diverges from SPI_MEM_MMU_PAGE_SIZE");
+_Static_assert(REFLEX_LEDC_TIMER_SEL_MASK == (uint32_t)(LEDC_TIMER_SEL_CH0_V),
+               "REFLEX_LEDC_TIMER_SEL_MASK diverges from LEDC_TIMER_SEL_CH0_V");
+_Static_assert(REFLEX_LEDC_DUTY_MASK == (uint32_t)(LEDC_DUTY_CH0_V),
+               "REFLEX_LEDC_DUTY_MASK diverges from LEDC_DUTY_CH0_V");
+_Static_assert(REFLEX_LEDC_DUTY_RES_MASK == (uint32_t)(LEDC_TIMER0_DUTY_RES_V),
+               "REFLEX_LEDC_DUTY_RES_MASK diverges from LEDC_TIMER0_DUTY_RES_V");
+_Static_assert(REFLEX_LEDC_CLK_DIV_MASK == (uint32_t)(LEDC_CLK_DIV_TIMER0_V),
+               "REFLEX_LEDC_CLK_DIV_MASK diverges from LEDC_CLK_DIV_TIMER0_V");
+_Static_assert(REFLEX_PCR_LEDC_SCLK_SEL_MASK == (uint32_t)(PCR_LEDC_SCLK_SEL_V),
+               "REFLEX_PCR_LEDC_SCLK_SEL_MASK diverges from PCR_LEDC_SCLK_SEL_V");
 _Static_assert(REFLEX_SPI_MEM_MMU_PAGE_SIZE_S == (uint32_t)(SPI_MEM_MMU_PAGE_SIZE_S),
                "REFLEX_SPI_MEM_MMU_PAGE_SIZE_S diverges from SPI_MEM_MMU_PAGE_SIZE_S");
+_Static_assert(REFLEX_LEDC_TIMER_SEL_S == (uint32_t)(LEDC_TIMER_SEL_CH0_S),
+               "REFLEX_LEDC_TIMER_SEL_S diverges from LEDC_TIMER_SEL_CH0_S");
+_Static_assert(REFLEX_LEDC_DUTY_S == (uint32_t)(LEDC_DUTY_CH0_S),
+               "REFLEX_LEDC_DUTY_S diverges from LEDC_DUTY_CH0_S");
+_Static_assert(REFLEX_LEDC_DUTY_RES_S == (uint32_t)(LEDC_TIMER0_DUTY_RES_S),
+               "REFLEX_LEDC_DUTY_RES_S diverges from LEDC_TIMER0_DUTY_RES_S");
+_Static_assert(REFLEX_LEDC_CLK_DIV_S == (uint32_t)(LEDC_CLK_DIV_TIMER0_S),
+               "REFLEX_LEDC_CLK_DIV_S diverges from LEDC_CLK_DIV_TIMER0_S");
+_Static_assert(REFLEX_PCR_LEDC_SCLK_SEL_S == (uint32_t)(PCR_LEDC_SCLK_SEL_S),
+               "REFLEX_PCR_LEDC_SCLK_SEL_S diverges from PCR_LEDC_SCLK_SEL_S");
 _Static_assert(REFLEX_SOC_IRAM_LOW == (uint32_t)(SOC_IRAM_LOW),
                "REFLEX_SOC_IRAM_LOW diverges from SOC_IRAM_LOW");
 _Static_assert(REFLEX_SOC_IRAM_HIGH == (uint32_t)(SOC_IRAM_HIGH),

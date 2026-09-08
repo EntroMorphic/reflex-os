@@ -127,11 +127,38 @@ REGS = [
     ("REFLEX_USJ_INT_CLR_REG",          "USB_SERIAL_JTAG_INT_CLR_REG",  "USB_DEVICE", "INT_CLR",  None, ""),
     ("REFLEX_USJ_OUT_EP_DATA_AVAIL",    "USB_SERIAL_JTAG_SERIAL_OUT_EP_DATA_AVAIL", "USB_DEVICE", "EP1_CONF", "SERIAL_OUT_EP_DATA_AVAIL", "host-to-device byte waiting"),
     ("REFLEX_USJ_OUT_RECV_PKT_INT",     "USB_SERIAL_JTAG_SERIAL_OUT_RECV_PKT_INT_ENA", "USB_DEVICE", "INT_ENA", "SERIAL_OUT_RECV_PKT_INT_ENA", "same bit across RAW/ST/ENA/CLR"),
+
+    # --- LEDC, and the PCR gating that must be released before it responds ---
+    # Tier E: replacing driver/ledc.h for the one channel `bonsai exp4` drives.
+    # The SVD names these as register arrays (CH%s_CONF0), so channel 0 and
+    # timer 0 resolve at the array's own offset — which the bridge then proves
+    # equal to LEDC_CH0_CONF0_REG and friends.
+    ("REFLEX_DR_REG_LEDC_BASE",      "DR_REG_LEDC_BASE",      "LEDC", None,           None, "peripheral base, not a register"),
+    ("REFLEX_LEDC_CH0_CONF0_REG",    "LEDC_CH0_CONF0_REG",    "LEDC", "CH%s_CONF0",   None, "channel 0"),
+    ("REFLEX_LEDC_CH0_HPOINT_REG",   "LEDC_CH0_HPOINT_REG",   "LEDC", "CH%s_HPOINT",  None, ""),
+    ("REFLEX_LEDC_CH0_DUTY_REG",     "LEDC_CH0_DUTY_REG",     "LEDC", "CH%s_DUTY",    None, "duty is stored shifted left by 4"),
+    ("REFLEX_LEDC_CH0_CONF1_REG",    "LEDC_CH0_CONF1_REG",    "LEDC", "CH%s_CONF1",   None, ""),
+    ("REFLEX_LEDC_TIMER0_CONF_REG",  "LEDC_TIMER0_CONF_REG",  "LEDC", "TIMER%s_CONF", None, "timer 0"),
+    ("REFLEX_LEDC_SIG_OUT_EN",       "LEDC_SIG_OUT_EN_CH0",   "LEDC", "CH%s_CONF0",   "SIG_OUT_EN", ""),
+    ("REFLEX_LEDC_CH_PARA_UP",       "LEDC_PARA_UP_CH0",      "LEDC", "CH%s_CONF0",   "PARA_UP",    "latch channel config"),
+    ("REFLEX_LEDC_DUTY_START",       "LEDC_DUTY_START_CH0",   "LEDC", "CH%s_CONF1",   "DUTY_START", ""),
+    ("REFLEX_LEDC_TIMER_RST",        "LEDC_TIMER0_RST",       "LEDC", "TIMER%s_CONF", "RST",        "reads high out of reset"),
+    ("REFLEX_LEDC_TIMER_PARA_UP",    "LEDC_TIMER0_PARA_UP",   "LEDC", "TIMER%s_CONF", "PARA_UP",    "latch timer config"),
+    ("REFLEX_PCR_LEDC_CONF_REG",      "PCR_LEDC_CONF_REG",      "PCR", "LEDC_CONF",      None, "peripheral clock and reset"),
+    ("REFLEX_PCR_LEDC_SCLK_CONF_REG", "PCR_LEDC_SCLK_CONF_REG", "PCR", "LEDC_SCLK_CONF", None, "source clock gate and select"),
+    ("REFLEX_PCR_LEDC_CLK_EN",        "PCR_LEDC_CLK_EN",        "PCR", "LEDC_CONF",      "LEDC_CLK_EN",  ""),
+    ("REFLEX_PCR_LEDC_RST_EN",        "PCR_LEDC_RST_EN",        "PCR", "LEDC_CONF",      "LEDC_RST_EN",  "asserted means held in reset"),
+    ("REFLEX_PCR_LEDC_SCLK_EN",       "PCR_LEDC_SCLK_EN",       "PCR", "LEDC_SCLK_CONF", "LEDC_SCLK_EN", ""),
 ]
 
 # Value masks: (1 << bitWidth) - 1 rather than a single bit.
 WIDTH_MASKS = [
     ("REFLEX_SPI_MEM_MMU_PAGE_SIZE", "SPI_MEM_MMU_PAGE_SIZE", "SPI0", "SPI_MEM_MMU_POWER_CTRL", "SPI_MMU_PAGE_SIZE", "field value mask"),
+    ("REFLEX_LEDC_TIMER_SEL_MASK",   "LEDC_TIMER_SEL_CH0_V",    "LEDC", "CH%s_CONF0",   "TIMER_SEL",   ""),
+    ("REFLEX_LEDC_DUTY_MASK",        "LEDC_DUTY_CH0_V",         "LEDC", "CH%s_DUTY",    "DUTY",        ""),
+    ("REFLEX_LEDC_DUTY_RES_MASK",    "LEDC_TIMER0_DUTY_RES_V",  "LEDC", "TIMER%s_CONF", "DUTY_RES",    ""),
+    ("REFLEX_LEDC_CLK_DIV_MASK",     "LEDC_CLK_DIV_TIMER0_V",   "LEDC", "TIMER%s_CONF", "CLK_DIV",     "Q10.8 divider"),
+    ("REFLEX_PCR_LEDC_SCLK_SEL_MASK","PCR_LEDC_SCLK_SEL_V",     "PCR",  "LEDC_SCLK_CONF", "LEDC_SCLK_SEL", "3 selects XTAL"),
 ]
 
 # Field shifts. REFLEX_REG_SET_FIELD takes mask and shift explicitly rather
@@ -140,6 +167,11 @@ WIDTH_MASKS = [
 # names neither the field nor the call site.
 SHIFTS = [
     ("REFLEX_SPI_MEM_MMU_PAGE_SIZE_S", "SPI_MEM_MMU_PAGE_SIZE_S", "SPI0", "SPI_MEM_MMU_POWER_CTRL", "SPI_MMU_PAGE_SIZE", "field shift"),
+    ("REFLEX_LEDC_TIMER_SEL_S",   "LEDC_TIMER_SEL_CH0_S",   "LEDC", "CH%s_CONF0",   "TIMER_SEL",   ""),
+    ("REFLEX_LEDC_DUTY_S",        "LEDC_DUTY_CH0_S",        "LEDC", "CH%s_DUTY",    "DUTY",        ""),
+    ("REFLEX_LEDC_DUTY_RES_S",    "LEDC_TIMER0_DUTY_RES_S", "LEDC", "TIMER%s_CONF", "DUTY_RES",    ""),
+    ("REFLEX_LEDC_CLK_DIV_S",     "LEDC_CLK_DIV_TIMER0_S",  "LEDC", "TIMER%s_CONF", "CLK_DIV",     ""),
+    ("REFLEX_PCR_LEDC_SCLK_SEL_S","PCR_LEDC_SCLK_SEL_S",    "PCR",  "LEDC_SCLK_CONF", "LEDC_SCLK_SEL", ""),
 ]
 
 # Not in the SVD. Each states where it does come from.
@@ -274,6 +306,7 @@ def render_bridge(bridge):
         "#include \"soc/lp_analog_peri_reg.h\"",
         "#include \"soc/pmu_reg.h\"",
         "#include \"soc/pcr_reg.h\"",
+        "#include \"soc/ledc_reg.h\"",
         "#include \"soc/extmem_reg.h\"",
         "#include \"soc/assist_debug_reg.h\"",
         "#include \"soc/spi_mem_reg.h\"",

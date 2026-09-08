@@ -113,10 +113,62 @@
 #define REFLEX_USJ_OUT_EP_DATA_AVAIL 0x00000004u
 /* USB_DEVICE.INT_ENA.SERIAL_OUT_RECV_PKT_INT_ENA bit 2 — same bit across RAW/ST/ENA/CLR */
 #define REFLEX_USJ_OUT_RECV_PKT_INT 0x00000004u
+/* LEDC base — peripheral base, not a register */
+#define REFLEX_DR_REG_LEDC_BASE 0x60007000u
+/* LEDC.CH%s_CONF0 @ base+0x0 — channel 0 */
+#define REFLEX_LEDC_CH0_CONF0_REG 0x60007000u
+/* LEDC.CH%s_HPOINT @ base+0x4 */
+#define REFLEX_LEDC_CH0_HPOINT_REG 0x60007004u
+/* LEDC.CH%s_DUTY @ base+0x8 — duty is stored shifted left by 4 */
+#define REFLEX_LEDC_CH0_DUTY_REG 0x60007008u
+/* LEDC.CH%s_CONF1 @ base+0xC */
+#define REFLEX_LEDC_CH0_CONF1_REG 0x6000700Cu
+/* LEDC.TIMER%s_CONF @ base+0xA0 — timer 0 */
+#define REFLEX_LEDC_TIMER0_CONF_REG 0x600070A0u
+/* LEDC.CH%s_CONF0.SIG_OUT_EN bit 2 */
+#define REFLEX_LEDC_SIG_OUT_EN 0x00000004u
+/* LEDC.CH%s_CONF0.PARA_UP bit 4 — latch channel config */
+#define REFLEX_LEDC_CH_PARA_UP 0x00000010u
+/* LEDC.CH%s_CONF1.DUTY_START bit 31 */
+#define REFLEX_LEDC_DUTY_START 0x80000000u
+/* LEDC.TIMER%s_CONF.RST bit 24 — reads high out of reset */
+#define REFLEX_LEDC_TIMER_RST 0x01000000u
+/* LEDC.TIMER%s_CONF.PARA_UP bit 26 — latch timer config */
+#define REFLEX_LEDC_TIMER_PARA_UP 0x04000000u
+/* PCR.LEDC_CONF @ base+0x34 — peripheral clock and reset */
+#define REFLEX_PCR_LEDC_CONF_REG 0x60096034u
+/* PCR.LEDC_SCLK_CONF @ base+0x38 — source clock gate and select */
+#define REFLEX_PCR_LEDC_SCLK_CONF_REG 0x60096038u
+/* PCR.LEDC_CONF.LEDC_CLK_EN bit 0 */
+#define REFLEX_PCR_LEDC_CLK_EN 0x00000001u
+/* PCR.LEDC_CONF.LEDC_RST_EN bit 1 — asserted means held in reset */
+#define REFLEX_PCR_LEDC_RST_EN 0x00000002u
+/* PCR.LEDC_SCLK_CONF.LEDC_SCLK_EN bit 22 */
+#define REFLEX_PCR_LEDC_SCLK_EN 0x00400000u
 /* SPI0.SPI_MEM_MMU_POWER_CTRL.SPI_MMU_PAGE_SIZE width 2 — field value mask */
 #define REFLEX_SPI_MEM_MMU_PAGE_SIZE 0x00000003u
+/* LEDC.CH%s_CONF0.TIMER_SEL width 2 */
+#define REFLEX_LEDC_TIMER_SEL_MASK 0x00000003u
+/* LEDC.CH%s_DUTY.DUTY width 25 */
+#define REFLEX_LEDC_DUTY_MASK 0x01FFFFFFu
+/* LEDC.TIMER%s_CONF.DUTY_RES width 5 */
+#define REFLEX_LEDC_DUTY_RES_MASK 0x0000001Fu
+/* LEDC.TIMER%s_CONF.CLK_DIV width 18 — Q10.8 divider */
+#define REFLEX_LEDC_CLK_DIV_MASK 0x0003FFFFu
+/* PCR.LEDC_SCLK_CONF.LEDC_SCLK_SEL width 2 — 3 selects XTAL */
+#define REFLEX_PCR_LEDC_SCLK_SEL_MASK 0x00000003u
 /* SPI0.SPI_MEM_MMU_POWER_CTRL.SPI_MMU_PAGE_SIZE bit 3 — field shift */
 #define REFLEX_SPI_MEM_MMU_PAGE_SIZE_S 0x00000003u
+/* LEDC.CH%s_CONF0.TIMER_SEL bit 0 */
+#define REFLEX_LEDC_TIMER_SEL_S 0x00000000u
+/* LEDC.CH%s_DUTY.DUTY bit 0 */
+#define REFLEX_LEDC_DUTY_S 0x00000000u
+/* LEDC.TIMER%s_CONF.DUTY_RES bit 0 */
+#define REFLEX_LEDC_DUTY_RES_S 0x00000000u
+/* LEDC.TIMER%s_CONF.CLK_DIV bit 5 */
+#define REFLEX_LEDC_CLK_DIV_S 0x00000005u
+/* PCR.LEDC_SCLK_CONF.LEDC_SCLK_SEL bit 20 */
+#define REFLEX_PCR_LEDC_SCLK_SEL_S 0x00000014u
 /* literal — CPU memory map, not a peripheral: HP SRAM instruction bus window */
 #define REFLEX_SOC_IRAM_LOW 0x40800000u
 /* literal — CPU memory map */
