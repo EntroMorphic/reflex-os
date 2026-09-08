@@ -571,6 +571,25 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
  * same budget costs 50 ms once, which nobody notices. */
 #define USJ_TX_TIMEOUT_US 50000u /* 50 ms */
 
+/* Hand the packet over, then wait until the endpoint will accept bytes again.
+ *
+ * The wait is not for us — it is for whoever writes next. ESP-IDF's console
+ * still emits the shell's command output, and its write path pushes its first
+ * byte without checking IN_EP_DATA_FREE. If our packet handover is still in
+ * flight at that moment, that byte lands on the floor: a reply arrives with its
+ * first character missing and nothing else wrong. Measured at one occurrence in
+ * sixty runs of the same command sequence, surfacing as a usage line reading
+ * "apestry signal <cell>". Leaving the endpoint ready is the cost of sharing it.
+ *
+ * Bounded by the caller's remaining budget, so a host that is not reading still
+ * cannot hold the caller indefinitely. */
+static void usj_flush(uint64_t start) {
+    REFLEX_REG(USJ_EP1_CONF) |= USJ_WR_DONE;
+    while (!(REFLEX_REG(USJ_EP1_CONF) & USJ_IN_EP_DATA_FREE)) {
+        if ((reflex_hal_time_us() - start) > USJ_TX_TIMEOUT_US) return;
+    }
+}
+
 static void usj_write_bytes(const char *data, int len) {
     uint64_t start = reflex_hal_time_us();
     for (int i = 0; i < len; i++) {
@@ -578,13 +597,13 @@ static void usj_write_bytes(const char *data, int len) {
             if ((reflex_hal_time_us() - start) > USJ_TX_TIMEOUT_US) {
                 /* No reader. Flush whatever made it into the FIFO and drop the
                  * rest of this line rather than blocking the caller forever. */
-                REFLEX_REG(USJ_EP1_CONF) |= USJ_WR_DONE;
+                usj_flush(start);
                 return;
             }
         }
         REFLEX_REG(USJ_EP1_DATA) = (uint32_t)(uint8_t)data[i];
     }
-    REFLEX_REG(USJ_EP1_CONF) |= USJ_WR_DONE;
+    usj_flush(start);
 }
 
 /* --- Console RX: Reflex's own, interrupt-driven ---------------------------
