@@ -102,6 +102,18 @@ got = active(src)
 check("elif takes over from a false if", '#include "j.h"' in got, got)
 check("and its else is then dropped", '#include "k.h"' not in got, got)
 
+# The target fence: a driver kept only for the classic ESP32 is not a
+# dependency of the C6 path.
+src = """#if !CONFIG_IDF_TARGET_ESP32C6
+#include "driver/ledc.h"
+#endif
+#include "driver/rmt_tx.h"
+"""
+got = active(src)
+check("a driver fenced off from the C6 is not counted",
+      '#include "driver/ledc.h"' not in got, got)
+check("one still on the path is", '#include "driver/rmt_tx.h"' in got, got)
+
 print("\n--- agreement with the real build ---")
 # The measurement must match what the compiler actually did. The C6 build's
 # dependency output is the only authority on that.

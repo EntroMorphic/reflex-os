@@ -9,6 +9,14 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Added
 
+- **Tier E: LEDC is Reflex's own.** `driver/ledc.h` is gone from the independence path — the C6 configures PWM through `reflex_hal_pwm_init`, writing the peripheral's clock gating, timer divider and channel latches directly. Every register and field comes through the SoC bridge (57 -> 87 constants, all proved identical to ESP-IDF), including the PCR gating that must be released before LEDC answers at all.
+
+  What makes it trustworthy is not that it compiles. ESP-IDF's driver was asked to configure the same channel and the resulting silicon state was captured from the board — `timer=0x00138808 ch0=0x00000004 duty=0x00000800 pcr=0x00000001 sclk=0x00700000` — and Reflex's driver lands on all five exactly. That comparison is now a hardware check rather than a one-off observation, so a divergence in the Q10.8 divider arithmetic, the clock source or the latch bits fails the suite instead of becoming a pin quietly running at the wrong frequency. Mutation-checked by telling the driver the crystal is 80 MHz: the divider doubles and the check catches it.
+
+- **`bonsai exp5` uses Reflex's own GPIO**, which this file already had and was reaching past — it was only receiving `driver/gpio.h` transitively through `driver/ledc.h` in the first place, so the dependency was real and invisible to a scan that counts direct includes.
+
+- **The independence checker knows the target fence.** `CONFIG_IDF_TARGET_ESP32C6` joins the symbols it evaluates, because the independence path *is* the C6: an ESP-IDF driver kept only for the classic ESP32 is not a dependency this path has, and the build's own header list agrees. **Tier E 4 -> 3, on-path total 19 -> 18.**
+
 - **Tier E is done: the console is Reflex's own, receive and transmit both.** The ESP-IDF USB-serial-JTAG driver is not installed; an interrupt on source 48 drains the OUT endpoint into a 2048-byte ring with real flow control — the ISR stops draining when the ring is full and masks itself at the controller, because emptying the FIFO is what ACKs the USB packet and a receiver that always drains never slows the host down. Echo and the prompt go out through `reflex_hal_write_raw`. **171/171 on ten consecutive hardware runs** (main: 15/15), the classic ESP32 back at its documented 170/171, host 514/514, and Tier E on-path includes 8 -> 6.
 
   Six faults sat between "the code looks right" and that result, each hiding the next, and none of them was visible by reading the source:

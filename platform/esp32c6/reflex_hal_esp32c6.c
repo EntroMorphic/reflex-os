@@ -828,7 +828,7 @@ void reflex_hal_console_debug(reflex_console_debug_t *out) {
  * as zero here, and reflex_hal_time_us once ran against a hand-typed base
  * address that pointed at I2C. */
 
-#define LEDC_XTAL_HZ      40000000u
+#define LEDC_XTAL_HZ 40000000u
 #define LEDC_SCLK_SEL_XTAL 3u
 /* The duty register carries four fractional bits below the integer duty. */
 #define LEDC_DUTY_FRAC_BITS 4u
@@ -872,22 +872,21 @@ reflex_err_t reflex_hal_pwm_init(uint32_t freq_hz, uint8_t duty_res_bits, uint32
      * configuration by PARA_UP. Both are needed — setting the duty register
      * alone changes nothing the output can see. */
     REFLEX_REG(REFLEX_LEDC_CH0_HPOINT_REG) = 0u;
-    REFLEX_REG(REFLEX_LEDC_CH0_DUTY_REG) =
-        (duty << LEDC_DUTY_FRAC_BITS) & REFLEX_LEDC_DUTY_MASK;
+    REFLEX_REG(REFLEX_LEDC_CH0_DUTY_REG) = (duty << LEDC_DUTY_FRAC_BITS) & REFLEX_LEDC_DUTY_MASK;
     REFLEX_REG(REFLEX_LEDC_CH0_CONF1_REG) = REFLEX_LEDC_DUTY_START;
     REFLEX_REG(REFLEX_LEDC_CH0_CONF0_REG) =
-        ((0u & REFLEX_LEDC_TIMER_SEL_MASK) << REFLEX_LEDC_TIMER_SEL_S) |
-        REFLEX_LEDC_SIG_OUT_EN | REFLEX_LEDC_CH_PARA_UP;
+        ((0u & REFLEX_LEDC_TIMER_SEL_MASK) << REFLEX_LEDC_TIMER_SEL_S) | REFLEX_LEDC_SIG_OUT_EN |
+        REFLEX_LEDC_CH_PARA_UP;
     return REFLEX_OK;
 }
 
 void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out) {
     if (!out) return;
     out->timer_conf = REFLEX_REG(REFLEX_LEDC_TIMER0_CONF_REG);
-    out->ch_conf0   = REFLEX_REG(REFLEX_LEDC_CH0_CONF0_REG);
-    out->ch_duty    = REFLEX_REG(REFLEX_LEDC_CH0_DUTY_REG);
-    out->pcr_conf   = REFLEX_REG(REFLEX_PCR_LEDC_CONF_REG);
-    out->pcr_sclk   = REFLEX_REG(REFLEX_PCR_LEDC_SCLK_CONF_REG);
+    out->ch_conf0 = REFLEX_REG(REFLEX_LEDC_CH0_CONF0_REG);
+    out->ch_duty = REFLEX_REG(REFLEX_LEDC_CH0_DUTY_REG);
+    out->pcr_conf = REFLEX_REG(REFLEX_PCR_LEDC_CONF_REG);
+    out->pcr_sclk = REFLEX_REG(REFLEX_PCR_LEDC_SCLK_CONF_REG);
 }
 
 void reflex_hal_write_raw(const char *data, int len) {

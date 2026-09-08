@@ -318,6 +318,24 @@ def validate(port, r):
     got = b.raw("bonsai exp4 connect")
     r.check("`bonsai exp4 connect` configures LEDC without failing",
             b.last_outcome == (1, "ok") and "orient=" in got, got[:80])
+
+    # The C6 configures LEDC through Reflex's own driver rather than
+    # driver/ledc.h. What makes that trustworthy is not that it compiles: it is
+    # that the peripheral ends up in the same state. These are the exact
+    # registers ESP-IDF's driver left behind, captured from this board before
+    # the swap, so a divergence in the divider arithmetic, the clock source or
+    # the latch bits fails here rather than becoming a pin quietly running at
+    # the wrong frequency.
+    IDF_LEDC = ("timer=0x00138808 ch0=0x00000004 duty=0x00000800 "
+                "pcr=0x00000001 sclk=0x00700000")
+    ledc_line = next((l for l in got.splitlines() if "ledc timer=" in l), "")
+    if "sclk=0x00000000" in ledc_line:
+        r.skip("Reflex LEDC matches ESP-IDF register for register",
+               "this target still uses ESP-IDF's LEDC, so there is no Reflex "
+               "configuration to compare")
+    else:
+        r.check("Reflex LEDC matches ESP-IDF register for register",
+                IDF_LEDC in ledc_line, ledc_line)
     was_on = "led=on" in b.raw("led status")
     b.raw("bonsai exp4 detach")
     # Detach routes the pin back from the LEDC signal to plain GPIO, so the

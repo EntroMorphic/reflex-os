@@ -119,6 +119,10 @@ def scan():
 PATH_SYMBOLS = {
     "SOC_USB_SERIAL_JTAG_SUPPORTED": True,
     "CONFIG_REFLEX_RADIO_802154": True,
+    # The independence path is the ESP32-C6. Code fenced off from it — an
+    # ESP-IDF peripheral driver kept only for the classic ESP32, say — is not a
+    # dependency this path has, and the build's own header list agrees.
+    "CONFIG_IDF_TARGET_ESP32C6": True,
 }
 
 COND_RE = re.compile(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b\s*(.*)$")

@@ -279,23 +279,23 @@ static void reflex_shell_bonsai_exp4_route(int orient) {
          * outright ("gpio_num argument is invalid") — and nothing checked, so
          * this handler printed an orientation it had not applied and reported
          * #R:+1,ok. It had therefore never once driven the LED. */
-        ledc_timer_config_t t = { .speed_mode = LEDC_LOW_SPEED_MODE,
-                                  .timer_num = LEDC_TIMER_0,
-                                  .duty_resolution = LEDC_TIMER_8_BIT,
-                                  .freq_hz = 1000,
-                                  .clk_cfg = LEDC_AUTO_CLK };
+        ledc_timer_config_t t = {.speed_mode = LEDC_LOW_SPEED_MODE,
+                                 .timer_num = LEDC_TIMER_0,
+                                 .duty_resolution = LEDC_TIMER_8_BIT,
+                                 .freq_hz = 1000,
+                                 .clk_cfg = LEDC_AUTO_CLK};
         if (ledc_timer_config(&t) != REFLEX_OK) {
             printf("bonsai exp4: LEDC timer config failed\n");
             outcome(SHELL_FAILED);
             return;
         }
-        ledc_channel_config_t c = { .speed_mode = LEDC_LOW_SPEED_MODE,
-                                    .channel = LEDC_CHANNEL_0,
-                                    .timer_sel = LEDC_TIMER_0,
-                                    .intr_type = LEDC_INTR_DISABLE,
-                                    .gpio_num = REFLEX_LED_PIN,
-                                    .duty = 128,
-                                    .hpoint = 0 };
+        ledc_channel_config_t c = {.speed_mode = LEDC_LOW_SPEED_MODE,
+                                   .channel = LEDC_CHANNEL_0,
+                                   .timer_sel = LEDC_TIMER_0,
+                                   .intr_type = LEDC_INTR_DISABLE,
+                                   .gpio_num = REFLEX_LED_PIN,
+                                   .duty = 128,
+                                   .hpoint = 0};
         if (ledc_channel_config(&c) != REFLEX_OK) {
             printf("bonsai exp4: LEDC channel config failed\n");
             outcome(SHELL_FAILED);

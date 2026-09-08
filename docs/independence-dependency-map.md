@@ -620,11 +620,27 @@ rather than at the peripheral's shared `INT_ENA`, which is necessary because
 that register also carries the transmit interrupt and writing it from an ISR
 wedges stdout — seen as a board emitting a single byte, `I`, and going silent.
 
-Tier E on-path includes: **8 -> 6**, and then to **4** once the checker stopped
+Tier E on-path includes: **8 -> 6**, then to **4** once the checker stopped
 counting the UART console includes that `#if SOC_USB_SERIAL_JTAG_SUPPORTED`
-already fences off — the C6 build had never included them. What remains in
-Tier E is four peripheral drivers: `ledc`, `pulse_cnt`, `rmt_tx`,
-`rmt_encoder`. The console is no longer among them.
+already fences off — the C6 build had never included them — and then to **3**
+with LEDC. `reflex_hal_pwm_init` owns it: the peripheral's clock gating, timer
+divider and channel latches written directly, every constant through the SoC
+bridge.
+
+That one was checked a way worth repeating for the two that remain. ESP-IDF's
+driver was asked to configure the channel and the resulting silicon state was
+read back off the board — `timer=0x00138808 ch0=0x00000004 duty=0x00000800
+pcr=0x00000001 sclk=0x00700000` — and Reflex's driver lands on all five
+exactly. "It compiles and the LED looks lit" would not have distinguished a
+correct Q10.8 divider from one running the pin at the wrong frequency; the
+comparison does, and it is a hardware check now rather than an observation.
+
+What remains in Tier E is two peripherals across three includes: `pulse_cnt`,
+and `rmt_tx` with `rmt_encoder`. RMT is the hard one — channel memory, an
+encoder abstraction and a completion signal — and `bonsai exp5`'s open question
+(two of ten pulses counted) sits on exactly that path, so the loopback should be
+understood before a Reflex RMT driver is written, or a porting bug and the
+existing fault will be indistinguishable.
 
 The general lesson is the one already in `CONTRIBUTING.md`: five of these six
 were found by an experiment that isolated one variable, and none by reading the
