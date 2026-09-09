@@ -1249,6 +1249,28 @@ the run. The three earlier attempts failed because they exercised nothing:
 loads into the long-lived system-vm runtime rather than creating one. None of
 that was evidence about the leak; it was evidence about the tests.
 
+### And it diagnoses the configuration the Kconfig only warns about
+
+`CONFIG_REFLEX_TASK_BACKEND_REFLEX` with nothing to start the scheduler is a
+real, reachable build, and the Kconfig help describes exactly what it does:
+`reflex_task_create` files a TCB and no task ever executes, so the board boots,
+the shell answers, and every service is quietly dead. Nothing made that visible.
+
+It is one command now. On that configuration:
+
+```
+   0 ready    reflex-ev      prio=10  stack=4096  alloc
+   ... seven filed slots, none started ...
+kernel tasks: 7 of 16 in use, 0 dead (unreclaimed)
+kernel tasks: no slot is current — the Reflex scheduler is not running, so none of these execute
+```
+
+An earlier version of this command carried a message for "the backend is on and
+the table is empty" instead. That branch was near-unreachable: with the backend
+on, tasks are filed as they are created, long before a shell exists to ask. The
+reachable signal is a populated table with nothing current, and that is what it
+reports.
+
 ### Task names were borrowed pointers, and one of them dangled
 
 Found within a minute of `kernel tasks` existing, which is the argument for

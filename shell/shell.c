@@ -1372,6 +1372,7 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
          * reaped and DEAD when it has not, and that is the whole difference. */
         static const char *const state_name[] = {"free", "ready", "running", "blocked", "dead"};
         unsigned used = 0, dead = 0;
+        bool any_current = false;
         printf("kernel tasks:\n");
         for (int i = 0; i < REFLEX_SCHED_MAX_TASKS; i++) {
             reflex_sched_slot_t sl;
@@ -1379,6 +1380,7 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
             if (sl.state == REFLEX_TASK_STATE_FREE) continue;
             used++;
             if (sl.state == REFLEX_TASK_STATE_DEAD) dead++;
+            if (sl.is_current) any_current = true;
             printf("  %2d %-8s %-14s prio=%-3d stack=%-5lu%s%s%s\n", i,
                    (sl.state < 5) ? state_name[sl.state] : "?", sl.name ? sl.name : "(unnamed)",
                    sl.priority, (unsigned long)sl.stack_size, sl.has_stack ? " alloc" : " -",
@@ -1390,10 +1392,23 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
         printf("kernel tasks: %u of %d in use, %u dead (unreclaimed)\n", used,
                REFLEX_SCHED_MAX_TASKS, dead);
         if (used == 0) {
-            /* An empty table is the normal reading on a build where FreeRTOS is
-             * still the task backend, and would otherwise look like a fault. */
+            /* An empty table would otherwise read as a fault. With the Reflex
+             * backend off there are no Reflex tasks by construction, which is
+             * the only way this is reached in practice — with it on, tasks are
+             * filed as they are created, long before a shell exists to ask. */
             printf("kernel tasks: (empty — CONFIG_REFLEX_TASK_BACKEND_REFLEX is off, "
                    "so tasks are FreeRTOS's)\n");
+        } else if (!any_current) {
+            /* Slots filed and nothing running them.
+             *
+             * This is the failure the Kconfig help describes for the Reflex
+             * task backend without anything to start the scheduler:
+             * reflex_task_create files a TCB and no task ever executes. It was
+             * invisible — the board boots, the shell answers, and every service
+             * is simply dead. Verified on that configuration, which reports
+             * seven filed slots and no current one. */
+            printf("kernel tasks: no slot is current — the Reflex scheduler is not running, "
+                   "so none of these execute\n");
         }
         outcome(SHELL_OK);
         return;
