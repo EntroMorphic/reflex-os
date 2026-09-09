@@ -1187,6 +1187,27 @@ rejection is common to both and is not something Reflex ownership caused. It is
 the next thing to look at, and it is a mesh-protocol question rather than an
 interrupt one.
 
+**Soaked, and controlled by absence.** Three minutes of continuous uptime on
+the own-entry build with the radio's line live: heap flat at 291064 free
+(min_free 289012), the shell responsive throughout, the radio transmitting
+(`tx` 1 -> 28). No leak from servicing a foreign driver's interrupt out of
+Reflex's trap handler.
+
+That run also produced a control nobody planned. The peer had been restored to
+the Wi-Fi build, so there was no 802.15.4 traffic — and `version_mismatch`
+stayed at **0** for all three minutes, where it had gone 1 -> 7 in fifty seconds
+with the peer present. Frames arriving only when a peer is transmitting is what
+rules out stray traffic from something else on the band, and it is a better
+control than the two-board experiment that the bench refused to run.
+
+**Two things this does not promise.** The raw CPU line is the correct index into
+ESP-IDF's handler table only because the C6 is a PLIC part —
+`RV_EXTERNAL_INT_OFFSET` is 0 for PLIC and 16 for CLIC, so the same code on a
+CLIC target would read the wrong slot and call the wrong driver, silently. And
+these are ESP-IDF drivers: some use FreeRTOS primitives from ISR context, and
+under `REFLEX_OWN_ENTRY` that scheduler was never started. The 802.15.4 MAC
+survives it, measured. That is one driver, not a guarantee about the rest.
+
 **On the control test itself.** It was run and it cost more than it should
 have. The bench will not hold two USB-serial-JTAG connections at once — opening
 the second reliably drops the first — and opening a port resets the board it is

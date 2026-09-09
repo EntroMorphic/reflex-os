@@ -578,7 +578,21 @@ bool __attribute__((section(".iram1"))) reflex_hal_intr_dispatch_foreign(int cpu
     /* Declared locally rather than by including riscv/interrupt.h, which would
      * add an ESP-IDF header to this file for two symbols and move the
      * independence count in the wrong direction. The same reason
-     * intr_handler_set is declared inline above. */
+     * intr_handler_set is declared inline above.
+     *
+     * The raw line number is the right index here only because the C6 is a PLIC
+     * target. ESP-IDF's own dispatcher looks up `mcause - RV_EXTERNAL_INT_OFFSET`,
+     * and that offset is 0 for PLIC (soc_caps.h: SOC_INT_PLIC_SUPPORTED) and 16
+     * for CLIC. On a CLIC part this would read the wrong slot and call the wrong
+     * driver's handler, silently. This file is C6-only, so it is correct — but
+     * it is correct for a reason worth stating before anyone copies it.
+     *
+     * What this does not promise: that the handler it calls is happy to run.
+     * These are ESP-IDF drivers, and some of them use FreeRTOS primitives from
+     * ISR context. Under REFLEX_OWN_ENTRY that scheduler was never started.
+     * The 802.15.4 MAC survives it — three minutes of continuous receive with a
+     * flat heap — but that is one driver measured, not a guarantee about the
+     * rest. */
     typedef void (*reflex_foreign_isr_t)(void *);
     extern reflex_foreign_isr_t intr_handler_get(int rv_int_num);
     extern void *intr_handler_get_arg(int rv_int_num);
