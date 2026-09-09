@@ -523,6 +523,7 @@ typedef struct {
      * boots and then fails every hardware check. */
     uint32_t prev_priority;
     uint32_t prev_type_bit;
+    uint32_t prev_mie_bit;
     bool taken;
 } reflex_intr_entry_t;
 
@@ -631,11 +632,37 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
     type &= ~(1U << cpu_int);
     REFLEX_REG(PLIC_MXINT_TYPE) = type;
 
-    /* Enable in mie CSR (bit 16+n for external interrupts on C6) */
+    /* Enable the line in the mie CSR — bit n, not bit 16+n.
+     *
+     * This said 16+n, which is the ESP32-C3 mapping, and on the C6 it set the
+     * bit belonging to a completely different line: for the scheduler tick on
+     * line 11 it enabled line 27, which is one of Wi-Fi's. The tick's own bit
+     * was never set by Reflex at all.
+     *
+     * It went unnoticed for as long as it did because it only matters when
+     * nobody else has already enabled the line. Measured across two builds
+     * that differ in nothing but the radio, with every PLIC register
+     * identical — enable, priority, threshold, type — and only one source
+     * routed to the line:
+     *
+     *   802.15.4 build: mie=0x0f000f24, bit 11 = 1  ->  998 Hz
+     *   Wi-Fi build:    mie=0x0f000726, bit 11 = 0  ->  0 Hz, source asserting
+     *                                                  in 1000 of 1000 samples
+     *
+     * In the first, ESP-IDF had already claimed line 11 for source 12 and set
+     * the bit; Reflex took the line over and inherited it. In the second
+     * nothing had claimed line 11, so the bit stayed clear and a correctly
+     * routed, PLIC-enabled, above-threshold interrupt was simply never
+     * delivered. The console survived the same bug the same way — ESP-IDF had
+     * already enabled line 10.
+     *
+     * The previous value is recorded rather than assumed clear, because the
+     * line may well be one ESP-IDF is using, and free restores it. */
     uint32_t mie;
-    __asm__ volatile ("csrr %0, mie" : "=r"(mie));
-    mie |= (1U << (16 + cpu_int));
-    __asm__ volatile ("csrw mie, %0" : : "r"(mie));
+    __asm__ volatile("csrr %0, mie" : "=r"(mie));
+    s_intr_table[cpu_int].prev_mie_bit = (mie >> cpu_int) & 1u;
+    mie |= (1U << cpu_int);
+    __asm__ volatile("csrw mie, %0" : : "r"(mie));
 
     /* Enable the CPU interrupt in PLIC last: this is the step that makes the
      * line deliverable, and everything it needs is now in place. */
@@ -707,6 +734,62 @@ void reflex_hal_intr_describe(int source, reflex_intr_route_t *out) {
  * mstatus is saved and restored rather than unconditionally re-enabled: called
  * from an ISR, MIE is already clear, and setting it would re-enable interrupts
  * part-way through a handler. */
+/* Dump the whole interrupt controller, not the three fields of one line.
+ *
+ * Every per-line field read back so far is identical between a build where the
+ * tick is delivered and one where it is not — same enable bit, same priority,
+ * same type, same threshold, same mstatus. When two configurations differ in
+ * behaviour and agree on every register you have looked at, the difference is
+ * in one you have not, and narrowing further by argument has already failed
+ * twice here. So this reads all of it and lets the diff say where to look. */
+/* Which peripheral sources the interrupt matrix currently points at a line.
+ *
+ * reflex_hal_intr_alloc scans Reflex's own bitmap only and tells ESP-IDF
+ * nothing, so ESP-IDF's allocator is free to hand the same CPU line to a
+ * driver of its own. Sharing is invisible from the line's own registers —
+ * enable, priority and type read the same either way — and it is the remaining
+ * explanation for a line that is configured identically to a working one and
+ * delivers nothing. This answers it by reading the matrix rather than
+ * reasoning about the allocator. */
+uint32_t reflex_hal_intr_sources_on_line(int cpu_int) {
+    uint32_t n = 0;
+    for (int s = 0; s <= INTMTX_SOURCE_MAX; s++) {
+        if (REFLEX_REG(INTMTX_BASE + 4 * s) == (uint32_t)cpu_int) n++;
+    }
+    return n;
+}
+
+uint32_t reflex_hal_intr_first_source_on_line(int cpu_int, int after) {
+    for (int s = after + 1; s <= INTMTX_SOURCE_MAX; s++) {
+        if (REFLEX_REG(INTMTX_BASE + 4 * s) == (uint32_t)cpu_int) return (uint32_t)s;
+    }
+    return 0xFFFFFFFFu;
+}
+
+void reflex_hal_intr_dump(uint32_t *enable, uint32_t *type, uint32_t *thresh, uint8_t *pri32,
+                          uint32_t *mie_raw) {
+    if (mie_raw) {
+        /* The whole mie CSR, not one bit of it.
+         *
+         * reflex_hal_intr_alloc sets bit `16 + cpu_int`, which is the C3-style
+         * mapping; ESP-IDF's PLIC path never touches mie for external
+         * interrupts, so that bit has never been shown to be the right one or
+         * to matter. If the mapping is instead one-to-one, then a line
+         * delivers only when its own bit is set — and the whole word is what
+         * distinguishes "Reflex set the wrong bit and got away with it on one
+         * line" from "mie is irrelevant here". */
+        __asm__ volatile("csrr %0, mie" : "=r"(*mie_raw));
+    }
+    if (enable) *enable = REFLEX_REG(PLIC_MXINT_ENABLE);
+    if (type) *type = REFLEX_REG(PLIC_MXINT_TYPE);
+    if (thresh) *thresh = REFLEX_REG(PLIC_MXINT_THRESH);
+    if (pri32) {
+        for (int i = 0; i < 32; i++) {
+            pri32[i] = (uint8_t)(REFLEX_REG(PLIC_MXINT_PRI(i)) & 0xFFu);
+        }
+    }
+}
+
 reflex_err_t reflex_hal_intr_set_enabled(reflex_intr_handle_t handle, bool enabled) {
     int cpu_int = (int)(uintptr_t)handle - 1;
     if (cpu_int < REFLEX_INTR_MIN || cpu_int > REFLEX_INTR_MAX) {
@@ -786,6 +869,16 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
         type &= ~(1U << cpu_int);
         type |= (s_intr_table[cpu_int].prev_type_bit << cpu_int);
         REFLEX_REG(PLIC_MXINT_TYPE) = type;
+        /* And put the mie bit back where it was. alloc sets it and free did not
+         * clear it — the same acquire-without-release asymmetry this file has
+         * now been through three times. Restored rather than cleared, because
+         * the line may be one ESP-IDF enabled before Reflex borrowed it, and
+         * clearing that would break its interrupt instead of ours. */
+        uint32_t mie_now;
+        __asm__ volatile("csrr %0, mie" : "=r"(mie_now));
+        mie_now &= ~(1U << cpu_int);
+        mie_now |= (s_intr_table[cpu_int].prev_mie_bit << cpu_int);
+        __asm__ volatile("csrw mie, %0" : : "r"(mie_now));
         extern void intr_handler_set(int n, void (*fn)(void), void *arg);
         intr_handler_set(cpu_int, NULL, NULL);
         s_intr_table[cpu_int].taken = false;
@@ -919,7 +1012,22 @@ static volatile uint32_t s_usj_isr_count;
 static volatile uint32_t s_usj_isr_bytes;
 static reflex_intr_handle_t s_usj_intr;
 
+static volatile uint32_t s_usj_isr_entries;
+
+uint32_t reflex_hal_console_isr_entries(void) {
+    return s_usj_isr_entries;
+}
+
 static void usj_rx_isr(void *arg) {
+    /* Counts entries, not bytes.
+     *
+     * The console and the scheduler tick are allocated through the same
+     * function and differ only in which CPU line they land on, so the console
+     * is the control for "does a Reflex interrupt get delivered in this build
+     * at all". It is only a valid control if it is genuinely interrupt-driven
+     * here rather than falling back to polling, and a shell that answers
+     * keystrokes cannot tell those apart. This can. */
+    s_usj_isr_entries++;
     (void)arg;
     s_usj_isr_count++;
 

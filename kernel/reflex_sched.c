@@ -321,13 +321,47 @@ void reflex_sched_tick_stop(void) {
 }
 #endif /* !REFLEX_HOST_BUILD */
 
-void reflex_sched_tick_debug_conf(uint32_t *conf, uint32_t *target1_conf) {
+void reflex_sched_tick_debug_conf(uint32_t *conf, uint32_t *target1_conf, uint32_t *int_clr) {
 #ifndef REFLEX_HOST_BUILD
     if (conf) *conf = REFLEX_REG(SYSTIMER_CONF);
     if (target1_conf) *target1_conf = REFLEX_REG(SYSTIMER_TARGET1_CONF);
+    /* What a read of the write-only INT_CLR returns.
+     *
+     * Not curiosity: ESP-IDF's systimer_ll_clear_alarm_int is
+     * `dev->int_clr.val |= 1 << alarm_id`, a read-modify-write of a write-only
+     * write-1-to-clear register. If that read returns the pending status rather
+     * than zero, then every esp_timer interrupt writes back — and so clears —
+     * whatever else was pending, Reflex's TARGET1 included. That would explain a
+     * tick whose comparator matches and reloads correctly while its status bit
+     * reads clear and no tick is ever counted. If it returns zero, the theory is
+     * dead and this says so. */
+    if (int_clr) *int_clr = REFLEX_REG(SYSTIMER_INT_CLR);
 #else
     if (conf) *conf = 0;
     if (target1_conf) *target1_conf = 0;
+    if (int_clr) *int_clr = 0;
+#endif
+}
+
+uint32_t reflex_sched_tick_debug_sample_raw(uint32_t samples) {
+#ifndef REFLEX_HOST_BUILD
+    /* How often TARGET1's raw status is actually found set.
+     *
+     * A comparator matching at 1 kHz sets this bit every millisecond, and only
+     * an acknowledgement clears it. So with no tick being counted, a bit that
+     * reads set in nearly every sample means nobody is acknowledging it —
+     * the interrupt is not reaching a handler. A bit that reads clear in nearly
+     * every sample means somebody else is acknowledging it, which is a wholly
+     * different fault with a wholly different suspect. One sample cannot tell
+     * those apart; that is why this counts. */
+    uint32_t set = 0;
+    for (uint32_t i = 0; i < samples; i++) {
+        if (REFLEX_REG(SYSTIMER_INT_RAW) & (1u << 1)) set++;
+    }
+    return set;
+#else
+    (void)samples;
+    return 0;
 #endif
 }
 

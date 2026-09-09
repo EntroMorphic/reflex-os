@@ -189,7 +189,13 @@ void reflex_sched_tick_debug(uint32_t *ena, uint32_t *raw, uint32_t *st);
  * exactly one tick and then stops is invisible in @ref reflex_sched_tick_debug
  * and visible here — and what it showed is that the comparator is not the
  * cause: a working arm and a failing one read identically. */
-void reflex_sched_tick_debug_conf(uint32_t *conf, uint32_t *target1_conf);
+void reflex_sched_tick_debug_conf(uint32_t *conf, uint32_t *target1_conf, uint32_t *int_clr);
+
+/** @brief Count how many of @p samples find TARGET1's raw status set.
+ *
+ * Distinguishes "nobody is acknowledging the interrupt" from "somebody else
+ * is", which a single sample cannot do and which have different suspects. */
+uint32_t reflex_sched_tick_debug_sample_raw(uint32_t samples);
 
 /** @brief Read the comparator's live alarm target against the live counter.
  *

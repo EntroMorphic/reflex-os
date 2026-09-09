@@ -119,6 +119,22 @@ void reflex_hal_wdt_disable_timg(void);
  * recognise and an unacknowledged level-triggered line stops the core. */
 uint32_t reflex_hal_intr_quiesce_except(uint32_t keep_mask);
 void reflex_hal_intr_restore(uint32_t mask);
+/** @brief Read the whole interrupt controller: enable mask, type mask,
+ *  threshold, and all 32 line priorities. For comparing a configuration where
+ *  an interrupt is delivered against one where it is not. */
+void reflex_hal_intr_dump(uint32_t *enable, uint32_t *type, uint32_t *thresh, uint8_t *pri32,
+                          uint32_t *mie_raw);
+
+/** @brief How many peripheral sources the matrix currently routes to @p cpu_int.
+ *  More than one means the line is shared, which no per-line register reveals. */
+uint32_t reflex_hal_intr_sources_on_line(int cpu_int);
+/** @brief Next source number after @p after routed to @p cpu_int, or 0xFFFFFFFF. */
+uint32_t reflex_hal_intr_first_source_on_line(int cpu_int, int after);
+
+/** @brief Number of times the console receive ISR has been entered.
+ *  The control for whether Reflex-allocated interrupts are delivered at all in
+ *  a given build, which a responsive shell alone does not establish. */
+uint32_t reflex_hal_console_isr_entries(void);
 /** @brief Fill @p buf with hardware entropy. Used for the per-board Aura key
  *  and for arc nonces, so it must be a real RNG rather than a PRNG seeded at
  *  a predictable point in boot. */

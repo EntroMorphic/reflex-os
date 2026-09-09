@@ -938,31 +938,83 @@ The general shape, for the third time in this work: a release that did not undo
 its acquire. This one differed only in being invisible until the register that
 held the evidence was found and read.
 
-### What that leaves at the entry point: delivery, not the source
+### The delivery failure: one wrong bit in the mie CSR
 
-Re-measured after the fix, and the entry path still falls back — but the failure
-is now isolated rather than ambiguous. The same is true of the default build,
-where `kernel tick` still reports 0 Hz while the comparator reads healthy:
+With the comparator fixed, the source was exonerated everywhere and what
+remained was that a matching, correctly routed, PLIC-enabled interrupt was not
+delivered. Five hypotheses were killed by measurement before the right one, and
+each is worth naming because each looked sufficient:
+
+- **Interrupts masked pending FreeRTOS.** `global_ie=1`. Dead.
+- **The SYSTIMER counter unit not yet running.** `int_raw`/`int_st` bit 1 set,
+  the comparator matching. Dead.
+- **ESP-IDF eating the status bit.** `systimer_ll_clear_alarm_int` is
+  `int_clr.val |= 1 << id`, a read-modify-write of a write-only register, which
+  would clear every other pending alarm if the read returned status. Measured:
+  `int_clr` reads `0x00000000`. Dead.
+- **Priority below an effective threshold.** Forced to the maximum, 7. Still
+  0 Hz. Dead.
+- **The line shared with an ESP-IDF driver.** The matrix was scanned: exactly
+  one source routed to it. Dead.
+
+The control that made the answer findable was the console. It is allocated
+through the same `reflex_hal_intr_alloc`, differs only in landing on line 10,
+and a shell that answers keystrokes does not prove its interrupt is delivered —
+it could be polling. Counting ISR entries proved it: **2 entries in both
+builds**, so Reflex interrupts *are* delivered in the failing build, and the
+fault was specific to one line.
+
+`reflex_hal_intr_alloc` enabled the line in the `mie` CSR at bit `16 + n`. That
+is the ESP32-C3 mapping. On the C6 the bit is `n`, so for the tick on line 11 it
+was enabling **line 27 — one of Wi-Fi's** — and never line 11 at all. Two builds
+differing in nothing but the radio, with every PLIC register identical:
 
 ```
-kernel tick: 0 ticks in 499785 us -> 0 Hz (target 1000)
-  console: src=48 -> cpu_int=10
-  intmtx:  src=58 -> cpu_int=11
-  target:  unit_now=51156476 real_target=51158975 delta=+2499
+802.15.4 build: mie=0x0f000f24, bit 11 = 1  ->  998 Hz
+Wi-Fi build:    mie=0x0f000726, bit 11 = 0  ->  0 Hz, source asserting 1000/1000
 ```
 
-The alarm is ahead of the counter and `REAL_TARGET1` advances between runs, so
-the comparator is arming and matching correctly on the default build too. The
-source is exonerated on both. What remains in both is that a matching,
-correctly-routed, PLIC-enabled interrupt is **not delivered to the core** —
-`int_raw`/`int_st` stay set at the entry point, meaning nothing ever
-acknowledged them.
+In the 802.15.4 build ESP-IDF had already claimed line 11 for source 12 — the
+sharing scan shows both — and set the bit; Reflex took the line over and
+inherited it. In the Wi-Fi build nothing had claimed line 11, and the bug was
+naked. The console had been surviving the same way, on a line ESP-IDF enabled
+first. So the note that "CPU interrupt 10 is verified safe on C6, empirical and
+load-bearing" was true and for the wrong reason: what made it safe was not the
+line, it was that somebody else had already enabled it.
 
-Line collision is not a sufficient explanation: at the entry point the tick
-lands on `cpu_int=10` and on the default build it lands on 11 with the console
-on 10, and both fail. Wi-Fi remains the untested suspect for the default build,
-but it cannot explain the entry point, which is the blob-free 802.15.4
-configuration. Open, and now a narrower question than it was.
+Fixed to `1U << cpu_int`, with the previous bit recorded and restored by
+`reflex_hal_intr_free` — which had not touched `mie` at all, the same
+acquire-without-release asymmetry this file has now been through three times.
+
+**The default build ticks for the first time: 998, 1000, 1000 Hz**, where it had
+measured 0/5 for as long as there is a record of it.
+
+### Reflex keeps the machine
+
+With that fixed, `REFLEX_OWN_ENTRY` on the independence configuration no longer
+falls back. The tick passes its own check, the hand-off runs, `mtvec` is taken,
+and `app_main` runs on the Reflex scheduler:
+
+```
+I (reflex.entry) Reflex owns the entry point; FreeRTOS was not started
+I (reflex.entry) quiesced PLIC 0x0a000424 -> 0x00000400, tick on cpu_int=10
+I (reflex.boot) reflex-os boot
+...
+I (reflex.radio.154) 802.15.4 radio: ch=15 panid=0x4f52 addr=0xc7d4
+I (reflex.boot) atmospheric mesh: 802.15.4 (blob-free)
+```
+
+`main_task: Started on CPU0` is absent, which is FreeRTOS's line: it was never
+started. The whole substrate comes up on Reflex's own scheduler — event bus,
+ternary fabric, the atlas, the service manager, LED, button, temperature, the
+VM, and the blob-free radio.
+
+Boot then stops after the radio, before the shell, and the console does not
+answer. That is the boundary this file predicted from the beginning: ESP-IDF's
+console VFS, `esp_timer` and newlib's reentrancy all expect a running FreeRTOS
+underneath. It is now a reached boundary rather than a forecast one, and it is
+the next piece of work. `REFLEX_OWN_ENTRY` stays off by default until the shell
+survives it.
 
 **The board that came back was not fully working, and the cause was not what
 was guessed.** That build booted and answered, then failed the hardware suite

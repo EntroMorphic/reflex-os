@@ -1217,8 +1217,29 @@ static void shell_cmd_kernel_tick(void) {
     reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &route);
     uint32_t st_ena = 0, st_raw = 0, st_st = 0;
     reflex_sched_tick_debug(&st_ena, &st_raw, &st_st);
-    uint32_t st_conf = 0, st_t1conf = 0;
-    reflex_sched_tick_debug_conf(&st_conf, &st_t1conf);
+    uint32_t st_conf = 0, st_t1conf = 0, st_intclr = 0;
+    reflex_sched_tick_debug_conf(&st_conf, &st_t1conf, &st_intclr);
+    /* Sampled while the tick is still live, before tick_stop below. */
+    uint32_t raw_set = reflex_sched_tick_debug_sample_raw(1000);
+    /* Captured live for the same reason, and it was got wrong once: taken after
+     * reflex_sched_tick_stop(), this dump described the teardown — the line
+     * freed and its previous priority restored — rather than the failure. */
+    uint32_t plic_en = 0, plic_type = 0, plic_thr = 0;
+    uint8_t plic_pri[32];
+    uint32_t mie_raw = 0;
+    reflex_hal_intr_dump(&plic_en, &plic_type, &plic_thr, plic_pri, &mie_raw);
+    uint32_t share_n = reflex_hal_intr_sources_on_line((int)route.cpu_int);
+    uint32_t share_s[6];
+    uint32_t share_cnt = 0;
+    {
+        int prev = -1;
+        while (share_cnt < 6) {
+            uint32_t nxt = reflex_hal_intr_first_source_on_line((int)route.cpu_int, prev);
+            if (nxt == 0xFFFFFFFFu) break;
+            share_s[share_cnt++] = nxt;
+            prev = (int)nxt;
+        }
+    }
     uint64_t unit_now = 0, real_target = 0, t1_target = 0;
     reflex_sched_tick_debug_target(&unit_now, &real_target, &t1_target);
 
@@ -1288,6 +1309,29 @@ static void shell_cmd_kernel_tick(void) {
          * and the match it is waiting for has already gone past. Everything
          * else about a working arm and a failing one reads identically, so if
          * they differ at all they differ here. */
+        printf("  mie raw:    0x%08lx  (bit %lu=%lu, bit %lu=%lu)\n", (unsigned long)mie_raw,
+               (unsigned long)route.cpu_int, (unsigned long)((mie_raw >> route.cpu_int) & 1u),
+               (unsigned long)(16 + route.cpu_int),
+               (unsigned long)((mie_raw >> (16 + route.cpu_int)) & 1u));
+        printf("  sharing:    %lu sources routed to cpu_int=%lu:", (unsigned long)share_n,
+               (unsigned long)route.cpu_int);
+        for (uint32_t i = 0; i < share_cnt; i++) {
+            printf(" %lu", (unsigned long)share_s[i]);
+        }
+        printf("\n");
+        printf("  control:    console ISR entries=%lu (line 10, same allocator)\n",
+               (unsigned long)reflex_hal_console_isr_entries());
+        printf("  ack:        raw set in %lu/1000 samples, int_clr reads 0x%08lx\n",
+               (unsigned long)raw_set, (unsigned long)st_intclr);
+        {
+            printf("  plic all:   enable=0x%08lx type=0x%08lx thresh=%lu\n", (unsigned long)plic_en,
+                   (unsigned long)plic_type, (unsigned long)plic_thr);
+            printf("  plic pri:  ");
+            for (int i = 0; i < 32; i++) {
+                printf(" %u", (unsigned)plic_pri[i]);
+            }
+            printf("\n");
+        }
         printf("  target:     unit_now=%llu real_target=%llu delta=%lld t1_target=%llu\n",
                (unsigned long long)unit_now, (unsigned long long)real_target,
                (long long)((int64_t)real_target - (int64_t)unit_now),
