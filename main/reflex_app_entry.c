@@ -123,6 +123,12 @@ void __wrap_esp_startup_start_app(void) {
 #else
     REFLEX_LOGI(TAG, "Reflex owns the entry point; FreeRTOS was not started");
 
+    /* Declared up here, not at the point of use, so that every goto below lands
+     * on defined values. The recovery path reads all three. */
+    uint32_t saved_mask = 0;
+    uint32_t prior_mtvec = 0;
+    uint32_t prior_mscratch = 0;
+
     reflex_err_t rc = reflex_sched_init();
     if (rc != REFLEX_OK) {
         REFLEX_LOGE(TAG, "scheduler init failed rc=0x%x", rc);
@@ -178,15 +184,27 @@ void __wrap_esp_startup_start_app(void) {
      * had never cost anything: the fallback was taken every time, so the code
      * below had never run on hardware.
      *
-     * Nothing here needs undoing on the fallback path, because all of it
-     * happens after the tick check has already passed. That ordering is
-     * deliberate — it keeps the hand-back a hand-back. */
+     * The first tick check runs before any of this, so `fallback` has nothing
+     * to undo. That was once the whole story and is not any more: there is a
+     * second tick check below, after the vector is taken, and its failure path
+     * does have to undo all of it. That is `handback`. */
     reflex_intr_route_t tick;
     reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &tick);
 
-    /* Tell the handler which line is the tick. Without this it recognises
-     * nothing, acknowledges nothing, and the core stops on the first
-     * interrupt it takes — the single most consequential omission here. */
+    /* Tell the handler which line is the tick.
+     *
+     * This was described here as the single most consequential omission of the
+     * hand-off, on the grounds that without it the handler recognises nothing,
+     * acknowledges nothing, and the core stops on the first interrupt it takes.
+     * That was true when the handler serviced the tick and nothing else. It is
+     * no longer: the handler now falls through to the HAL's own dispatch table,
+     * where the tick's ISR is registered like any other, so the tick is
+     * serviced whether or not this line is right.
+     *
+     * Measured, not reasoned: setting this to a line the tick never arrives on
+     * still gives "tick survives mtvec: 50 ticks in 50ms". Kept as a fast path
+     * that skips the table lookup for the one interrupt that runs at 1 kHz, and
+     * described as what it now is rather than what it used to be. */
     reflex_trap_set_tick_line((int)tick.cpu_int);
 
     /* Take back the stack watchpoint, which ESP-IDF armed with the bounds of
@@ -197,7 +215,7 @@ void __wrap_esp_startup_start_app(void) {
     /* Silence every line but the tick. Reflex's handler deliberately does not
      * acknowledge a line it does not recognise, so any ESP-IDF interrupt left
      * enabled asserts, is never cleared, and the machine stops. */
-    uint32_t saved_mask = reflex_hal_intr_quiesce_except(1u << tick.cpu_int);
+    saved_mask = reflex_hal_intr_quiesce_except(1u << tick.cpu_int);
     REFLEX_LOGI(TAG, "quiesced PLIC 0x%08x -> 0x%08x, tick on cpu_int=%u", (unsigned)saved_mask,
                 (unsigned)(1u << tick.cpu_int), (unsigned)tick.cpu_int);
 
@@ -206,6 +224,10 @@ void __wrap_esp_startup_start_app(void) {
      * has started perfectly well. */
     reflex_hal_wdt_disable_timg();
 
+    /* Write down what is being replaced, so that taking the vector is a step
+     * that can be walked back. Everything after this is recoverable only
+     * because of these two words. */
+    reflex_trap_snapshot(&prior_mtvec, &prior_mscratch);
     reflex_trap_install();
 
     /* Verify the tick a second time, now that Reflex's handler is the one
@@ -231,14 +253,14 @@ void __wrap_esp_startup_start_app(void) {
                     "unclaimed=0x%08x",
                     (unsigned)(t2 - t1), reflex_trap_get_tick_line(),
                     (unsigned)reflex_hal_intr_unclaimed_lines());
-        goto stall;
+        goto handback;
     }
     REFLEX_LOGI(TAG, "tick survives mtvec: %u ticks in 50ms", (unsigned)(t2 - t1));
 
     rc = reflex_sched_create_task(reflex_main_task, "main", 8192, NULL, 10, NULL);
     if (rc != REFLEX_OK) {
         REFLEX_LOGE(TAG, "main task creation failed rc=0x%x", rc);
-        goto stall;
+        goto handback;
     }
 
     rc = reflex_sched_start();
@@ -265,10 +287,43 @@ fallback:
     __real_esp_startup_start_app();
     return;
 
+handback:
+    /* Undo the hand-off and give the machine back, rather than stalling on it.
+     *
+     * Reached from the failures that happen *after* the vector is taken, which
+     * used to stall — a wfi loop that needs a reflash to leave. That is the
+     * same shape as the sleep watchdog earlier in this work: a safety mechanism
+     * whose own failure mode was the thing it existed to prevent. Every step of
+     * the hand-off is reversible, so there is no reason for it.
+     *
+     * Reverse order of the hand-off. The vector goes back first, because until
+     * it does, an interrupt arriving during the rest of this is dispatched by
+     * Reflex's handler against a machine being dismantled. Then the interrupt
+     * mask, then the tick.
+     *
+     * Two things are deliberately not restored. The stack watchpoint is
+     * re-armed by FreeRTOS on its next context switch, which is what made it
+     * necessary to disable it here in the first place. The timer-group
+     * watchdogs stay disabled: an un-fed watchdog that resets the board is
+     * worse than no watchdog on a boot that is already reporting a fault, and
+     * FreeRTOS will re-enable them if it is configured to. */
+    reflex_trap_restore(prior_mtvec, prior_mscratch);
+    reflex_hal_intr_restore(saved_mask);
+    reflex_sched_tick_stop();
+    REFLEX_LOGW(TAG, "handing the machine back to FreeRTOS after the vector was taken");
+    __real_esp_startup_start_app();
+    return;
+
 stall:
-    /* Nothing above this point can hand back to ESP-IDF: its startup expects
-     * this function never to return. Stalling is honest; returning would run
-     * off the end of a call that has no caller. */
+    /* Only for a scheduler that returned, and that one really cannot hand back.
+     *
+     * By this point tasks have run on their own stacks, so `sp` and the saved
+     * contexts are no longer anything ESP-IDF's startup would recognise;
+     * calling into it from here would be a guess. Everything reachable before
+     * the scheduler starts goes to `handback` instead.
+     *
+     * Stalling rather than returning, because esp_startup_start_app has no
+     * caller to return to. */
     for (;;) {
         __asm__ volatile("wfi");
     }

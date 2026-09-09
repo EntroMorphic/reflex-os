@@ -1,0 +1,35 @@
+# Reflex owns the application entry point.
+#
+# The independence configuration, plus the one option that has to travel with
+# REFLEX_OWN_ENTRY: the Reflex task backend. Both are required — the wrapper
+# refuses to compile without either — and they are independent in Kconfig, so
+# nothing else pairs them.
+#
+# This file exists because the configuration behind the entry-point result had
+# no recipe. It was assembled by hand into a scratch file outside the repo, so
+# the one build that demonstrates Reflex keeping the machine was the one build
+# nobody else could reproduce. That is the same gap sdkconfig.defaults.independence
+# was written to close, repeated one layer up.
+#
+# Build it with `make own-entry-build`, which supplies -DREFLEX_OWN_ENTRY=1.
+
+CONFIG_IDF_TARGET="esp32c6"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+CONFIG_ULP_COPROC_ENABLED=y
+CONFIG_ULP_COPROC_TYPE_LP_CORE=y
+CONFIG_ULP_COPROC_RESERVE_MEM=2048
+
+CONFIG_REFLEX_KERNEL_SCHEDULER=y
+CONFIG_REFLEX_RADIO_802154=y
+
+# reflex_task_create files a TCB into the Reflex scheduler instead of calling
+# xTaskCreate. Without it, app_main runs on Reflex's scheduler while creating
+# its tasks on a FreeRTOS that was never started: not a link error, not a
+# crash, just a boot that stops partway with no explanation.
+CONFIG_REFLEX_TASK_BACKEND_REFLEX=y

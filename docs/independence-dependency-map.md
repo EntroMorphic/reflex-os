@@ -1098,6 +1098,58 @@ independent in Kconfig and nothing else paired them, so the wrong combination
 produced a boot that stopped partway with no explanation rather than an error.
 Checked in both directions: refused without, builds with.
 
+### The second check strands nothing: taking mtvec is reversible
+
+The post-install tick check landed with a failure path that stalled — a `wfi`
+loop needing a reflash to leave — while the pre-install check hands back and
+keeps a working board. That asymmetry is the same shape as the sleep watchdog
+earlier in this work: a safety mechanism whose own failure mode is the thing it
+existed to prevent.
+
+Nothing justified it. Every step of the hand-off is reversible, and the only one
+that needs anything written down is the vector itself, so `reflex_trap_snapshot`
+captures `mtvec` and `mscratch` before `reflex_trap_install` and
+`reflex_trap_restore` puts them back — `mscratch` first, because once `mtvec`
+points at ESP-IDF's table again the next interrupt is handled by ESP-IDF's entry
+against whatever `mscratch` holds. Then the interrupt mask, then the tick, then
+`__real_esp_startup_start_app`.
+
+Two things are deliberately not restored, and are named so their absence reads
+as a decision: the stack watchpoint, which FreeRTOS re-arms on its next context
+switch — that is why disabling it was necessary in the first place — and the
+timer-group watchdogs, because an un-fed watchdog resetting a board that is
+already reporting a fault is worse than no watchdog.
+
+**Proved by mutation rather than asserted.** Masking the tick's own line
+immediately after the install gives:
+
+```
+E (reflex.entry) tick stopped when Reflex took mtvec (0 over 50ms): tick_line=10 unclaimed=0x00000400
+W (reflex.entry) handing the machine back to FreeRTOS after the vector was taken
+I (607) main_task: Started on CPU0
+```
+
+The check fires, the diagnostic names the cause — `unclaimed=0x00000400` is the
+masked line — and FreeRTOS starts and boots. `stall` now covers only a scheduler
+that returned, where tasks have run on their own stacks and handing back would
+be a guess.
+
+The same mutation retired a claim. `reflex_trap_set_tick_line` was described
+here as the most consequential step of the hand-off, because without it the trap
+handler recognised nothing. That stopped being true when the handler gained the
+HAL's dispatch table: pointing it at a line the tick never arrives on still
+measures 50 ticks in 50 ms, because the tick's ISR is registered like any other.
+It is a fast path now, and is described as one.
+
+### The configuration had no recipe
+
+The build behind all of this was assembled by hand into a file outside the
+repository, so the one configuration that demonstrates Reflex keeping the
+machine was the one configuration nobody else could reproduce — and it did not
+survive a restart. `sdkconfig.defaults.own_entry` and `make own-entry-build`
+close that, exactly as `sdkconfig.defaults.independence` closed it one layer
+down.
+
 ### The remaining blocker: timed waits never wake
 
 Narrowed to one sentence, with everything around it eliminated. `app_main`

@@ -215,6 +215,17 @@ void reflex_sched_tick_debug_target(uint64_t *unit_now, uint64_t *real_target, u
  * tick and leaves that peripheral asserted forever.
  */
 void reflex_trap_install(void);
+
+/** @brief Capture `mtvec` and `mscratch` before @ref reflex_trap_install.
+ *
+ * Taking the trap vector is the one step of the hand-off that cannot be undone
+ * without knowing what was there before. Capturing it is what lets a failure
+ * after the install hand the machine back instead of stranding it. */
+void reflex_trap_snapshot(uint32_t *mtvec_out, uint32_t *mscratch_out);
+
+/** @brief Put `mtvec` and `mscratch` back as @ref reflex_trap_snapshot found
+ *  them, returning trap handling to whoever owned it before. */
+void reflex_trap_restore(uint32_t mtvec_val, uint32_t mscratch_val);
 void reflex_trap_set_tick_line(int cpu_int);
 int reflex_trap_get_tick_line(void);
 void reflex_sched_tick(void);

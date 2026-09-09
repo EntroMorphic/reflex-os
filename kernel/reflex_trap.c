@@ -136,6 +136,32 @@ void reflex_trap_install(void) {
                      : "t0");
 }
 
+/* Capture and restore the trap CSRs, so taking mtvec is a reversible step.
+ *
+ * Without these, any failure detected after reflex_trap_install has nowhere to
+ * go: ESP-IDF's vector is gone and its address was never written down, so the
+ * only honest response is to stall, and a stalled board needs a reflash. That
+ * is the same shape as the sleep watchdog that stranded a board earlier in this
+ * work — a safety mechanism whose failure mode is the thing it existed to
+ * prevent. With the prior values in hand, a post-install check can hand the
+ * machine back and keep a board that boots. */
+void reflex_trap_snapshot(uint32_t *mtvec_out, uint32_t *mscratch_out) {
+    uint32_t mtvec_val, mscratch_val;
+    __asm__ volatile("csrr %0, mtvec" : "=r"(mtvec_val));
+    __asm__ volatile("csrr %0, mscratch" : "=r"(mscratch_val));
+    if (mtvec_out) *mtvec_out = mtvec_val;
+    if (mscratch_out) *mscratch_out = mscratch_val;
+}
+
+void reflex_trap_restore(uint32_t mtvec_val, uint32_t mscratch_val) {
+    /* mscratch first. mtvec is the switch: once it points back at ESP-IDF's
+     * table, the next interrupt is handled by ESP-IDF's entry, which expects
+     * its own mscratch. Restoring them the other way round leaves a window
+     * where ESP-IDF's handler runs against Reflex's trap stack. */
+    __asm__ volatile("csrw mscratch, %0" : : "r"(mscratch_val));
+    __asm__ volatile("csrw mtvec, %0" : : "r"(mtvec_val));
+}
+
 void reflex_trap_set_tick_line(int cpu_int) {
     s_tick_cpu_int = cpu_int;
 }

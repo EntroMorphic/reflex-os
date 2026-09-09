@@ -7,6 +7,7 @@ RELEASE_DIR := release/$(RELEASE_NAME)
 
 .PHONY: build flash release clean test tasm-test loomc-test tools-test hw-test doc-links \
         format format-check format-diff warn-check lock-check independence independence-check tick-measure ci-lint soc-header soc-bridge \
+        own-entry-build \
         soc-check rom-check idf-build verify config-reset docs atlas
 
 build:
@@ -65,6 +66,19 @@ independence-build:
 	. $$IDF_PATH/export.sh >/dev/null 2>&1; \
 	SDKCONFIG_DEFAULTS=sdkconfig.defaults.independence \
 	  idf.py -B build_independence -DSDKCONFIG=build_independence/sdkconfig build
+
+# Reflex owning the application entry point: the independence configuration plus
+# the Reflex task backend, with the wrapper enabled. Off by default and behind a
+# recipe for the same reason independence-build exists — the configuration that
+# demonstrates the result should not live in someone's shell history.
+#
+# The shell does not survive this build: it boots the whole substrate on Reflex's
+# own scheduler and stops at the self-checks. See docs/independence-dependency-map.md.
+own-entry-build:
+	. $$IDF_PATH/export.sh >/dev/null 2>&1; \
+	SDKCONFIG_DEFAULTS=sdkconfig.defaults.own_entry \
+	  idf.py -B build_own_entry -DSDKCONFIG=build_own_entry/sdkconfig \
+	  -DCMAKE_C_FLAGS=-DREFLEX_OWN_ENTRY=1 build
 
 # The independence checker decides what the tier numbers say, so its own
 # parser is tested — including against the C6 build's dependency output, which
