@@ -135,6 +135,25 @@ uint32_t reflex_hal_intr_first_source_on_line(int cpu_int, int after);
  *  The control for whether Reflex-allocated interrupts are delivered at all in
  *  a given build, which a responsive shell alone does not establish. */
 uint32_t reflex_hal_console_isr_entries(void);
+
+/** @brief Run the handler registered for CPU interrupt line @p cpu_int.
+ *
+ * For use by Reflex's own trap handler once it owns `mtvec`. Returns false if
+ * no handler is registered, so the caller can decide what to do with a line it
+ * does not own rather than acknowledging it blindly. */
+bool reflex_hal_intr_dispatch_line(int cpu_int);
+
+/** @brief Mask a CPU line that fired with no handler registered, and record it.
+ *  Turns an unacknowledged level-triggered interrupt — which locks the core —
+ *  into a degraded system that can still report what it lost. */
+void reflex_hal_intr_mask_unclaimed(int cpu_int);
+/** @brief Bitmask of lines masked by @ref reflex_hal_intr_mask_unclaimed. */
+uint32_t reflex_hal_intr_unclaimed_lines(void);
+
+/** @brief Write raw preformatted bytes to the console.
+ *  For fatal paths that must not allocate a large stack buffer, and must not
+ *  print to a UART this board does not use. */
+void reflex_hal_console_emit(const char *data, int len);
 /** @brief Fill @p buf with hardware entropy. Used for the per-board Aura key
  *  and for arc nonces, so it must be a real RNG rather than a PRNG seeded at
  *  a predictable point in boot. */

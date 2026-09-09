@@ -1,2 +1,0 @@
-/Users/aaronjosserand-austin/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/riscv32-esp-elf-ar qc libshell.a CMakeFiles/__idf_shell.dir/shell.c.obj CMakeFiles/__idf_shell.dir/shell_policy.c.obj CMakeFiles/__idf_shell.dir/shell_parse.c.obj CMakeFiles/__idf_shell.dir/shell_outcome.c.obj
-/Users/aaronjosserand-austin/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20241119/riscv32-esp-elf/bin/riscv32-esp-elf-ranlib libshell.a

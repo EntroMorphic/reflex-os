@@ -1009,12 +1009,92 @@ started. The whole substrate comes up on Reflex's own scheduler — event bus,
 ternary fabric, the atlas, the service manager, LED, button, temperature, the
 VM, and the blob-free radio.
 
-Boot then stops after the radio, before the shell, and the console does not
-answer. That is the boundary this file predicted from the beginning: ESP-IDF's
-console VFS, `esp_timer` and newlib's reentrancy all expect a running FreeRTOS
-underneath. It is now a reached boundary rather than a forecast one, and it is
-the next piece of work. `REFLEX_OWN_ENTRY` stays off by default until the shell
-survives it.
+Boot then stopped after the radio, before the shell. Working through that
+boundary is below.
+
+### Working through the boundary: four blockers, three removed
+
+The stall was not one thing. Each fix moved it further down `app_main`, which is
+what a surface of FreeRTOS assumptions looks like from the inside.
+
+**1. The task backend was still FreeRTOS.** `REFLEX_OWN_ENTRY` requires
+`CONFIG_REFLEX_KERNEL_SCHEDULER` and does not require
+`CONFIG_REFLEX_TASK_BACKEND_REFLEX`, so `app_main` was running on the Reflex
+scheduler and calling `xTaskCreate` on a FreeRTOS that had never been started.
+Selecting the Reflex backend is a build-configuration matter, not a code one,
+but nothing says so at build time — a gap left open below.
+
+**2. The queue pool was too small, and said so misleadingly.**
+`REFLEX_KQUEUE_MAX` was 8. `reflex_fabric_init` alone creates one inbox per node
+— `REFLEX_NODE_MAX`, which is 8 — after the event bus has already taken one. It
+failed with `REFLEX_ERR_NO_MEM`, which reads as "out of heap" on a board with
+350 KiB free; the pool and a failed `malloc` both return NULL. Raised to 16, the
+census written down beside it.
+
+**3. `main.c` abandoned the substrate in silence.** Two branches drop straight to
+a shell if the event bus or the fabric fails to initialise — no fabric, no loom,
+no services, no radio, no self-checks — and neither logged anything. The boot
+read as: event bus ready, then a prompt. Eight missing lines and no way to know
+which of four calls had failed. They name themselves now, which is how blocker 2
+was found at all, and the last four steps of boot have progress markers for the
+same reason.
+
+**4. Reflex's trap handler was not an interrupt dispatcher.** It serviced the
+scheduler tick and left every other line alone, deliberately, on the grounds
+that acknowledging an interrupt it did not understand would be worse. That was
+right while it only ran for the length of `kernel selftest`. Once Reflex owns
+the entry point it is the machine's only dispatcher, and "leave it alone" is not
+what it does to a level-triggered line: an unacknowledged one re-enters the
+instant the handler returns, forever. The choice was never *leave it alone*, it
+was *stop the machine*.
+
+That is what the hang was. ESP-IDF allocates interrupts of its own during boot —
+the radio, the LP timer — through its allocator, invisible to Reflex's table.
+The first one to fire after Reflex took `mtvec` locked the core: no output, no
+fault, and a stop point that moved depending on when it arrived, which is
+exactly what was observed.
+
+Two changes. Lines Reflex registered are now dispatched through the HAL's own
+handler table, and a line nobody claims is **masked at the controller and
+recorded** in `reflex_hal_intr_unclaimed_lines`, trading a dead machine for a
+degraded one that can say what it lost. With that, boot runs to the end: the
+self-checks execute and the event task cycles.
+
+### An instrument that could not fail, again
+
+Two probes were placed with `esp_rom_printf` and printed nothing, which read as
+"the code never got here". It was not. `esp_rom_printf` writes to UART0 and this
+board's console is USB-serial-JTAG, so the probes were landing on a wire nobody
+reads.
+
+The same bug was sitting in the trap handler's fatal path, and there it mattered
+much more: **every unhandled exception has been reporting itself to UART0**,
+where it cannot be seen. A fatal fault was indistinguishable from a hang, and
+that cost real time here. It now formats by hand into a small fixed buffer —
+still avoiding the 192-byte stack buffer the logging path uses, since the stack
+that faulted may be the one that overflowed — and writes through
+`reflex_hal_console_emit`, the console the board actually has.
+
+### Where it stands
+
+`REFLEX_OWN_ENTRY` with the Reflex task backend now boots the whole substrate on
+Reflex's own scheduler and runs to the end of the self-checks. **The shell still
+does not take input**, and the stall now sits at the tail of
+`reflex_vm_task_self_check` rather than at the radio. That is the next piece of
+work, and it is a smaller one than it was.
+
+Still open, and named so they are not rediscovered:
+
+- The shell's read path is Reflex's own USB-serial-JTAG receive interrupt, which
+  is allocated and registered, but no input arrives. Whether its line is being
+  masked as unclaimed before `reflex_hal_console_init` registers it has not been
+  measured — the diagnostic to answer it prints at shell start and the shell is
+  not being reached under `REFLEX_OWN_ENTRY`.
+- `REFLEX_OWN_ENTRY` does not require `CONFIG_REFLEX_TASK_BACKEND_REFLEX` and
+  should refuse to build without it, the way it already refuses without
+  `CONFIG_REFLEX_KERNEL_SCHEDULER`.
+
+`REFLEX_OWN_ENTRY` stays off by default until the shell survives it.
 
 **The board that came back was not fully working, and the cause was not what
 was guessed.** That build booted and answered, then failed the hardware suite

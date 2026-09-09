@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/esp-idf/goose/goose_ulp/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

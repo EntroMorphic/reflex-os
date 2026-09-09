@@ -1,5 +1,0 @@
-/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/esp-idf/goose/goose_ulp/CMakeFiles/goose_ulp.dir
-/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/esp-idf/goose/goose_ulp/CMakeFiles/ld_script.dir
-/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/esp-idf/goose/goose_ulp/CMakeFiles/build.dir
-/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/esp-idf/goose/goose_ulp/CMakeFiles/edit_cache.dir
-/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/esp-idf/goose/goose_ulp/CMakeFiles/rebuild_cache.dir

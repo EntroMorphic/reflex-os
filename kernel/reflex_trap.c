@@ -53,6 +53,7 @@
  */
 
 #include "reflex_sched.h"
+#include "reflex_hal.h"
 #include "reflex_rom_esp32c6.h"
 #include <stdint.h>
 
@@ -162,10 +163,34 @@ uint32_t *reflex_trap_handler(uint32_t *frame) {
         if (s_tick_cpu_int >= 0 && line == s_tick_cpu_int) {
             reflex_sched_tick();
             reflex_sched_ack_tick();
+            return frame;
         }
-        /* Anything else is left alone. Its source stays asserted and the
-         * machine stops making progress, which is bad but honest; acknowledging
-         * an interrupt this layer does not understand would be worse. */
+        /* Every other line goes to whatever Reflex registered for it.
+         *
+         * This handler used to service the tick and nothing else, which was
+         * defensible while it only ran for the length of `kernel selftest`.
+         * Once Reflex owns the entry point it is the machine's only interrupt
+         * dispatcher, and a dispatcher that answers one line is why the board
+         * printed a shell prompt and then ignored every key pressed at it: the
+         * console receive interrupt is Reflex's own, allocated through Reflex's
+         * own allocator, and it was arriving here and being dropped.
+         *
+         * The handler table is the HAL's, so this asks the HAL rather than
+         * keeping a second copy of it. */
+        if (reflex_hal_intr_dispatch_line(line)) {
+            return frame;
+        }
+        /* Genuinely nobody's — an ESP-IDF interrupt, most likely, allocated
+         * through its allocator during boot and invisible to Reflex's table.
+         *
+         * This used to leave it alone, on the grounds that acknowledging an
+         * interrupt this layer does not understand would be worse. That is true
+         * of acknowledging it. It is not true of masking it: left asserted, a
+         * level-triggered line re-enters immediately and forever, so the choice
+         * was never "leave it alone", it was "stop the machine". Masking keeps
+         * the machine and loses one device, and reflex_hal_intr_unclaimed_lines
+         * says which. */
+        reflex_hal_intr_mask_unclaimed(line);
         return frame;
     }
 
@@ -187,8 +212,34 @@ uint32_t *reflex_trap_handler(uint32_t *frame) {
     __asm__ volatile("csrr %0, mepc" : "=r"(mepc));
     __asm__ volatile("csrr %0, mtval" : "=r"(mtval));
 
-    esp_rom_printf("[reflex.trap] unhandled exception mcause=0x%x mepc=0x%x mtval=0x%x - halting\n",
-                   (unsigned)mcause, (unsigned)mepc, (unsigned)mtval);
+    /* To the console this board has, and with no large stack buffer.
+     *
+     * esp_rom_printf writes to UART0; the console here is USB-serial-JTAG, so
+     * this message was being printed where nobody could read it and every fatal
+     * fault looked like a silent hang. The hex is formatted by hand into a
+     * small fixed buffer rather than through the logging path, because the
+     * stack that faulted may be the one that overflowed and 192 more bytes of
+     * it would fault again inside the handler. */
+    static const char hexd[] = "0123456789abcdef";
+    char msg[96];
+    int n = 0;
+    const char *lead = "[reflex.trap] fatal mcause=0x";
+    for (const char *p = lead; *p && n < (int)sizeof(msg); p++)
+        msg[n++] = *p;
+    const uint32_t vals[3] = {mcause, mepc, mtval};
+    const char *labels[3] = {" mepc=0x", " mtval=0x"};
+    for (int v = 0; v < 3; v++) {
+        for (int shift = 28; shift >= 0 && n < (int)sizeof(msg); shift -= 4) {
+            msg[n++] = hexd[(vals[v] >> shift) & 0xF];
+        }
+        if (v < 2) {
+            for (const char *p = labels[v]; *p && n < (int)sizeof(msg); p++)
+                msg[n++] = *p;
+        }
+    }
+    for (const char *p = " halting\n"; *p && n < (int)sizeof(msg); p++)
+        msg[n++] = *p;
+    reflex_hal_console_emit(msg, n);
 
     /* Interrupts stay disabled: trap entry cleared MIE, and re-enabling would
      * let a tick preempt a machine already known to be broken. */

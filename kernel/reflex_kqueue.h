@@ -44,7 +44,24 @@ extern "C" {
 #endif
 
 /** Queue control blocks available. Matches the scale of REFLEX_SCHED_MAX_TASKS. */
-#define REFLEX_KQUEUE_MAX 8
+/* Sized against what the system actually creates, which 8 was not.
+ *
+ * The census at the time of writing: reflex_fabric_init creates one inbox per
+ * node — REFLEX_NODE_MAX, which is 8 — and the event bus creates one, so a
+ * boot needs 9 before anything else asks. At 8 the fabric could not finish
+ * initialising, and because the pool and a failed malloc both return NULL the
+ * caller reported REFLEX_ERR_NO_MEM, which reads as "out of heap" rather than
+ * "out of pool slots" on a board with 350 KiB free.
+ *
+ * That was the first thing to stop the boot once Reflex's own task backend was
+ * running under Reflex's own entry point: it cost the fabric, the loom, the
+ * services, the radio and the self-checks, and main.c dropped to a shell
+ * without saying so.
+ *
+ * 16 leaves headroom for the same again. The control blocks are static and the
+ * item storage is not, so the cost of the headroom is sizeof(reflex_kqueue_t)
+ * per unused slot and nothing else. */
+#define REFLEX_KQUEUE_MAX 16
 
 typedef struct reflex_kqueue {
     uint8_t *storage;   /**< length * item_size bytes, owned by the queue. */

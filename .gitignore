@@ -2,7 +2,13 @@
 archive/
 
 # ESP-IDF build output
+#
+# build_* as well as build/: the out-of-tree configurations each get their own
+# directory (build_independence, build_esp32, build_own_entry), and only the
+# default one was ignored. A `git add -A` therefore committed 4906 build
+# artifacts from build_own_entry before anyone noticed.
 build/
+build_*/
 *.elf
 *.map
 

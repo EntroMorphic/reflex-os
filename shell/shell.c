@@ -2259,6 +2259,22 @@ void reflex_shell_run(void) {
         uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
     }
 #endif
+#if CONFIG_IDF_TARGET_ESP32C6
+    /* State of the interrupt world the shell is about to depend on.
+     *
+     * The shell reads through Reflex's own USB-serial-JTAG receive interrupt,
+     * so a prompt with no keyboard is an interrupt question, not a console one.
+     * Printed once at shell start because when Reflex owns mtvec there may be
+     * no other way to ask: a masked or unclaimed line cannot be queried from a
+     * shell that the masking is preventing you from typing into. */
+    {
+        reflex_intr_route_t con;
+        reflex_hal_intr_describe(REFLEX_INTR_SRC_USB_SERIAL_JTAG, &con);
+        REFLEX_LOGI("reflex.shell", "console: cpu_int=%lu plic_en=%d unclaimed_masked=0x%08lx",
+                    (unsigned long)con.cpu_int, (int)con.plic_enabled,
+                    (unsigned long)reflex_hal_intr_unclaimed_lines());
+    }
+#endif
     shell_prompt("reflex> ", 8);
     while (1) {
 #if CONFIG_IDF_TARGET_ESP32C6

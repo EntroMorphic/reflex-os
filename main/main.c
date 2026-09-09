@@ -161,12 +161,36 @@ void app_main(void)
     
     // 3. Substrate Startup
     REFLEX_LOGI(REFLEX_BOOT_TAG, "starting substrate (boot_count=%ld)", (long)boot_count);
-    if (reflex_event_bus_init() != REFLEX_OK || reflex_event_bus_start() != REFLEX_OK) {
-        reflex_shell_run(); return;
+    /* These two branches abandon the entire substrate — no fabric, no loom, no
+     * services, no radio, no self-checks — and used to do it in total silence,
+     * dropping to a shell that looks like a normal boot unless you notice the
+     * eight missing lines above it. That is how the first boot under the Reflex
+     * task backend read: event bus ready, then a prompt, and nothing to say
+     * which of four calls had failed or that anything had. Say which. */
+    reflex_err_t rc_bus = reflex_event_bus_init();
+    if (rc_bus != REFLEX_OK) {
+        REFLEX_LOGE(REFLEX_BOOT_TAG, "event_bus_init failed rc=0x%x; dropping to shell", rc_bus);
+        reflex_shell_run();
+        return;
+    }
+    rc_bus = reflex_event_bus_start();
+    if (rc_bus != REFLEX_OK) {
+        REFLEX_LOGE(REFLEX_BOOT_TAG, "event_bus_start failed rc=0x%x; dropping to shell", rc_bus);
+        reflex_shell_run();
+        return;
     }
 
-    if (reflex_fabric_init() != REFLEX_OK || goose_fabric_init() != REFLEX_OK) {
-        reflex_shell_run(); return;
+    reflex_err_t rc_fab = reflex_fabric_init();
+    if (rc_fab != REFLEX_OK) {
+        REFLEX_LOGE(REFLEX_BOOT_TAG, "fabric_init failed rc=0x%x; dropping to shell", rc_fab);
+        reflex_shell_run();
+        return;
+    }
+    rc_fab = goose_fabric_init();
+    if (rc_fab != REFLEX_OK) {
+        REFLEX_LOGE(REFLEX_BOOT_TAG, "goose_fabric_init failed rc=0x%x; dropping to shell", rc_fab);
+        reflex_shell_run();
+        return;
     }
 
     // 4. GOOSE Loom Manifestation
@@ -217,14 +241,26 @@ void app_main(void)
 #endif
 
     // 9. Stability & Shell
+    /* Progress markers across the last four steps of boot.
+     *
+     * Everything above this point announces itself and everything below it used
+     * to be silent, so "boot stops after the radio" covered a task creation, an
+     * event publish, four self-checks and the shell — five places, no way to
+     * tell which. Under Reflex's own scheduler that stretch is exactly where
+     * the FreeRTOS assumptions run out, so it is the stretch that most needs to
+     * say where it got to. */
     reflex_task_create(reflex_stability_task, "reflex-stable", 2048, NULL, 5, NULL);
+    REFLEX_LOGI(REFLEX_BOOT_TAG, "stability task created");
+
     reflex_event_publish(REFLEX_EVENT_BOOT_COMPLETE, NULL, 0);
+    REFLEX_LOGI(REFLEX_BOOT_TAG, "boot_complete published");
 
     // Self-checks
     reflex_ternary_self_check();
     reflex_vm_self_check();
     reflex_vm_loader_self_check();
     reflex_vm_task_self_check();
+    REFLEX_LOGI(REFLEX_BOOT_TAG, "self_checks=done");
 
     reflex_shell_run();
 }
