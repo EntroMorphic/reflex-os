@@ -367,6 +367,45 @@ static void test_tick_reached(void) {
  * task with blocked_on set, which quietly removed the timeout from a timed
  * queue wait. Extracted, it is checkable.
  */
+static void test_reap(void) {
+    /* The retiring task cannot free its own stack, so the scheduler does it.
+     * That makes the reap the only thing standing between a self-deleting task
+     * and a slot leaked for the life of the boot — which is what happened
+     * before it existed, on every VM task that retired. */
+    reflex_tcb_t t[3];
+    memset(t, 0, sizeof(t));
+
+    t[0].state = REFLEX_TASK_STATE_READY;
+    t[0].stack_base = malloc(64);
+    t[1].state = REFLEX_TASK_STATE_DEAD;
+    t[1].stack_base = malloc(64);
+    t[1].started = true;
+    t[1].wake_deadline_valid = true;
+    t[1].wake_tick = 1234;
+    t[2].state = REFLEX_TASK_STATE_BLOCKED;
+    t[2].stack_base = malloc(64);
+
+    reflex_sched_reap(t, 3);
+
+    CHECK("reap returns the dead slot", t[1].state == REFLEX_TASK_STATE_FREE);
+    CHECK("reap releases the dead stack", t[1].stack_base == NULL);
+    CHECK("reap clears started on the dead slot", !t[1].started);
+    CHECK("reap clears the stale deadline", !t[1].wake_deadline_valid);
+    CHECK("reap leaves a ready task alone", t[0].state == REFLEX_TASK_STATE_READY);
+    CHECK("reap leaves a ready task's stack alone", t[0].stack_base != NULL);
+    CHECK("reap leaves a blocked task alone", t[2].state == REFLEX_TASK_STATE_BLOCKED);
+    CHECK("reap leaves a blocked task's stack alone", t[2].stack_base != NULL);
+
+    /* Idempotent: a second pass must not double free. */
+    reflex_sched_reap(t, 3);
+    CHECK("reap is idempotent", t[1].state == REFLEX_TASK_STATE_FREE);
+
+    CHECK("reap tolerates NULL", (reflex_sched_reap(NULL, 3), 1));
+
+    free(t[0].stack_base);
+    free(t[2].stack_base);
+}
+
 static void test_should_time_wake(void) {
     reflex_tcb_t t;
     memset(&t, 0, sizeof(t));
@@ -577,6 +616,7 @@ int test_reflex_queue(void) {
     test_ms_to_ticks();
     test_tick_reached();
     test_should_time_wake();
+    test_reap();
     test_select();
     test_find_index();
     test_priority_accessors();

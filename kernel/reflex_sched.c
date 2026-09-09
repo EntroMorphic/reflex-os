@@ -140,17 +140,61 @@ reflex_err_t reflex_sched_create_task(void (*entry)(void *), const char *name,
     return REFLEX_OK;
 }
 
+/* Free the stacks of tasks that have retired, and return their slots.
+ *
+ * Separate from reflex_sched_delete_task because a task cannot release its own
+ * stack: it is standing on it. The self-delete path therefore marked the task
+ * DEAD, yielded, and left both the stack and the slot behind for the rest of
+ * the boot — and self-delete is the normal way to retire, which is how
+ * reflex_vm_task_entry ends. A board that started and stopped VM tasks ran out
+ * of slots and heap without ever calling anything that looked like a leak.
+ *
+ * Safe to free here precisely because it runs from the scheduler, after the
+ * longjmp has already moved execution off the retiring task's stack and onto
+ * the scheduler's own.
+ *
+ * Takes the array rather than reading the file-scope one so the host suite can
+ * exercise it; the scheduler loop is the only caller that is not a test. */
+void reflex_sched_reap(reflex_tcb_t *tasks, int count) {
+    if (!tasks) return;
+    for (int i = 0; i < count; i++) {
+        if (tasks[i].state != REFLEX_TASK_STATE_DEAD) continue;
+        free(tasks[i].stack_base);
+        tasks[i].stack_base = NULL;
+        tasks[i].stack_size = 0;
+        /* Cleared, not merely marked FREE. A slot is reused by
+         * reflex_sched_create_task, and a stale `started` would send the
+         * scheduler down the resume path into a jmp_buf belonging to a task
+         * that no longer exists. */
+        tasks[i].started = false;
+        tasks[i].blocked_on = NULL;
+        tasks[i].wake_deadline_valid = false;
+        tasks[i].wake_tick = 0;
+        tasks[i].state = REFLEX_TASK_STATE_FREE;
+    }
+}
+
 void reflex_sched_delete_task(reflex_tcb_t *tcb) {
-    if (!tcb) {
+    /* Naming the current task explicitly is the same as passing NULL.
+     *
+     * Handled here rather than falling through to the free below, which would
+     * release the stack the caller is executing on. */
+    if (!tcb || tcb == s_current) {
         if (s_current) {
             s_current->state = REFLEX_TASK_STATE_DEAD;
+            /* Does not return: the scheduler will not pick a DEAD task, and
+             * reflex_sched_reap collects the stack once we are off it. */
             reflex_sched_yield();
         }
         return;
     }
+
     tcb->state = REFLEX_TASK_STATE_DEAD;
-    if (tcb->stack_base) { free(tcb->stack_base); tcb->stack_base = NULL; }
-    tcb->state = REFLEX_TASK_STATE_FREE;
+    if (!s_started) {
+        /* No scheduler to do the reaping, so do it here. With nothing running,
+         * nothing can be standing on this stack. */
+        reflex_sched_reap(tcb, 1);
+    }
 }
 
 /* ---- Scheduler core ---- */
@@ -211,6 +255,14 @@ int reflex_sched_select(const reflex_tcb_t *tasks, int count, int start) {
  * build, so scope it the same way rather than leave an unused-function warning. */
 #ifndef REFLEX_HOST_BUILD
 static reflex_tcb_t *pick_next(void) {
+    /* Collect anything that retired since the last decision. Here because this
+     * is the first point after a task yields at which execution is back on the
+     * scheduler's stack and a retired task's stack is provably idle. */
+    reflex_sched_reap(s_tasks, REFLEX_SCHED_MAX_TASKS);
+    if (s_current && s_current->state == REFLEX_TASK_STATE_FREE) {
+        s_current = NULL; /* it was just reaped; do not round-robin from it */
+    }
+
     for (int i = 0; i < REFLEX_SCHED_MAX_TASKS; i++) {
         /* Time only wakes tasks that asked for a deadline. That includes a
          * queue wait with a timeout — excluding queue waiters here would mean

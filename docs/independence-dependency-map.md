@@ -1202,11 +1202,44 @@ task once and stopped. Both cooperative tasks now run to completion at their
 configured periods: task A every 100 ticks (`sys=653, 753, 853, 953…`), task B
 every 130 (`sys=703, 833, 963, 1093…`).
 
-One adjacent defect found while reading and not yet fixed: the self-delete path
-in `reflex_sched_delete_task` marks the task `DEAD` and yields, but never frees
-the stack and never returns the slot to `FREE`. Every task that retires by
-calling `reflex_task_delete(NULL)` — which is how `reflex_vm_task_entry` retires
-— leaks its slot and its stack for the life of the boot.
+### Retiring a task now returns its stack and its slot
+
+The self-delete path in `reflex_sched_delete_task` marked the task `DEAD` and
+yielded, and stopped there. It could not do otherwise: a task cannot free the
+stack it is standing on. But nothing else did it either, so every task that
+retired by calling `reflex_task_delete(NULL)` — which is how
+`reflex_vm_task_entry` ends, and the normal way to retire — left its stack
+allocated and its slot `DEAD`. `find_free_slot` only reuses `FREE`, so those
+slots do not come back.
+
+Retiring is two steps now. The task marks itself `DEAD` and yields;
+`reflex_sched_reap` frees the stack and returns the slot, called from
+`pick_next` — the first point after a yield at which execution is back on the
+scheduler's own stack and the retiring task's stack is provably idle. Passing a
+task its own pointer instead of NULL is handled as the self case rather than
+falling through to a free of the caller's stack, and the reap clears `started`
+along with the state, because a reused slot with a stale `started` would send
+the scheduler down the resume path into a `jmp_buf` belonging to a task that no
+longer exists.
+
+Ten host assertions cover it, and both halves are mutation-checked under forced
+clean builds: leaving the stack allocated fails "reap releases the dead stack",
+and not returning the slot fails "reap returns the dead slot" and the
+idempotence check.
+
+**What is not established: that this was observable on hardware.** Three
+attempts to demonstrate it on device were inert and are recorded so the next
+attempt does not repeat them. `kernel selftest` cannot be run twice — it hands
+the machine to the Reflex scheduler permanently, so there is no shell left to
+type into. `vm run` with no argument prints usage and creates nothing, which is
+why removing the reap entirely still produced twenty successful cycles. And
+`vm run <name>` loads into the long-lived system-vm service runtime rather than
+creating a task, so twelve cycles moved the heap by 112 bytes — not a
+stack-sized allocation.
+
+No shell command creates and retires Reflex tasks repeatedly, so the exhaustion
+this fixes has not been reproduced on a board. The fix rests on the host tests
+and on reading `find_free_slot`, and that is the honest extent of it.
 
 `REFLEX_OWN_ENTRY` stays off by default until the shell survives it.
 

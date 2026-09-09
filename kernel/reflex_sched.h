@@ -67,6 +67,14 @@ reflex_err_t reflex_sched_create_task(void (*entry)(void *), const char *name,
                                       uint32_t stack_bytes, void *arg,
                                       int priority, reflex_tcb_t **out_tcb);
 void reflex_sched_delete_task(reflex_tcb_t *tcb);
+
+/** @brief Free the stacks of DEAD tasks and return their slots to FREE.
+ *
+ * A task cannot release its own stack while standing on it, so retiring is two
+ * steps: the task marks itself DEAD and yields, and the scheduler reaps it once
+ * execution is back on the scheduler's stack. Exposed so the host suite can
+ * exercise it. */
+void reflex_sched_reap(reflex_tcb_t *tasks, int count);
 void reflex_sched_delay_ms(uint32_t ms);
 void reflex_sched_yield(void);
 
