@@ -12,7 +12,9 @@
 
 /* RAM-backed flash mock (24KB = 6 sectors of 4KB) */
 #define MOCK_FLASH_SIZE (6 * 4096)
-#define MOCK_FLASH_BASE 0x9000
+/* Must track KV_FLASH_BASE in reflex_kv_flash.c: the store moved to its own
+ * `reflexkv` partition after it was found sharing the six sectors NVS occupies. */
+#define MOCK_FLASH_BASE 0x10000
 static uint8_t s_mock_flash[MOCK_FLASH_SIZE];
 
 int esp_rom_spiflash_read(uint32_t addr, uint32_t *dest, int len) {
@@ -22,9 +24,24 @@ int esp_rom_spiflash_read(uint32_t addr, uint32_t *dest, int len) {
     return 0;
 }
 
+/* reflex_kv_init reports which branch it took; on the host that goes nowhere. */
+int esp_rom_printf(const char *fmt, ...) {
+    (void)fmt;
+    return 0;
+}
+
+int esp_rom_spiflash_unlock(void) {
+    return 0; /* the real ROM clears block protection; the mock has none */
+}
+
 int esp_rom_spiflash_write(uint32_t addr, const uint32_t *src, int len) {
     uint32_t offset = addr - MOCK_FLASH_BASE;
     if (offset + len > MOCK_FLASH_SIZE) return -1;
+    /* The hardware requires a word-aligned destination and silently does
+     * nothing otherwise. A mock that accepts any address cannot catch the bug
+     * where entries were appended at offsets 13 and 21 and never reached the
+     * medium, so it refuses them the way the chip does. */
+    if ((addr & 3u) != 0) return -1;
     /* Flash write: can only clear bits (AND with existing) */
     for (int i = 0; i < len; i++) {
         s_mock_flash[offset + i] &= ((const uint8_t *)src)[i];

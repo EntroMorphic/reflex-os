@@ -1150,6 +1150,61 @@ survive a restart. `sdkconfig.defaults.own_entry` and `make own-entry-build`
 close that, exactly as `sdkconfig.defaults.independence` closed it one layer
 down.
 
+### Reflex's own key-value store keeps nothing, and that is why the mesh cannot pair
+
+Chasing why received frames were rejected led somewhere else entirely. The
+version counter said "a peer is running a different build"; moving it behind the
+Aura gate — where the malformed counter already sits, and for the reason that
+comment gives — showed it had been counting anything on the band that happened
+to be `sizeof(goose_arc_packet_t)` bytes. Measured: `version_mismatch` climbing
+became `aura_fail` climbing, one for one. The frames do not hold our key.
+
+They should have. Both boards had been given the same key with `aura setkey`,
+which reports success through a fully rc-checked write. It does not survive a
+reboot, and neither does anything else: `purpose set photography` is `(none)`
+after a reset. The pairing procedure the user manual documents cannot work.
+
+**Two real defects, both fixed:**
+
+- **The store was writing into the `nvs` partition.** `KV_FLASH_BASE` was
+  `0x9000` with six 4 KB sectors, and `partitions.csv` puts `nvs` at `0x9000`
+  with size `0x6000` — the same six sectors, exactly. Everything it wrote was
+  later overwritten by NVS, whose users include `phy_init` saving radio
+  calibration on every boot. Avoiding the NVS *component* is not the same as
+  avoiding NVS's *storage*. It has its own `reflexkv` partition now.
+- **Entries were written at unaligned offsets and nothing checked.** The packed
+  header is five bytes, and three separate appends put the key at offset 13 and
+  the value at 21. `esp_rom_spiflash_write` needs a word-aligned destination and
+  the return value was discarded, so those writes did not happen and reported
+  success. Entries are assembled whole and written once on a 4-byte boundary,
+  `flash_write` returns a status that `kv_write_entry` propagates, and one
+  `kv_entry_span` rule is shared by the writer and all three readers so the walk
+  cannot disagree with the append.
+
+**Neither was the whole cause, and the remainder is recorded rather than
+guessed.** With a dedicated partition, alignment fixed, checked writes and
+`esp_rom_spiflash_unlock` called first, a header written at boot reads back
+correctly *in the same boot* and is gone after a reset — `reflex_kv_init`
+reports `initialised fresh` every time. Write and read agree within a boot
+because both go through the cache while the CPU executes XIP from the same
+flash; the medium never receives the data, which is why ESP-IDF wraps raw ROM
+flash operations in a cache-and-interrupt disable.
+
+Fixing that costs the property the file exists for. It has no ESP-IDF component
+dependencies, and both routes out — `esp_flash_write`/`esp_flash_read`, or
+ESP-IDF's cache-disable primitives — are component dependencies. A store that
+silently loses everything is worth less than a tier count, but that trade
+belongs in this ledger as a decision, not slipped into a commit.
+
+**Control, so the scope is not overstated:** the NVS-backed backend, which the
+default build uses, persists correctly — `purpose set` survives a reboot there.
+The defect is Reflex's own flash store, and therefore the 802.15.4 build only.
+
+**And the host suite could not have caught it.** `tests/host/test_kv.c` mocks
+flash as RAM, which models neither alignment nor persistence. It now refuses
+unaligned writes the way the chip does, and that is mutation-proven: reverting
+the padding makes it fail `fill (only 1 writes)`.
+
 ### The peripherals come back: dispatching to drivers Reflex does not own
 
 Independence had been bought by switching things off. Under Reflex's vector the

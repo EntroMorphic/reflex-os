@@ -15,6 +15,40 @@
  * compact live entries to next page, erase old page.
  */
 
+/* KNOWN DEFECT: nothing written here survives a reboot.
+ *
+ * Established on hardware, and narrowed by elimination rather than argument:
+ *
+ *   - A write is verified by reading it straight back in the same boot and the
+ *     value is correct, so the call is not simply failing.
+ *   - The very next boot does not find the page header, and reflex_kv_init
+ *     therefore reports "initialised fresh" every time.
+ *   - Not alignment: entries are now assembled and written once at a word
+ *     aligned offset, and flash_write refuses anything else.
+ *   - Not block protection: esp_rom_spiflash_unlock is called first.
+ *   - Not the old collision with the nvs partition, which was real and is
+ *     fixed — this store had been writing at 0x9000, the same six sectors NVS
+ *     occupies, so phy_init saving radio calibration overwrote it. It now has
+ *     its own `reflexkv` partition.
+ *
+ * What is left is that these are raw ROM flash operations issued while the CPU
+ * is executing XIP out of the same flash with the cache enabled. Write and read
+ * agree inside one boot because both go through that path; the medium never
+ * receives the data. ESP-IDF wraps such operations in a cache-and-interrupt
+ * disable for exactly this reason.
+ *
+ * Fixing it costs the property that motivated this file. It has no ESP-IDF
+ * component dependencies, and the fix — esp_flash_write/esp_flash_read, or
+ * ESP-IDF's cache-disable primitives — is a component dependency either way.
+ * That is a deliberate trade to make, not one to slip in: a store that silently
+ * loses everything is worth less than a tier count, but the choice belongs in
+ * the independence ledger rather than in this comment.
+ *
+ * What this costs today, measured: `aura setkey` reports success and two boards
+ * can never share a key, so the mesh cannot pair; `purpose set` is gone by the
+ * next boot. Both were silent before the logging added alongside this note.
+ */
+
 #include "reflex_kv.h"
 #include <stdbool.h>
 #include <string.h>
@@ -28,7 +62,20 @@
 #define KV_VAL_MAX      240
 
 /* Flash partition offset — uses the "nvs" partition at 0x9000 (24KB) */
-#define KV_FLASH_BASE   0x9000
+/* Offset of the `reflexkv` partition in partitions.csv.
+ *
+ * This was 0x9000, which is where `nvs` starts — the same six sectors. Every
+ * entry this store wrote was later overwritten by NVS, whose users include
+ * phy_init saving radio calibration on every boot, so writes reported success
+ * and nothing survived a reboot. `aura setkey` could not pair two boards and
+ * `purpose set` was gone by the next boot, both silently.
+ *
+ * Hardcoded, and therefore coupled to partitions.csv: this file declares its
+ * own ROM entry points and pulls in no ESP-IDF component, so it cannot look the
+ * partition up at runtime without giving that up. Changing the table above this
+ * partition moves it, and this constant has to move with it. KV_NUM_SECTORS *
+ * KV_SECTOR_SIZE must equal the partition size. */
+#define KV_FLASH_BASE 0x10000
 
 #define KV_TYPE_STR     0
 #define KV_TYPE_BLOB    1
@@ -61,6 +108,21 @@ typedef struct {
  * scans below copy key_len bytes into a KV_KEY_MAX+1 stack buffer, so an
  * unvalidated 254 was a 238-byte stack overflow driven purely by flash
  * contents. Validating on read is the point of validating on read. */
+/* Bytes one entry occupies on the medium, including its tail padding.
+ *
+ * Every entry starts on a 4-byte boundary, because esp_rom_spiflash_write
+ * requires a word-aligned destination and the header is five packed bytes. An
+ * unpadded layout put the second entry's header at offset 13, the third
+ * somewhere else again, and those writes simply did not take — silently, since
+ * nothing checked. That is why nothing this store was ever asked to keep
+ * survived a reboot.
+ *
+ * One rule, used by the writer and by all three readers, so the walk cannot
+ * disagree with the append. */
+static inline uint32_t kv_entry_span(const kv_entry_header_t *eh) {
+    return ((uint32_t)sizeof(kv_entry_header_t) + eh->key_len + eh->val_len + 3u) & ~3u;
+}
+
 static bool kv_entry_header_sane(const kv_entry_header_t *eh) {
     return eh->key_len >= 1 && eh->key_len <= KV_KEY_MAX && eh->val_len <= KV_VAL_MAX;
 }
@@ -89,12 +151,30 @@ static void flash_read(uint32_t addr, void *buf, size_t len) {
     memcpy(buf, aligned_buf, len);
 }
 
-static void flash_write(uint32_t addr, const void *buf, size_t len) {
-    uint32_t aligned_buf[64];
+/* Returns false if the write did not happen, which the callers now check.
+ *
+ * It rounded the length up to a word and left the address alone, and
+ * esp_rom_spiflash_write needs both. Nor did it report anything: the result was
+ * discarded, so a rejected write was indistinguishable from a stored one all
+ * the way up to `aura setkey` printing "key provisioned" for a key that was
+ * never written. */
+static bool flash_write(uint32_t addr, const void *buf, size_t len) {
+    uint32_t aligned_buf[66]; /* >= header + KV_KEY_MAX + KV_VAL_MAX, rounded */
     size_t aligned_len = (len + 3) & ~3;
+    if ((addr & 3u) != 0) return false;
+    /* Unlock first. The ROM write path does not clear the chip's
+     * block-protection bits and reports success regardless, so without this
+     * every write in this file was a no-op that looked like a success — the
+     * page header included, which is why the store reported "initialised
+     * fresh" on every boot and nothing ever survived one. */
+    (void)esp_rom_spiflash_unlock();
+    if (aligned_len > sizeof(aligned_buf)) return false;
     memset(aligned_buf, 0xFF, aligned_len);
     memcpy(aligned_buf, buf, len);
-    esp_rom_spiflash_write(addr, aligned_buf, (int)aligned_len);
+    /* 0 is ESP_ROM_SPIFLASH_RESULT_OK. Compared as a literal because this file
+     * declares the ROM entry points itself and pulls in no ESP-IDF headers,
+     * which is the whole point of it. */
+    return esp_rom_spiflash_write(addr, aligned_buf, (int)aligned_len) == 0;
 }
 
 reflex_err_t reflex_kv_init(void) {
@@ -113,6 +193,7 @@ reflex_err_t reflex_kv_init(void) {
     }
 
     if (!found) {
+        (void)esp_rom_spiflash_unlock();
         esp_rom_spiflash_erase_sector(KV_FLASH_BASE / KV_SECTOR_SIZE);
         kv_page_header_t hdr = { .magic = KV_MAGIC, .sequence = 1 };
         flash_write(KV_FLASH_BASE, &hdr, sizeof(hdr));
@@ -133,11 +214,28 @@ reflex_err_t reflex_kv_init(void) {
             /* A corrupt header would otherwise walk the write offset to an
              * arbitrary place and append over live entries. */
             if (!kv_entry_header_sane(&eh)) break;
-            s_write_offset += sizeof(kv_entry_header_t) + eh.key_len + eh.val_len;
+            s_write_offset += kv_entry_span(&eh);
         }
     }
 
     s_initialized = true;
+    /* Which branch this took decides whether anything can persist at all.
+     *
+     * "fresh" means no valid page header was found and the store just erased
+     * itself, which on every boot would mean nothing is ever kept — and that is
+     * indistinguishable from an entry-level failure without this line. */
+    /* esp_rom_printf, not REFLEX_LOGI: reflex_log.h lives in core/include and
+     * this component does not depend on core. Keeping it that way is the point
+     * of this file.
+     *
+     * Read this line. "initialised fresh" on a board that has been booted
+     * before means the store did not find the page header it wrote last time,
+     * and therefore that nothing it was asked to keep survived — which is the
+     * defect described at the top of this file. It is the only outward sign,
+     * and without it `aura setkey` reporting success looks like pairing works. */
+    esp_rom_printf("[reflex.kv] flash KV %s: sector=%u seq=%u write_offset=%u base=0x%x\n",
+                   found ? "resumed" : "initialised fresh", (unsigned)s_active_sector,
+                   (unsigned)s_active_seq, (unsigned)s_write_offset, (unsigned)KV_FLASH_BASE);
     return REFLEX_OK;
 }
 
@@ -176,7 +274,7 @@ static reflex_err_t kv_find(uint8_t ns, const char *key, uint32_t *out_offset,
                 found = true;
             }
         }
-        off += sizeof(eh) + eh.key_len + eh.val_len;
+        off += kv_entry_span(&eh);
     }
 
     if (!found) return REFLEX_ERR_NOT_FOUND;
@@ -223,7 +321,7 @@ static reflex_err_t kv_compact(void) {
             dedup_count++;
         }
 
-        off += sizeof(eh) + eh.key_len + eh.val_len;
+        off += kv_entry_span(&eh);
     }
 
     /* Erase new sector and write header */
@@ -236,7 +334,7 @@ static reflex_err_t kv_compact(void) {
     for (int i = 0; i < dedup_count; i++) {
         kv_entry_header_t eh;
         flash_read(old_base + dedup[i].offset, &eh, sizeof(eh));
-        size_t entry_size = sizeof(eh) + eh.key_len + eh.val_len;
+        size_t entry_size = kv_entry_span(&eh);
 
         uint8_t buf[sizeof(kv_entry_header_t) + KV_KEY_MAX + KV_VAL_MAX];
         flash_read(old_base + dedup[i].offset, buf, entry_size);
@@ -255,7 +353,8 @@ static reflex_err_t kv_write_entry(uint8_t ns, const char *key,
     size_t key_len = strlen(key);
     if (key_len > KV_KEY_MAX || val_len > KV_VAL_MAX) return REFLEX_ERR_INVALID_ARG;
 
-    size_t entry_size = sizeof(kv_entry_header_t) + key_len + val_len;
+    kv_entry_header_t probe_eh = {.key_len = (uint8_t)key_len, .val_len = (uint16_t)val_len};
+    size_t entry_size = kv_entry_span(&probe_eh);
     if (s_write_offset + entry_size >= KV_SECTOR_SIZE) {
         reflex_err_t rc = kv_compact();
         if (rc != REFLEX_OK) return rc;
@@ -267,12 +366,19 @@ static reflex_err_t kv_write_entry(uint8_t ns, const char *key,
         .ns_hash = ns, .key_len = (uint8_t)key_len,
         .val_len = (uint16_t)val_len, .type = type
     };
-    flash_write(base + s_write_offset, &eh, sizeof(eh));
-    s_write_offset += sizeof(eh);
-    flash_write(base + s_write_offset, key, key_len);
-    s_write_offset += key_len;
-    flash_write(base + s_write_offset, val, val_len);
-    s_write_offset += val_len;
+
+    /* Assembled whole and written once, at an offset that is always word
+     * aligned. Three separate appends put the key at offset 13 and the value
+     * at 21 and neither reached the medium. */
+    uint8_t entry[sizeof(kv_entry_header_t) + KV_KEY_MAX + KV_VAL_MAX];
+    memcpy(entry, &eh, sizeof(eh));
+    memcpy(entry + sizeof(eh), key, key_len);
+    memcpy(entry + sizeof(eh) + key_len, val, val_len);
+
+    if (!flash_write(base + s_write_offset, entry, sizeof(eh) + key_len + val_len)) {
+        return REFLEX_FAIL;
+    }
+    s_write_offset += kv_entry_span(&eh);
     return REFLEX_OK;
 }
 

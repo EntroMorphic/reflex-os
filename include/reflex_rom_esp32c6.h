@@ -85,6 +85,14 @@ extern int esp_rom_spiflash_write(uint32_t addr, const uint32_t *src, int len);
 /** Erase one 4 KB sector by index. Returns 0 on success. */
 extern int esp_rom_spiflash_erase_sector(uint32_t sector);
 
+/* Clear the flash chip's block-protection bits before writing.
+ *
+ * The ROM write and erase entry points do not do this themselves, and on a
+ * protected chip they report success while changing nothing — which is exactly
+ * how Reflex's flash KV store came to report a successful `aura setkey` and
+ * then find an empty partition on the next boot. */
+extern int esp_rom_spiflash_unlock(void);
+
 /* ---- Instruction cache ---- */
 
 extern int Cache_Enable_ICache(uint32_t autoload);

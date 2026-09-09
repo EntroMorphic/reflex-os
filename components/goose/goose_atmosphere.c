@@ -216,8 +216,21 @@ static void aura_key_from_mac(void) {
 }
 
 static void load_aura_key(void) {
+    /* Three ways to fall through here and, until now, no way to tell which.
+     *
+     * Falling through does not merely skip the stored key: it generates a fresh
+     * random one and persists it, overwriting whatever was there. So a single
+     * failed read turns into permanent loss of the operator's pairing key, and
+     * the only outward sign is that the boot log says "auto-provisioned"
+     * instead of "loaded". Observed: `aura setkey` reports success through a
+     * fully rc-checked write, and the very next boot auto-provisions again, so
+     * the documented pairing procedure cannot work and no two boards can ever
+     * share a key. Which of the three steps fails decides whether that is a
+     * namespace problem, a blob problem or a size problem, and they have
+     * nothing to do with each other. */
     reflex_kv_handle_t h;
-    if (reflex_kv_open("goose", true, &h) == REFLEX_OK) {
+    reflex_err_t open_rc = reflex_kv_open("goose", true, &h);
+    if (open_rc == REFLEX_OK) {
         size_t len = sizeof(goose_aura_key);
         reflex_err_t rc = reflex_kv_get_blob(h, "aura_key", goose_aura_key, &len);
         reflex_kv_close(h);
@@ -225,6 +238,11 @@ static void load_aura_key(void) {
             REFLEX_LOGI(TAG, "aura key loaded from NVS");
             return;
         }
+        REFLEX_LOGW(TAG, "aura key not read back: get_blob rc=0x%x len=%u (expected %u)",
+                    (unsigned)rc, (unsigned)len, (unsigned)sizeof(goose_aura_key));
+    } else {
+        REFLEX_LOGW(TAG, "aura key namespace unavailable: kv_open(\"goose\") rc=0x%x",
+                    (unsigned)open_rc);
     }
 
     /* First boot (or NVS wiped): generate a random per-board key so two
@@ -315,33 +333,55 @@ static void atmosphere_recv_cb(const reflex_radio_recv_info_t *recv_info, const 
 
     goose_arc_packet_t *arc = (goose_arc_packet_t *)data;
 
-    /* Protocol version gate — rate-limited per (sender mac, version) so
-     * two simultaneously-mismatched peers each get one log entry per
-     * window instead of the louder one starving the quieter one. 8-slot
-     * direct-mapped ring keyed on the low-order MAC bytes. */
+    uint64_t expected_aura =
+        calculate_aura(arc->version, arc->op, arc->coord, arc->name_hash, arc->state, arc->nonce);
+    if (arc->aura != expected_aura) {
+        MESH_STAT_INC(rx_aura_fail);
+        return;
+    }
+
+    /* Protocol version gate, after the Aura gate and for the reason the
+     * malformed check below already gives: a counter should mean one thing.
+     *
+     * This ran before Aura, so anything on the band that happened to be
+     * sizeof(goose_arc_packet_t) bytes landed in rx_version_mismatch — and
+     * 802.15.4 is a shared band with Thread and Zigbee on it. The counter
+     * therefore conflated "a peer running a different build" with "someone
+     * else's traffic", which are opposite conclusions: one is a fleet that
+     * needs upgrading, the other is a neighbour. Measuring the radio under
+     * Reflex ownership is what surfaced it — the counter moved and there was
+     * no way to tell which of the two it meant.
+     *
+     * Behind Aura it means the first thing only. calculate_aura takes the
+     * version from the frame, so a peer holding our key still authenticates
+     * with its own version in the digest and is caught here; a frame from
+     * anything that does not hold the key is already gone as rx_aura_fail,
+     * which is where radio noise belongs.
+     *
+     * Rate-limited per (sender mac, version) so two simultaneously-mismatched
+     * peers each get one log entry per window instead of the louder one
+     * starving the quieter one. 8-slot direct-mapped ring keyed on the
+     * low-order MAC bytes. */
     if (arc->version != GOOSE_ARC_VERSION) {
         MESH_STAT_INC(rx_version_mismatch);
-        typedef struct { uint8_t mac[6]; uint8_t version; uint64_t last_us; } version_warn_entry_t;
+        typedef struct {
+            uint8_t mac[6];
+            uint8_t version;
+            uint64_t last_us;
+        } version_warn_entry_t;
         static version_warn_entry_t version_warn_ring[8];
-        uint32_t slot = ((uint32_t)recv_info->src_addr[4] << 8 |
-                          recv_info->src_addr[5]) & 0x7;
+        uint32_t slot = ((uint32_t)recv_info->src_addr[4] << 8 | recv_info->src_addr[5]) & 0x7;
         version_warn_entry_t *w = &version_warn_ring[slot];
         uint64_t now_v = reflex_hal_time_us();
         bool same = (memcmp(w->mac, recv_info->src_addr, 6) == 0 && w->version == arc->version);
         if (!same || (now_v - w->last_us > 5000000)) {
-            REFLEX_LOGW(TAG, "AURA_VERSION_MISMATCH remote=0x%02x local=0x%02x from " REFLEX_MAC_FMT,
-                     arc->version, GOOSE_ARC_VERSION, REFLEX_MAC_ARG(recv_info->src_addr));
+            REFLEX_LOGW(TAG,
+                        "AURA_VERSION_MISMATCH remote=0x%02x local=0x%02x from " REFLEX_MAC_FMT,
+                        arc->version, GOOSE_ARC_VERSION, REFLEX_MAC_ARG(recv_info->src_addr));
             memcpy(w->mac, recv_info->src_addr, 6);
             w->version = arc->version;
             w->last_us = now_v;
         }
-        return;
-    }
-
-    uint64_t expected_aura = calculate_aura(arc->version, arc->op, arc->coord,
-                                            arc->name_hash, arc->state, arc->nonce);
-    if (arc->aura != expected_aura) {
-        MESH_STAT_INC(rx_aura_fail);
         return;
     }
 

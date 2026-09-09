@@ -1,5 +1,15 @@
 # Name,   Type, SubType, Offset,  Size, Flags
 nvs,      data, nvs,     ,        0x6000,
 phy_init, data, phy,     ,        0x1000,
+# Reflex's own key-value store (platform/esp32c6/reflex_kv_flash.c).
+#
+# It needs a region of its own. It used to write at 0x9000, which is where the
+# nvs partition starts and is exactly the same six sectors — so every entry it
+# stored was overwritten by NVS, whose users include phy_init saving radio
+# calibration on each boot. Writes reported success and nothing ever survived a
+# reboot: `aura setkey` could not pair two boards and `purpose set` was gone by
+# the next boot. Avoiding the NVS component is not the same as avoiding NVS's
+# storage, and this partition is the difference.
+reflexkv, data, 0x40,    ,        0x6000,
 factory,  app,  factory, ,        2M,
 storage,  data, fat,     ,        1M,
