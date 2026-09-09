@@ -220,6 +220,7 @@ demand.
 | `loom load <hex>` | Weave a LoomScript fragment from hex (admin) |
 | `tapestry signal <cell> <state>` | Write a ternary state directly into a live cell, for driving a route on the bench without waiting on hardware (operator) |
 | `kernel` | Per-field ternary scheduling stance — engaged `+1` / latent `0` / withheld `-1` — plus the aggregate at `sys.kernel.disposition` |
+| `kernel tasks` | The Reflex scheduler's slot table: state, name, priority, stack size and the running slot, plus how many slots are dead and unreclaimed. A dead slot can never be reused, so a non-zero count after a task has retired is a leak. Empty, and says so, on a build where FreeRTOS is still the task backend |
 
 `tapestry signal` refuses `sys.*` cells. Supervisor state belongs to the OS,
 and a hand-signalled disposition is indistinguishable downstream from one the

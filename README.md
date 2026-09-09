@@ -110,6 +110,7 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `vm loadhex <HEX>` | Load a CRC32-verified packed image from hex string |
 | `heartbeat` | Read the LP core's parallel pulse counter |
 | `kernel` | Show the ternary scheduling stance per supervised field (engaged `+1` / latent `0` / withheld `-1`) plus the aggregate published at `sys.kernel.disposition` |
+| `kernel tasks` | Print the Reflex scheduler's slot table — state, name, priority, stack and which slot is running — with a count of dead slots that have not been reclaimed. Empty on a build where FreeRTOS is still the task backend |
 | `aura setkey <32 hex>` | Provision the HMAC-SHA256 Aura key into NVS |
 | `aura clear` | Erase the Aura key, returning the board to isolation; a fresh per-board key is generated on the next boot |
 | `mesh mac` | Print the local Wi-Fi STA MAC (used to identify boards in a mesh trial) |

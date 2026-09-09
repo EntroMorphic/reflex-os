@@ -1227,19 +1227,46 @@ clean builds: leaving the stack allocated fails "reap releases the dead stack",
 and not returning the slot fails "reap returns the dead slot" and the
 idempotence check.
 
-**What is not established: that this was observable on hardware.** Three
-attempts to demonstrate it on device were inert and are recorded so the next
-attempt does not repeat them. `kernel selftest` cannot be run twice — it hands
-the machine to the Reflex scheduler permanently, so there is no shell left to
-type into. `vm run` with no argument prints usage and creates nothing, which is
-why removing the reap entirely still produced twenty successful cycles. And
-`vm run <name>` loads into the long-lived system-vm service runtime rather than
-creating a task, so twelve cycles moved the heap by 112 bytes — not a
-stack-sized allocation.
+**Demonstrated on hardware, after building the instrument that was missing.**
+The previous note here said this could not be shown on a board, and listed three
+inert attempts as if the gap were in the hardware. The gap was in the tooling:
+task lifecycle was not observable from outside the scheduler at all, so "the
+slot came back" was not a claim anyone could check. `kernel tasks` prints the
+slot table, and with it the mutation is decisive:
 
-No shell command creates and retires Reflex tasks repeatedly, so the exhaustion
-this fixes has not been reproduced on a board. The fix rests on the host tests
-and on reading `find_free_slot`, and that is the honest extent of it.
+```
+with the reap:     kernel tasks: 9 of 16 in use, 0 dead (unreclaimed)
+without the reap:  kernel tasks: 11 of 16 in use, 2 dead (unreclaimed)
+                     5 dead  reflex-led  prio=5 stack=4096 alloc started
+                     8 dead  reflex-vm   prio=5 stack=4096 alloc started
+```
+
+Two tasks retire during an ordinary boot — the LED service and the VM — and
+without the reap each keeps its slot and its four-kilobyte stack for the life of
+the run. The three earlier attempts failed because they exercised nothing:
+`kernel selftest` hands the machine over permanently and leaves no shell,
+`vm run` with no argument prints usage and creates no task, and `vm run <name>`
+loads into the long-lived system-vm runtime rather than creating one. None of
+that was evidence about the leak; it was evidence about the tests.
+
+### Task names were borrowed pointers, and one of them dangled
+
+Found within a minute of `kernel tasks` existing, which is the argument for
+building it. Two slots printed garbage names — `Dg\xef\xbf\xbd@` and
+`p_led_agency\xef\xbfB`.
+
+`reflex_tcb_t` kept `name` as the `const char *` it was handed.
+`goose_field_start_pulse` formats `"p_%.13s"` into a local `char[16]` and passes
+it, so the pointer dangled the moment that function returned — and
+`reflex_sched_find_by_name` `strcmp`s it, so this was a read of a reused stack,
+not merely a cosmetic defect. FreeRTOS's `xTaskCreate` copies the name, which is
+why the bug was latent under that backend and only bites under Reflex's own —
+the configuration this work exists to make real.
+
+The fix is in the scheduler, not the caller: a kernel cannot require its callers
+to keep a string alive for the life of a task, so the TCB copies into a
+`char[REFLEX_SCHED_NAME_MAX]`, truncating rather than pointing. The same two
+slots now read `p_sys.autonomy` and `p_led_agency`.
 
 `REFLEX_OWN_ENTRY` stays off by default until the shell survives it.
 

@@ -1361,6 +1361,43 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
         shell_cmd_kernel_tick();
         return;
     }
+    if (argc >= 2 && strcmp(argv[1], "tasks") == 0) {
+        if (extra_args(argc, 2)) return;
+        /* Task lifecycle, which was not observable from outside the scheduler.
+         *
+         * That gap is why the reap could be host-tested and not demonstrated on
+         * a board: with no way to see a slot, "the slot came back" is not a
+         * claim anyone can check. Three device attempts to show it were inert
+         * before this existed. A retired task reads FREE here when it has been
+         * reaped and DEAD when it has not, and that is the whole difference. */
+        static const char *const state_name[] = {"free", "ready", "running", "blocked", "dead"};
+        unsigned used = 0, dead = 0;
+        printf("kernel tasks:\n");
+        for (int i = 0; i < REFLEX_SCHED_MAX_TASKS; i++) {
+            reflex_sched_slot_t sl;
+            if (!reflex_sched_slot_info(i, &sl)) continue;
+            if (sl.state == REFLEX_TASK_STATE_FREE) continue;
+            used++;
+            if (sl.state == REFLEX_TASK_STATE_DEAD) dead++;
+            printf("  %2d %-8s %-14s prio=%-3d stack=%-5lu%s%s%s\n", i,
+                   (sl.state < 5) ? state_name[sl.state] : "?", sl.name ? sl.name : "(unnamed)",
+                   sl.priority, (unsigned long)sl.stack_size, sl.has_stack ? " alloc" : " -",
+                   sl.started ? " started" : "", sl.is_current ? " <-- current" : "");
+        }
+        /* The count that matters. A dead slot is one the reap has not
+         * collected, and it can never be reused: find_free_slot takes FREE
+         * only. Non-zero here after a task has retired is the leak. */
+        printf("kernel tasks: %u of %d in use, %u dead (unreclaimed)\n", used,
+               REFLEX_SCHED_MAX_TASKS, dead);
+        if (used == 0) {
+            /* An empty table is the normal reading on a build where FreeRTOS is
+             * still the task backend, and would otherwise look like a fault. */
+            printf("kernel tasks: (empty — CONFIG_REFLEX_TASK_BACKEND_REFLEX is off, "
+                   "so tasks are FreeRTOS's)\n");
+        }
+        outcome(SHELL_OK);
+        return;
+    }
     if (argc >= 2 && strcmp(argv[1], "selftest") == 0) {
         /* Hand this task to the Reflex scheduler and see whether it runs.
          *

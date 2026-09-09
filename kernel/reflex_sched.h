@@ -23,6 +23,9 @@ extern "C" {
 #endif
 
 #define REFLEX_SCHED_MAX_TASKS   16
+/** Bytes of task name kept in the TCB, including the terminator. Names longer
+ *  than this are truncated rather than pointed at. */
+#define REFLEX_SCHED_NAME_MAX 16
 #define REFLEX_SCHED_TICK_HZ     1000
 #define REFLEX_SCHED_MIN_STACK   1024
 
@@ -39,7 +42,20 @@ typedef struct reflex_tcb {
     reflex_task_state_t state;
     int priority;
     uint32_t wake_tick;
-    const char *name;
+    /* Copied, not borrowed.
+     *
+     * This was a `const char *` kept as handed in, and at least one caller
+     * hands in a stack buffer: goose_field_start_pulse formats "p_%.13s" into
+     * a local char[16] and passes it, so the pointer dangled the moment that
+     * function returned. reflex_sched_find_by_name strcmps it and the shell
+     * prints it, which is a read of a reused stack — visible on hardware as
+     * task names like "p_led_agency\xef\xbfB" once `kernel tasks` existed to
+     * show them. FreeRTOS's xTaskCreate copies the name, so the bug was latent
+     * under that backend and only bites under Reflex's own.
+     *
+     * A scheduler cannot make its callers guarantee a string outlives the
+     * task, so it stops depending on that. */
+    char name[REFLEX_SCHED_NAME_MAX];
     uint32_t *stack_base;
     uint32_t stack_size;
     void (*entry)(void *);
@@ -75,6 +91,28 @@ void reflex_sched_delete_task(reflex_tcb_t *tcb);
  * execution is back on the scheduler's stack. Exposed so the host suite can
  * exercise it. */
 void reflex_sched_reap(reflex_tcb_t *tasks, int count);
+
+/** @brief One task slot, copied out for inspection. */
+typedef struct {
+    reflex_task_state_t state;
+    const char *name;
+    int priority;
+    uint32_t stack_size;
+    uint32_t wake_tick;
+    bool has_stack;
+    bool started;
+    bool wake_deadline_valid;
+    bool is_current;
+} reflex_sched_slot_t;
+
+/** @brief Copy out slot @p index. False if @p index is out of range.
+ *
+ * Task lifecycle was not observable from outside the scheduler at all, which
+ * is why the reap could be host-tested and not demonstrated on a board: with
+ * no way to see a slot, "the slot came back" is not a claim anyone can check.
+ * A retired task's slot reads FREE here when it has been reaped and DEAD when
+ * it has not, which is the whole difference. */
+bool reflex_sched_slot_info(int index, reflex_sched_slot_t *out);
 void reflex_sched_delay_ms(uint32_t ms);
 void reflex_sched_yield(void);
 

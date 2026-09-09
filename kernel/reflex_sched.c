@@ -127,7 +127,15 @@ reflex_err_t reflex_sched_create_task(void (*entry)(void *), const char *name,
     tcb->stack_base = stack;
     tcb->stack_size = stack_bytes;
     tcb->priority = priority;
-    tcb->name = name;
+    /* Bounded copy, always terminated. */
+    if (name) {
+        size_t n = strlen(name);
+        if (n >= sizeof(tcb->name)) n = sizeof(tcb->name) - 1;
+        memcpy(tcb->name, name, n);
+        tcb->name[n] = '\0';
+    } else {
+        tcb->name[0] = '\0';
+    }
     tcb->state = REFLEX_TASK_STATE_READY;
     tcb->wake_tick = 0;
     tcb->blocked_on = NULL;
@@ -155,6 +163,21 @@ reflex_err_t reflex_sched_create_task(void (*entry)(void *), const char *name,
  *
  * Takes the array rather than reading the file-scope one so the host suite can
  * exercise it; the scheduler loop is the only caller that is not a test. */
+bool reflex_sched_slot_info(int index, reflex_sched_slot_t *out) {
+    if (!out || index < 0 || index >= REFLEX_SCHED_MAX_TASKS) return false;
+    const reflex_tcb_t *t = &s_tasks[index];
+    out->state = t->state;
+    out->name = t->name;
+    out->priority = t->priority;
+    out->stack_size = t->stack_size;
+    out->wake_tick = t->wake_tick;
+    out->has_stack = (t->stack_base != NULL);
+    out->started = t->started;
+    out->wake_deadline_valid = t->wake_deadline_valid;
+    out->is_current = (t == s_current);
+    return true;
+}
+
 void reflex_sched_reap(reflex_tcb_t *tasks, int count) {
     if (!tasks) return;
     for (int i = 0; i < count; i++) {
@@ -170,6 +193,7 @@ void reflex_sched_reap(reflex_tcb_t *tasks, int count) {
         tasks[i].blocked_on = NULL;
         tasks[i].wake_deadline_valid = false;
         tasks[i].wake_tick = 0;
+        tasks[i].name[0] = '\0';
         tasks[i].state = REFLEX_TASK_STATE_FREE;
     }
 }
@@ -209,7 +233,7 @@ int reflex_sched_find_index(const reflex_tcb_t *tasks, int count, const char *na
         if (tasks[i].state == REFLEX_TASK_STATE_FREE || tasks[i].state == REFLEX_TASK_STATE_DEAD) {
             continue;
         }
-        if (tasks[i].name && strcmp(tasks[i].name, name) == 0) return i;
+        if (tasks[i].name[0] && strcmp(tasks[i].name, name) == 0) return i;
     }
     return -1;
 }

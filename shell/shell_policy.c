@@ -103,6 +103,8 @@ static uint8_t subcmd_min_role(const char *cmd, int argc, char *argv[]) {
         /* selftest hands the shell task to the Reflex scheduler and does not
          * give it back, so the board needs a reset afterwards. Gated with the
          * things that take the board away from you. */
+        /* Read-only introspection of the scheduler's slot table. */
+        if (strcmp(sub, "tasks") == 0) return ROLE_OBSERVER;
         if (strcmp(sub, "selftest") == 0) return ROLE_ADMIN;
     } else if (strcmp(cmd, "goonies") == 0) {
         /* goonies ls/find = observer; read = operator. `read` dereferences a

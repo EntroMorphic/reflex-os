@@ -560,11 +560,11 @@ static void test_find_index(void) {
     CHECK("empty table finds nothing", reflex_sched_find_index(t, NTASK, "a") == -1);
 
     t[1].state = REFLEX_TASK_STATE_READY;
-    t[1].name = "supervisor";
+    snprintf(t[1].name, sizeof(t[1].name), "supervisor");
     t[2].state = REFLEX_TASK_STATE_BLOCKED;
-    t[2].name = "shell";
+    snprintf(t[2].name, sizeof(t[2].name), "shell");
     t[3].state = REFLEX_TASK_STATE_RUNNING;
-    t[3].name = "main";
+    snprintf(t[3].name, sizeof(t[3].name), "main");
 
     CHECK("finds a READY task", reflex_sched_find_index(t, NTASK, "supervisor") == 1);
     CHECK("finds a BLOCKED task", reflex_sched_find_index(t, NTASK, "shell") == 2);
@@ -582,11 +582,49 @@ static void test_find_index(void) {
     t[2].state = REFLEX_TASK_STATE_FREE;
     CHECK("a FREE slot is not found", reflex_sched_find_index(t, NTASK, "shell") == -1);
 
-    /* A live slot with no name must not be matched by a NULL-ish probe. */
+    /* A live slot with no name must not be matched by a NULL-ish probe. The
+     * name is a copy in the TCB now, so "no name" is an empty string rather
+     * than a NULL pointer. */
     t[0].state = REFLEX_TASK_STATE_READY;
-    t[0].name = NULL;
+    t[0].name[0] = '\0';
     CHECK("an unnamed live task is skipped safely",
           reflex_sched_find_index(t, NTASK, "supervisor") == 1);
+
+    /* Names are copied, not borrowed: a caller's buffer going away must not
+     * change what the scheduler holds. This is what a stack-allocated name
+     * used to do — goose_field_start_pulse formats one into a local char[16]
+     * — and it showed up on hardware as a corrupted task name. */
+    {
+        reflex_tcb_t one;
+        memset(&one, 0, sizeof(one));
+        char borrowed[16];
+        snprintf(borrowed, sizeof(borrowed), "ephemeral");
+        reflex_tcb_t *made = NULL;
+        (void)made;
+        /* Simulate create_task's copy, then destroy the source. */
+        size_t n = strlen(borrowed);
+        if (n >= sizeof(one.name)) n = sizeof(one.name) - 1;
+        memcpy(one.name, borrowed, n);
+        one.name[n] = '\0';
+        one.state = REFLEX_TASK_STATE_READY;
+        memset(borrowed, 'X', sizeof(borrowed));
+        CHECK("a copied name survives its source", strcmp(one.name, "ephemeral") == 0);
+        CHECK("a copied name is still findable",
+              reflex_sched_find_index(&one, 1, "ephemeral") == 0);
+    }
+
+    /* Over-long names are truncated rather than overrunning the field. */
+    {
+        reflex_tcb_t big;
+        memset(&big, 0, sizeof(big));
+        const char *long_name = "0123456789abcdefghijklmnop";
+        size_t n = strlen(long_name);
+        if (n >= sizeof(big.name)) n = sizeof(big.name) - 1;
+        memcpy(big.name, long_name, n);
+        big.name[n] = '\0';
+        CHECK("an over-long name is truncated", strlen(big.name) == REFLEX_SCHED_NAME_MAX - 1);
+        CHECK("an over-long name stays terminated", big.name[REFLEX_SCHED_NAME_MAX - 1] == '\0');
+    }
 }
 
 static void test_priority_accessors(void) {
