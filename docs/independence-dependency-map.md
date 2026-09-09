@@ -1150,44 +1150,57 @@ survive a restart. `sdkconfig.defaults.own_entry` and `make own-entry-build`
 close that, exactly as `sdkconfig.defaults.independence` closed it one layer
 down.
 
-### The remaining blocker: timed waits never wake
+### The blocker was the idle task, and Reflex now runs the whole system
 
-Narrowed to one sentence, with everything around it eliminated. `app_main`
-reaches `reflex_vm_task_self_check`, which starts a VM task and polls it with
-`reflex_task_delay_ms(10)` at most a hundred times. The poll never finishes, and
-the VM task runs exactly one iteration of its own loop and then stops too. Both
-are parked in a delay; nothing is left runnable; the scheduler parks on `wfi`.
+Timed waits never woke. Every part of the waking machinery was correct — the
+tick at 1000 Hz under Reflex's own vector, `s_tick_count` volatile,
+`reflex_sched_should_time_wake` and its host tests, the sweep over every task on
+every scheduling decision — and none of it was reachable.
 
-What has been ruled out by measurement rather than argument:
+`reflex_sched_init` always creates an idle task at priority 0, and its body was:
 
-- **The tick is alive under Reflex's own trap vector.** The entry path now checks
-  it twice — once under ESP-IDF's `mtvec` and again after `reflex_trap_install`,
-  because installing the vector is exactly the step that could break it and a
-  scheduler with a stopped clock does not crash, it goes quiet. The second check
-  reports **50 ticks in 50 ms**, so the handover is clean. That check stays.
-- **The wake path is wired in.** `pick_next` does call
-  `reflex_sched_should_time_wake` for every task on every scheduling decision,
-  including queue waiters with a timeout. An earlier note here that the
-  predicate was dead code was wrong and is withdrawn.
-- **`s_tick_count` is `volatile`**, so the scheduler loop is not reading a
-  cached copy.
-- **It is a hang, not slowness.** Forty-five seconds of capture, against bounded
-  waits totalling about a second.
+```c
+while (1) { __asm__ volatile ("wfi"); }
+```
 
-- **The arithmetic is already host-tested and correct.** `reflex_sched_ms_to_ticks`
-  and `reflex_sched_should_time_wake` are both pinned in `tests/host/test_kqueue.c`,
-  including the expired sleeper, the unexpired sleeper, the timed queue waiter
-  that must expire despite having `blocked_on` set, the untimed waiter the clock
-  must never touch, and the behaviour across the counter wrap.
+It never yields. So the first task to block ended the system: the scheduler
+picked idle, idle never came back, `pick_next` never ran again, and the sweep
+that wakes timed sleepers lives inside `pick_next`. Because idle is always
+READY, `pick_next` also never returned NULL, so the scheduler's own idle path
+was dead code too — which is why a probe placed there printed nothing at all.
 
-So the clock advances, the predicate is correct, the predicate is called against
-the live clock, and the task stays blocked. Everything reachable from the host
-suite has been eliminated, which means the fault is in the part that only exists
-on device: `pick_next`, the scheduler loop, and the `setjmp`/`longjmp` context
-switch between them — all three compiled only when `REFLEX_HOST_BUILD` is unset,
-and none of them covered by a test. That is where to look next, and it needs an
-instrument that survives a scheduler which has gone quiet, which is the same
-problem this work has hit before.
+Measured rather than inferred. A probe moved to the scheduling decision itself
+printed **exactly once per boot**, at the first pick, and never again.
+
+The fix is the missing `reflex_sched_yield()` after the `wfi`: sleep until an
+interrupt, then give the scheduler its turn back so it re-runs `pick_next`,
+sweeps the deadlines, and hands the CPU to whatever woke. When nothing is ready
+it picks idle again and parks — one pass per interrupt, which is what an idle
+task is for.
+
+**Reflex OS now boots and runs entirely on its own kernel.** With
+`make own-entry-build`, the entry point, the scheduler, the trap vector and the
+console are all Reflex's, FreeRTOS is never started, and the shell answers:
+
+```
+I (reflex.boot) self_checks=done
+I (reflex.shell) console: cpu_int=11 plic_en=1 unclaimed_masked=0x00000100
+reflex> I (reflex.boot) system_stable=confirmed
+
+reflex> kernel tick
+kernel tick: 500 ticks in 499859 us -> 1000 Hz (target 1000)
+  plic live mask=0x00000c00 (2 lines, incl. this one)
+```
+
+`system_stable=confirmed` is the proof that matters most: it is published by a
+task that first sleeps for seconds on `reflex_task_delay_ms`, so it can only
+appear if a timed wake fired. Two PLIC lines are live — the tick and the console
+— and everything else is quiesced.
+
+`kernel selftest` corroborates it from the ordinary build, where it had run each
+task once and stopped. Both cooperative tasks now run to completion at their
+configured periods: task A every 100 ticks (`sys=653, 753, 853, 953…`), task B
+every 130 (`sys=703, 833, 963, 1093…`).
 
 One adjacent defect found while reading and not yet fixed: the self-delete path
 in `reflex_sched_delete_task` marks the task `DEAD` and yields, but never frees

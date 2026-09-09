@@ -541,12 +541,35 @@ static void setup_systimer_tick(void) {
 
 /* ---- Init and start ---- */
 
+/* The idle task sleeps, then gives the scheduler its turn back.
+ *
+ * The yield is the whole point of this function and it was missing. Without it
+ * the loop is `while (1) { wfi; }`, which never returns to the scheduler — and
+ * because reflex_sched_init always creates this task at priority 0, it is
+ * always READY, so pick_next never returns NULL and the scheduler never reaches
+ * its own idle path either. The first task to block therefore ended the
+ * system: idle was picked, idle never came back, pick_next never ran again,
+ * and the sweep that wakes timed sleepers lives inside pick_next.
+ *
+ * That is the whole of the long-standing "tasks run once and never wake from
+ * delay_ms". Every part of the waking machinery was correct — the tick, the
+ * volatile counter, reflex_sched_should_time_wake and its host tests, the sweep
+ * itself — and none of it was reachable, because the lowest-priority task was a
+ * black hole. Measured, not inferred: a probe on pick_next printed exactly once
+ * per boot, at the first scheduling decision, and never again.
+ *
+ * wfi first, so a tick with nothing to do costs one wakeup rather than a spin;
+ * yield second, so the scheduler re-runs pick_next, sweeps the deadlines, and
+ * hands the CPU to whichever task that woke. When nothing is ready, pick_next
+ * chooses idle again and this parks on wfi once more — one pass per interrupt,
+ * which is what an idle task is for. */
 static void idle_task(void *arg) {
     (void)arg;
     while (1) {
 #ifndef REFLEX_HOST_BUILD
-        __asm__ volatile ("wfi");
+        __asm__ volatile("wfi");
 #endif
+        reflex_sched_yield();
     }
 }
 
