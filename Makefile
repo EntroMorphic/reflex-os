@@ -7,7 +7,7 @@ RELEASE_DIR := release/$(RELEASE_NAME)
 
 .PHONY: build flash release clean test tasm-test loomc-test tools-test hw-test doc-links \
         format format-check format-diff warn-check lock-check independence independence-check tick-measure ci-lint soc-header soc-bridge \
-        own-entry-build \
+        own-entry-build parity-base parity-other parity-diff \
         soc-check rom-check idf-build verify config-reset docs atlas
 
 build:
@@ -79,6 +79,32 @@ own-entry-build:
 	SDKCONFIG_DEFAULTS=sdkconfig.defaults.own_entry \
 	  idf.py -B build_own_entry -DSDKCONFIG=build_own_entry/sdkconfig \
 	  -DCMAKE_C_FLAGS=-DREFLEX_OWN_ENTRY=1 build
+
+# The other half of the independence measurement.
+#
+# check_independence.py counts ESP-IDF includes removed and forbids that number
+# from growing. It measures subtraction, and it cannot see whether the Reflex
+# code that replaced a dependency still does the job — twice it has scored a
+# replacement as progress while that replacement did nothing: the Reflex task
+# backend could not wake a task from a delay, and the Reflex flash store
+# persists nothing across a reboot. Both lowered the count. Both passed every
+# gate.
+#
+# This runs the same battery of shell commands against two builds and diffs
+# them. Hardware only, and therefore not part of `make verify`: the host suite
+# mocks flash as RAM, which is precisely what hid the persistence bug.
+#
+#   make parity-base   PORT=/dev/cu.usbmodemXXXX    # flash the default build first
+#   make parity-other  PORT=/dev/cu.usbmodemXXXX    # then the build under test
+#   make parity-diff
+parity-base:
+	@python3 tools/parity_check.py --port $(PORT) --label default --out /tmp/parity_base.json
+
+parity-other:
+	@python3 tools/parity_check.py --port $(PORT) --label $(or $(LABEL),other) --out /tmp/parity_other.json
+
+parity-diff:
+	@python3 tools/parity_check.py --diff /tmp/parity_base.json /tmp/parity_other.json
 
 # The independence checker decides what the tier numbers say, so its own
 # parser is tested — including against the C6 build's dependency output, which

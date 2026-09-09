@@ -348,6 +348,10 @@ reflex_err_t reflex_sched_tick_start(void) {
     return REFLEX_OK;
 }
 
+bool reflex_sched_tick_is_running(void) {
+    return s_tick_intr != NULL;
+}
+
 void reflex_sched_tick_stop(void) {
     /* Peripheral first, for the same reason: never leave a routed line with an
      * armed source and no handler. */

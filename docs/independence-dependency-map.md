@@ -1150,6 +1150,56 @@ survive a restart. `sdkconfig.defaults.own_entry` and `make own-entry-build`
 close that, exactly as `sdkconfig.defaults.independence` closed it one layer
 down.
 
+### Bedrock: what each build can actually do
+
+The ratchet counts ESP-IDF includes removed and forbids that number from
+growing. It measures subtraction, and it cannot see whether the Reflex code that
+replaced a dependency still does the job. Twice it has scored a replacement as
+progress while that replacement did nothing at all — `reflex_task_reflex.c`
+could not wake a task from a delay, and `reflex_kv_flash.c` persists nothing.
+Both lowered the count, both passed every gate. There are only three such swaps
+in the build, so that is two out of three.
+
+`tools/parity_check.py` measures the other half: the same battery of shell
+commands against two builds, diffed. Hardware only, deliberately — the host
+suite mocks flash as RAM, which is exactly what hid the persistence bug.
+
+Measured on one board, all three configurations in turn:
+
+| capability | default | independence | own_entry |
+|---|---|---|---|
+| boots, auth, shell | yes | yes | yes |
+| tick | 999 Hz | 998 Hz | **1000 Hz** |
+| Reflex task slots in use | 0 | 0 | **8** |
+| LED on/off | yes | yes | yes |
+| PWM attach/detach | yes | yes | yes |
+| temperature | yes | yes | yes |
+| LP heartbeat | yes | yes | yes |
+| mesh transmit | yes | yes | yes |
+| VM programs | 3 | 3 | 3 |
+| **persist across reboot** | **yes** | **no** | **no** |
+
+So with Reflex owning the entry point, the scheduler, the trap vector and the
+console — running the whole substrate on its own eight tasks — the system is at
+capability parity with the stock ESP-IDF build on every axis measured **except
+persistence**. The entire remaining functional gap of this work is one
+subsystem, and it is the one above.
+
+**The parity run also found a defect of its own**, which is the argument for
+having it. On the own-entry build every reading after `kernel tick` came back
+empty, and it reproduced exactly. Not transport: `kernel tick` calls
+`reflex_sched_tick_stop()`, and on a build where Reflex owns the scheduler that
+tick *is* the scheduler's clock. Stopping it left every task blocked forever
+with nothing to wake them — the machine died mid-command. A diagnostic that
+destroys the system it is diagnosing. It now stops only a tick it started
+itself.
+
+That near-miss is also why the tool distinguishes a silent command from an
+absent capability. It did not at first, and one dead connection reported as a
+dozen capability regressions; that very nearly went into the record as "Reflex
+ownership costs everything". A run with silent commands is now marked
+untrustworthy as a whole rather than reported selectively.
+
 ### Reflex's own key-value store keeps nothing, and that is why the mesh cannot pair
 
 Chasing why received frames were rejected led somewhere else entirely. The

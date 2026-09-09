@@ -213,6 +213,13 @@ int reflex_sched_get_priority(const reflex_tcb_t *t);
 reflex_err_t reflex_sched_tick_start(void);
 void reflex_sched_tick_stop(void);
 
+/** @brief Is the scheduler tick armed right now?
+ *
+ * So a caller can tell whether it owns the tick it just asked for. Anything
+ * that stops a tick it did not start takes the clock out from under whatever
+ * was already using it. */
+bool reflex_sched_tick_is_running(void);
+
 /**
  * @brief Read back the tick peripheral's interrupt state.
  *

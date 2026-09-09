@@ -66,6 +66,18 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
   **Demonstrated on hardware once the missing instrument existed.** The first version of this entry said it could not be shown on a board and listed three inert attempts as if the gap were in the hardware; the gap was that task lifecycle was not observable from outside the scheduler at all. With `kernel tasks`, the mutation is decisive: `9 of 16 in use, 0 dead` with the reap, `11 of 16 in use, 2 dead` without — `reflex-led` and `reflex-vm`, each still holding a 4 KB stack after retiring during an ordinary boot.
 
+### Added
+
+- **`tools/parity_check.py` and `make parity-base` / `parity-other` / `parity-diff` — the other half of the independence measurement.** The ratchet counts ESP-IDF includes removed and forbids that number from growing; it measures subtraction and cannot see whether the Reflex code that replaced a dependency still does the job. Twice it scored a replacement as progress while that replacement did nothing — the Reflex task backend could not wake a task from a delay, and the Reflex flash store persists nothing. There are three such swaps in the build, so that is two of three. This runs the same battery of shell commands against two builds and diffs them, hardware only: the host suite mocks flash as RAM, which is exactly what hid the persistence bug.
+
+  **The result is the bedrock number for this work.** With Reflex owning the entry point, the scheduler, the trap vector and the console — the whole substrate on its own eight task slots — the system is at capability parity with the stock ESP-IDF build on every axis measured (tick 1000 Hz vs 999, LED, PWM, temperature, LP heartbeat, mesh transmit, VM programs, auth, shell) **except persistence**. One subsystem is the entire remaining functional gap.
+
+### Fixed
+
+- **`kernel tick` killed the machine on a build where Reflex owns the scheduler.** It calls `reflex_sched_tick_stop()`, and there that tick *is* the scheduler's clock — every task blocked forever with nothing to wake them, the board dead mid-command. Found by the parity run, where every reading after `kernel tick` came back empty and reproduced exactly. It now stops only a tick it started itself. A diagnostic that destroys the system it is diagnosing is worse than none.
+
+- **The parity tool conflated a silent command with an absent capability**, so one dead connection reported as a dozen capability regressions — which very nearly went into the record as "Reflex ownership costs everything". A run with silent commands is now marked untrustworthy as a whole rather than reported selectively.
+
 - **The mesh version counter was counting radio noise.** `rx_version_mismatch` was checked *before* the Aura gate, so anything on the shared 802.15.4 band that happened to be `sizeof(goose_arc_packet_t)` bytes landed in it — conflating "a peer is running a different build" with "someone else's Zigbee frame", which are opposite conclusions. It sits behind the Aura gate now, exactly where the malformed check already sat and for the reason that comment gives. Measured on hardware: what had been `version_mismatch` climbing became `aura_fail` climbing, one for one.
 
 - **Reflex's flash key-value store was writing into the `nvs` partition.** `KV_FLASH_BASE` was `0x9000` with six 4 KB sectors; `partitions.csv` puts `nvs` at `0x9000` with size `0x6000` — the same six sectors. Everything the store wrote was later overwritten by NVS, whose users include `phy_init` saving radio calibration on every boot. Avoiding the NVS *component* is not the same as avoiding NVS's *storage*. It has its own `reflexkv` partition now.

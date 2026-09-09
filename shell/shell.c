@@ -1195,6 +1195,12 @@ static void shell_cmd_led(int argc, char *argv[]) {
  * answering. */
 static void shell_cmd_kernel_tick(void) {
     uint32_t before = reflex_sched_get_tick();
+    /* Whether the tick was already someone else's before this command asked
+     * for it. reflex_sched_tick_start returns OK without doing anything when it
+     * is already armed, so without this the teardown below stops a tick this
+     * command never started. */
+    bool tick_was_running = reflex_sched_tick_is_running();
+
     reflex_err_t rc = reflex_sched_tick_start();
     if (rc != REFLEX_OK) {
         printf("kernel tick: routing failed rc=0x%x\n", rc);
@@ -1243,7 +1249,17 @@ static void shell_cmd_kernel_tick(void) {
     uint64_t unit_now = 0, real_target = 0, t1_target = 0;
     reflex_sched_tick_debug_target(&unit_now, &real_target, &t1_target);
 
-    reflex_sched_tick_stop();
+    /* Only stop what this command started.
+     *
+     * On a build where Reflex owns the scheduler the tick is the scheduler's
+     * clock, and stopping it leaves every task blocked forever with nothing to
+     * wake them — the machine dies mid-command. Measured exactly that way: on
+     * the own-entry build `kernel tick` printed 1000 Hz and then nothing on the
+     * board answered again, while the same battery without it ran clean. A
+     * diagnostic that destroys the system it is diagnosing is worse than none. */
+    if (!tick_was_running) {
+        reflex_sched_tick_stop();
+    }
 
     uint32_t ticks = after - before;
     /* Report the measured rate rather than a pass/fail: a tick at the wrong
