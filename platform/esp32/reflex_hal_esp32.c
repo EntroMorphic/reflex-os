@@ -188,6 +188,64 @@ void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out) {
 
 void reflex_hal_pwm_release(void) {}
 
+/* The interrupt- and console-introspection surface, stubbed for this target.
+ *
+ * These landed on the C6 for the entry-point work and were declared in the
+ * shared reflex_hal.h without counterparts here. The build survived only
+ * because every caller happens to sit behind CONFIG_IDF_TARGET_ESP32C6, which
+ * makes it a link error waiting for the first caller that does not — and
+ * reflex_hal.h is the contract, not a C6 header. The same file already stubs
+ * reflex_hal_stack_guard_disable, reflex_hal_wdt_disable_timg and
+ * reflex_hal_pwm_release for exactly this reason; these were the omission.
+ *
+ * Values chosen so a caller reads "this platform cannot report that" rather
+ * than a plausible-looking zero state: no lines are dispatched, none are
+ * masked, and no source is found on any line. */
+bool reflex_hal_intr_dispatch_line(int cpu_int) {
+    (void)cpu_int;
+    return false; /* ESP-IDF owns the trap vector on this target. */
+}
+
+void reflex_hal_intr_mask_unclaimed(int cpu_int) {
+    (void)cpu_int;
+}
+
+uint32_t reflex_hal_intr_unclaimed_lines(void) {
+    return 0;
+}
+
+void reflex_hal_intr_dump(uint32_t *enable, uint32_t *type, uint32_t *thresh, uint8_t *pri32,
+                          uint32_t *mie_raw) {
+    if (enable) *enable = 0;
+    if (type) *type = 0;
+    if (thresh) *thresh = 0;
+    if (mie_raw) *mie_raw = 0;
+    if (pri32) memset(pri32, 0, 32);
+}
+
+uint32_t reflex_hal_intr_sources_on_line(int cpu_int) {
+    (void)cpu_int;
+    return 0;
+}
+
+uint32_t reflex_hal_intr_first_source_on_line(int cpu_int, int after) {
+    (void)cpu_int;
+    (void)after;
+    return 0xFFFFFFFFu;
+}
+
+uint32_t reflex_hal_console_isr_entries(void) {
+    return 0;
+}
+
+void reflex_hal_console_emit(const char *data, int len) {
+    /* The console here is ESP-IDF's UART, and this is a fatal-path writer, so
+     * it goes out the same way the rest of this platform's output does. */
+    if (!data || len <= 0) return;
+    fwrite(data, 1, (size_t)len, stdout);
+    fflush(stdout);
+}
+
 void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out) {
     if (!out) return;
     memset(out, 0, sizeof *out);

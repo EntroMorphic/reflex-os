@@ -2266,7 +2266,12 @@ void reflex_shell_run(void) {
      * so a prompt with no keyboard is an interrupt question, not a console one.
      * Printed once at shell start because when Reflex owns mtvec there may be
      * no other way to ask: a masked or unclaimed line cannot be queried from a
-     * shell that the masking is preventing you from typing into. */
+     * shell that the masking is preventing you from typing into.
+     *
+     * Read unclaimed_masked with the build in mind. Lines are masked only by
+     * reflex_trap_handler, which runs only where Reflex owns mtvec, so on an
+     * ordinary build the field is zero by construction and says nothing about
+     * whether the masking works. It is evidence only under REFLEX_OWN_ENTRY. */
     {
         reflex_intr_route_t con;
         reflex_hal_intr_describe(REFLEX_INTR_SRC_USB_SERIAL_JTAG, &con);

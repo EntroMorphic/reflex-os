@@ -227,7 +227,7 @@ uint32_t *reflex_trap_handler(uint32_t *frame) {
     for (const char *p = lead; *p && n < (int)sizeof(msg); p++)
         msg[n++] = *p;
     const uint32_t vals[3] = {mcause, mepc, mtval};
-    const char *labels[3] = {" mepc=0x", " mtval=0x"};
+    const char *labels[2] = {" mepc=0x", " mtval=0x"};
     for (int v = 0; v < 3; v++) {
         for (int shift = 28; shift >= 0 && n < (int)sizeof(msg); shift -= 4) {
             msg[n++] = hexd[(vals[v] >> shift) & 0xF];

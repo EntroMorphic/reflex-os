@@ -579,6 +579,16 @@ uint32_t reflex_hal_intr_unclaimed_lines(void) {
 
 void __attribute__((section(".iram1"))) reflex_hal_intr_mask_unclaimed(int cpu_int) {
     if (cpu_int < 0 || cpu_int >= 32) return;
+    /* No mstatus bracketing around the read-modify-write, unlike every other
+     * writer of PLIC_MXINT_ENABLE in this file.
+     *
+     * Stated rather than left to be noticed, because the difference is not an
+     * oversight and not free: this runs only from reflex_trap_handler, and trap
+     * entry has already cleared MIE, so the sequence is already atomic against
+     * preemption on this single core. Disabling interrupts again would be
+     * harmless but would misrepresent where this can be called from. It cannot
+     * be called from task context — if that ever changes, this needs the same
+     * bracketing as reflex_hal_intr_set_enabled. */
     s_unclaimed_lines |= (1U << cpu_int);
     REFLEX_REG(PLIC_MXINT_ENABLE) &= ~(1U << cpu_int);
 }
@@ -636,6 +646,11 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
 
     s_intr_table[cpu_int].handler = handler;
     s_intr_table[cpu_int].arg = arg;
+    /* A line masked earlier as unclaimed is claimed now, so drop it from the
+     * record. Without this the report is a list of lines that were once
+     * unclaimed rather than lines that are currently lost, and the PLIC enable
+     * below silently contradicts it. */
+    s_unclaimed_lines &= ~(1U << cpu_int);
 
     /* Route peripheral source → CPU interrupt via interrupt matrix */
     REFLEX_REG(INTMTX_BASE + 4 * source) = cpu_int;
