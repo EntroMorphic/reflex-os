@@ -149,11 +149,6 @@ bool reflex_hal_intr_dispatch_line(int cpu_int);
 void reflex_hal_intr_mask_unclaimed(int cpu_int);
 /** @brief Bitmask of lines masked by @ref reflex_hal_intr_mask_unclaimed. */
 uint32_t reflex_hal_intr_unclaimed_lines(void);
-
-/** @brief Write raw preformatted bytes to the console.
- *  For fatal paths that must not allocate a large stack buffer, and must not
- *  print to a UART this board does not use. */
-void reflex_hal_console_emit(const char *data, int len);
 /** @brief Fill @p buf with hardware entropy. Used for the per-board Aura key
  *  and for arc nonces, so it must be a real RNG rather than a PRNG seeded at
  *  a predictable point in boot. */

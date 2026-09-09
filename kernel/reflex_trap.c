@@ -212,34 +212,24 @@ uint32_t *reflex_trap_handler(uint32_t *frame) {
     __asm__ volatile("csrr %0, mepc" : "=r"(mepc));
     __asm__ volatile("csrr %0, mtval" : "=r"(mtval));
 
-    /* To the console this board has, and with no large stack buffer.
+    /* esp_rom_printf, not REFLEX_LOGE, and not Reflex's console writer either.
      *
-     * esp_rom_printf writes to UART0; the console here is USB-serial-JTAG, so
-     * this message was being printed where nobody could read it and every fatal
-     * fault looked like a silent hang. The hex is formatted by hand into a
-     * small fixed buffer rather than through the logging path, because the
-     * stack that faulted may be the one that overflowed and 192 more bytes of
-     * it would fault again inside the handler. */
-    static const char hexd[] = "0123456789abcdef";
-    char msg[96];
-    int n = 0;
-    const char *lead = "[reflex.trap] fatal mcause=0x";
-    for (const char *p = lead; *p && n < (int)sizeof(msg); p++)
-        msg[n++] = *p;
-    const uint32_t vals[3] = {mcause, mepc, mtval};
-    const char *labels[2] = {" mepc=0x", " mtval=0x"};
-    for (int v = 0; v < 3; v++) {
-        for (int shift = 28; shift >= 0 && n < (int)sizeof(msg); shift -= 4) {
-            msg[n++] = hexd[(vals[v] >> shift) & 0xF];
-        }
-        if (v < 2) {
-            for (const char *p = labels[v]; *p && n < (int)sizeof(msg); p++)
-                msg[n++] = *p;
-        }
-    }
-    for (const char *p = " halting\n"; *p && n < (int)sizeof(msg); p++)
-        msg[n++] = *p;
-    reflex_hal_console_emit(msg, n);
+     * The logging path formats into a 192-byte stack buffer, and the stack here
+     * is the interrupted context's — which may be precisely what overflowed and
+     * caused this trap. The ROM printf writes through a fixed ROM routine with a
+     * small frame.
+     *
+     * This was briefly changed to write through reflex_hal_console_emit on the
+     * belief that esp_rom_printf goes to UART0 and is invisible on a
+     * USB-serial-JTAG board. That belief was wrong, and the evidence for it was
+     * worthless: two probes placed with esp_rom_printf printed nothing, but the
+     * code holding them was never reached — an interrupt storm was stopping the
+     * machine earlier. Tested directly afterwards, esp_rom_printf prints here
+     * perfectly well. Reverted, because the replacement was strictly worse in a
+     * fatal path: it spins on a USB FIFO and calls reflex_hal_time_us, on a
+     * machine already known to be broken. */
+    esp_rom_printf("[reflex.trap] unhandled exception mcause=0x%x mepc=0x%x mtval=0x%x - halting\n",
+                   (unsigned)mcause, (unsigned)mepc, (unsigned)mtval);
 
     /* Interrupts stay disabled: trap entry cleared MIE, and re-enabling would
      * let a tick preempt a machine already known to be broken. */

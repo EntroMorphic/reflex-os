@@ -72,6 +72,23 @@
     "REFLEX_OWN_ENTRY needs CONFIG_REFLEX_KERNEL_SCHEDULER: the Reflex scheduler it hands the machine to is not in this build"
 #endif
 
+/* And the task backend, for the same reason one layer up.
+ *
+ * CONFIG_REFLEX_KERNEL_SCHEDULER puts the scheduler in the build;
+ * CONFIG_REFLEX_TASK_BACKEND_REFLEX is what makes reflex_task_create file a TCB
+ * into it instead of calling xTaskCreate. Without the second, everything below
+ * runs on the Reflex scheduler while app_main creates its tasks on a FreeRTOS
+ * that was never started — which is not a link error and not a crash, it is a
+ * boot that stops partway with no explanation. That cost a debugging session
+ * before the configuration was even suspected.
+ *
+ * Refused here rather than documented, because the two options are independent
+ * in Kconfig and nothing else pairs them. */
+#if defined(REFLEX_OWN_ENTRY) && !CONFIG_REFLEX_TASK_BACKEND_REFLEX
+#error                                                                                             \
+    "REFLEX_OWN_ENTRY needs CONFIG_REFLEX_TASK_BACKEND_REFLEX: without it app_main creates tasks on a FreeRTOS that was never started"
+#endif
+
 /* The application's own entry, still named app_main so nothing else moves. */
 extern void app_main(void);
 
@@ -190,6 +207,33 @@ void __wrap_esp_startup_start_app(void) {
     reflex_hal_wdt_disable_timg();
 
     reflex_trap_install();
+
+    /* Verify the tick a second time, now that Reflex's handler is the one
+     * servicing it.
+     *
+     * The check above proves the tick under ESP-IDF's trap vector. It says
+     * nothing about the tick under Reflex's, and installing mtvec is exactly
+     * the step that could break it: a wrong tick line, a vector table that does
+     * not dispatch, an acknowledgement that does not clear. Everything after
+     * this point — every delay, every timed queue wait — depends on
+     * s_tick_count advancing, and a scheduler whose clock has stopped does not
+     * crash, it parks on wfi and goes quiet. That is indistinguishable from a
+     * hang, and it is the failure this pair of checks exists to tell apart.
+     *
+     * Measured with reflex_hal_delay_us, which is a ROM busy-wait and does not
+     * itself need the scheduler or the tick. */
+    uint32_t t1 = reflex_sched_get_tick();
+    reflex_hal_delay_us(50000);
+    uint32_t t2 = reflex_sched_get_tick();
+    if (t2 == t1) {
+        REFLEX_LOGE(TAG,
+                    "tick stopped when Reflex took mtvec (%u over 50ms): tick_line=%d "
+                    "unclaimed=0x%08x",
+                    (unsigned)(t2 - t1), reflex_trap_get_tick_line(),
+                    (unsigned)reflex_hal_intr_unclaimed_lines());
+        goto stall;
+    }
+    REFLEX_LOGI(TAG, "tick survives mtvec: %u ticks in 50ms", (unsigned)(t2 - t1));
 
     rc = reflex_sched_create_task(reflex_main_task, "main", 8192, NULL, 10, NULL);
     if (rc != REFLEX_OK) {

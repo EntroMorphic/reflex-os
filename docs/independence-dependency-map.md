@@ -1060,20 +1060,29 @@ recorded** in `reflex_hal_intr_unclaimed_lines`, trading a dead machine for a
 degraded one that can say what it lost. With that, boot runs to the end: the
 self-checks execute and the event task cycles.
 
-### An instrument that could not fail, again
+### A wrong diagnosis, retracted
 
-Two probes were placed with `esp_rom_printf` and printed nothing, which read as
-"the code never got here". It was not. `esp_rom_printf` writes to UART0 and this
-board's console is USB-serial-JTAG, so the probes were landing on a wire nobody
-reads.
+Two probes placed with `esp_rom_printf` printed nothing. That was read as "the
+output path is wrong" — specifically that `esp_rom_printf` goes to UART0 while
+this board's console is USB-serial-JTAG — and the trap handler's fatal path was
+changed on that basis, with a claim that every unhandled exception had been
+reporting itself where nobody could read it.
 
-The same bug was sitting in the trap handler's fatal path, and there it mattered
-much more: **every unhandled exception has been reporting itself to UART0**,
-where it cannot be seen. A fatal fault was indistinguishable from a hang, and
-that cost real time here. It now formats by hand into a small fixed buffer —
-still avoiding the 192-byte stack buffer the logging path uses, since the stack
-that faulted may be the one that overflowed — and writes through
-`reflex_hal_console_emit`, the console the board actually has.
+**The claim was false.** The probes printed nothing because the code holding
+them was never reached: an interrupt storm was stopping the machine earlier.
+Tested directly once the storm was fixed, `esp_rom_printf` prints on this
+console without trouble.
+
+The change has been reverted, and it was the wrong change on its own terms too:
+routing a fatal path through Reflex's console makes it spin on a USB FIFO and
+call `reflex_hal_time_us` on a machine already known to be broken, where the ROM
+routine's small fixed frame was the reason the original code chose it.
+
+The actual lesson is not about output paths. A silent probe has two
+explanations — the code did not run, or the print did not arrive — and they were
+not distinguished before one of them was written up as a finding. The cheap
+discriminator, putting a probe somewhere known to execute, was available the
+whole time and was run only afterwards.
 
 ### Where it stands
 
@@ -1083,16 +1092,56 @@ does not take input**, and the stall now sits at the tail of
 `reflex_vm_task_self_check` rather than at the radio. That is the next piece of
 work, and it is a smaller one than it was.
 
-Still open, and named so they are not rediscovered:
+`REFLEX_OWN_ENTRY` now refuses to build without `CONFIG_REFLEX_TASK_BACKEND_REFLEX`,
+the way it already refuses without `CONFIG_REFLEX_KERNEL_SCHEDULER` — the two are
+independent in Kconfig and nothing else paired them, so the wrong combination
+produced a boot that stopped partway with no explanation rather than an error.
+Checked in both directions: refused without, builds with.
 
-- The shell's read path is Reflex's own USB-serial-JTAG receive interrupt, which
-  is allocated and registered, but no input arrives. Whether its line is being
-  masked as unclaimed before `reflex_hal_console_init` registers it has not been
-  measured — the diagnostic to answer it prints at shell start and the shell is
-  not being reached under `REFLEX_OWN_ENTRY`.
-- `REFLEX_OWN_ENTRY` does not require `CONFIG_REFLEX_TASK_BACKEND_REFLEX` and
-  should refuse to build without it, the way it already refuses without
-  `CONFIG_REFLEX_KERNEL_SCHEDULER`.
+### The remaining blocker: timed waits never wake
+
+Narrowed to one sentence, with everything around it eliminated. `app_main`
+reaches `reflex_vm_task_self_check`, which starts a VM task and polls it with
+`reflex_task_delay_ms(10)` at most a hundred times. The poll never finishes, and
+the VM task runs exactly one iteration of its own loop and then stops too. Both
+are parked in a delay; nothing is left runnable; the scheduler parks on `wfi`.
+
+What has been ruled out by measurement rather than argument:
+
+- **The tick is alive under Reflex's own trap vector.** The entry path now checks
+  it twice — once under ESP-IDF's `mtvec` and again after `reflex_trap_install`,
+  because installing the vector is exactly the step that could break it and a
+  scheduler with a stopped clock does not crash, it goes quiet. The second check
+  reports **50 ticks in 50 ms**, so the handover is clean. That check stays.
+- **The wake path is wired in.** `pick_next` does call
+  `reflex_sched_should_time_wake` for every task on every scheduling decision,
+  including queue waiters with a timeout. An earlier note here that the
+  predicate was dead code was wrong and is withdrawn.
+- **`s_tick_count` is `volatile`**, so the scheduler loop is not reading a
+  cached copy.
+- **It is a hang, not slowness.** Forty-five seconds of capture, against bounded
+  waits totalling about a second.
+
+- **The arithmetic is already host-tested and correct.** `reflex_sched_ms_to_ticks`
+  and `reflex_sched_should_time_wake` are both pinned in `tests/host/test_kqueue.c`,
+  including the expired sleeper, the unexpired sleeper, the timed queue waiter
+  that must expire despite having `blocked_on` set, the untimed waiter the clock
+  must never touch, and the behaviour across the counter wrap.
+
+So the clock advances, the predicate is correct, the predicate is called against
+the live clock, and the task stays blocked. Everything reachable from the host
+suite has been eliminated, which means the fault is in the part that only exists
+on device: `pick_next`, the scheduler loop, and the `setjmp`/`longjmp` context
+switch between them — all three compiled only when `REFLEX_HOST_BUILD` is unset,
+and none of them covered by a test. That is where to look next, and it needs an
+instrument that survives a scheduler which has gone quiet, which is the same
+problem this work has hit before.
+
+One adjacent defect found while reading and not yet fixed: the self-delete path
+in `reflex_sched_delete_task` marks the task `DEAD` and yields, but never frees
+the stack and never returns the slot to `FREE`. Every task that retires by
+calling `reflex_task_delete(NULL)` — which is how `reflex_vm_task_entry` retires
+— leaks its slot and its stack for the life of the boot.
 
 `REFLEX_OWN_ENTRY` stays off by default until the shell survives it.
 

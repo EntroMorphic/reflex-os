@@ -238,14 +238,6 @@ uint32_t reflex_hal_console_isr_entries(void) {
     return 0;
 }
 
-void reflex_hal_console_emit(const char *data, int len) {
-    /* The console here is ESP-IDF's UART, and this is a fatal-path writer, so
-     * it goes out the same way the rest of this platform's output does. */
-    if (!data || len <= 0) return;
-    fwrite(data, 1, (size_t)len, stdout);
-    fflush(stdout);
-}
-
 void reflex_hal_pwm_snapshot(reflex_pwm_snapshot_t *out) {
     if (!out) return;
     memset(out, 0, sizeof *out);

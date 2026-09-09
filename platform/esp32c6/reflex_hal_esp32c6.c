@@ -1594,24 +1594,6 @@ void reflex_hal_write_raw(const char *data, int len) {
     usj_write_bytes(data, len);
 }
 
-/* Emit raw bytes to the console the board actually has.
- *
- * Exists for the trap handler's fatal path. That path printed through
- * esp_rom_printf, on the sound reasoning that a fault may have been caused by
- * the very stack that reflex_hal_log formats 192 bytes onto. But esp_rom_printf
- * goes to UART0, and this board's console is USB-serial-JTAG — so every
- * unhandled exception has been reporting itself, in full, to a wire nobody is
- * reading. A diagnostic that cannot be seen is indistinguishable from a hang,
- * and it cost real time here: a crash in event publishing looked exactly like
- * an infinite loop.
- *
- * Takes preformatted bytes and adds no buffer of its own, so the caller keeps
- * control of where the formatting space comes from. */
-void reflex_hal_console_emit(const char *data, int len) {
-    if (!data || len <= 0) return;
-    usj_write_bytes(data, len);
-}
-
 void reflex_hal_log(int level, const char *tag, const char *fmt, ...) {
     /* On the stack, not static.
      *
