@@ -559,6 +559,35 @@ static reflex_intr_entry_t s_intr_table[32];
  * No PLIC acknowledgement here: Reflex allocates its lines level-triggered, so
  * the line deasserts when the handler clears its peripheral's own status. An
  * edge-triggered line would need PLIC_MXINT_CLEAR, and none is allocated. */
+/* Lines masked because nothing anywhere claimed them. Declared here because
+ * both the adopter below and the masker further down touch it. */
+static volatile uint32_t s_unclaimed_lines;
+
+/* Hand a line Reflex does not own to whoever ESP-IDF registered for it.
+ *
+ * Reflex's dispatch table only knows about interrupts Reflex allocated. ESP-IDF
+ * keeps its own per-line table, and it has a getter, so a line that is nobody's
+ * as far as Reflex is concerned may still have a driver waiting on it — the
+ * radio being the case that matters. Trying this before masking is the
+ * difference between a machine with its peripherals and one without.
+ *
+ * Returns false when ESP-IDF has nothing registered either, which is the only
+ * case where masking is the honest answer. */
+bool __attribute__((section(".iram1"))) reflex_hal_intr_dispatch_foreign(int cpu_int) {
+    if (cpu_int < 0 || cpu_int >= 32) return false;
+    /* Declared locally rather than by including riscv/interrupt.h, which would
+     * add an ESP-IDF header to this file for two symbols and move the
+     * independence count in the wrong direction. The same reason
+     * intr_handler_set is declared inline above. */
+    typedef void (*reflex_foreign_isr_t)(void *);
+    extern reflex_foreign_isr_t intr_handler_get(int rv_int_num);
+    extern void *intr_handler_get_arg(int rv_int_num);
+    reflex_foreign_isr_t fn = intr_handler_get(cpu_int);
+    if (!fn) return false;
+    fn(intr_handler_get_arg(cpu_int));
+    return true;
+}
+
 /* Lines that fired with nobody registered for them, and were masked.
  *
  * A level-triggered interrupt that no handler acknowledges re-enters the moment
@@ -571,7 +600,6 @@ static reflex_intr_entry_t s_intr_table[32];
  * that can still say what happened. It is the right trade for a trap handler
  * that has just been handed the whole machine: leaving the source asserted was
  * defensible when Reflex owned mtvec only for the length of one experiment. */
-static volatile uint32_t s_unclaimed_lines;
 
 uint32_t reflex_hal_intr_unclaimed_lines(void) {
     return s_unclaimed_lines;

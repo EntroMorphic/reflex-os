@@ -216,6 +216,18 @@ uint32_t *reflex_trap_handler(uint32_t *frame) {
          * was never "leave it alone", it was "stop the machine". Masking keeps
          * the machine and loses one device, and reflex_hal_intr_unclaimed_lines
          * says which. */
+        /* Before masking, ask whether anyone else owns it.
+         *
+         * ESP-IDF keeps its own per-line handler table and exposes a getter,
+         * so a line that is nobody's as far as Reflex's table is concerned may
+         * still have a driver waiting on it. Masking without asking is how
+         * independence came to mean "the peripherals are switched off": under
+         * this vector only the tick and the console were live, and the
+         * blob-free radio could transmit but never receive. */
+        if (reflex_hal_intr_dispatch_foreign(line)) {
+            return frame;
+        }
+
         reflex_hal_intr_mask_unclaimed(line);
         return frame;
     }

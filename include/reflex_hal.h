@@ -143,6 +143,10 @@ uint32_t reflex_hal_console_isr_entries(void);
  * does not own rather than acknowledging it blindly. */
 bool reflex_hal_intr_dispatch_line(int cpu_int);
 
+/** @brief Run ESP-IDF's registered handler for @p cpu_int, if it has one.
+ *  For lines Reflex did not allocate but a driver still owns. */
+bool reflex_hal_intr_dispatch_foreign(int cpu_int);
+
 /** @brief Mask a CPU line that fired with no handler registered, and record it.
  *  Turns an unacknowledged level-triggered interrupt — which locks the core —
  *  into a degraded system that can still report what it lost. */

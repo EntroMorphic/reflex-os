@@ -1150,6 +1150,52 @@ survive a restart. `sdkconfig.defaults.own_entry` and `make own-entry-build`
 close that, exactly as `sdkconfig.defaults.independence` closed it one layer
 down.
 
+### The peripherals come back: dispatching to drivers Reflex does not own
+
+Independence had been bought by switching things off. Under Reflex's vector the
+PLIC had **two** live lines, the tick and the console, against nine under
+FreeRTOS — and `unclaimed_masked=0x00000100` said one more had been masked on
+its first interrupt. The blob-free radio transmitted and never received,
+because reception is the half that needs an interrupt.
+
+The masking was right as far as it went: a level-triggered line nobody
+acknowledges stops the core, so masking traded a dead machine for a degraded
+one. What it skipped was asking whether anybody *else* owned the line. ESP-IDF
+keeps its own per-line handler table and exposes `intr_handler_get` /
+`intr_handler_get_arg`, so a line that is nobody's in Reflex's table may still
+have a driver waiting on it. `reflex_trap_handler` now tries that before
+masking, and masks only when nothing anywhere is registered.
+
+The radio needed nothing else. An adopt-the-line step was written first and
+turned out to be both premature and unnecessary — it ran at hand-off, before
+the driver had routed its source, and reported `cpu_int=0`, the matrix reset
+value. A driver that initialises *after* the quiesce enables its own line; the
+only thing missing was dispatch. The helper was deleted rather than kept.
+
+Measured on the own-entry build, receiver on Reflex, peer broadcasting:
+
+```
+before:  plic live mask=0x00000c00 (2 lines)   unclaimed_masked=0x00000100
+after:   plic live mask=0x00000d00 (3 lines)   unclaimed_masked=0x00000000
+```
+
+and over fifty seconds on one connection, uptime 2.5s -> 60.8s with no reset in
+between, `version_mismatch` went **1 -> 7**: six frames received and parsed
+under Reflex's trap vector. They are rejected at a protocol version check rather
+than accepted, and the FreeRTOS control shows the same counter moving, so that
+rejection is common to both and is not something Reflex ownership caused. It is
+the next thing to look at, and it is a mesh-protocol question rather than an
+interrupt one.
+
+**On the control test itself.** It was run and it cost more than it should
+have. The bench will not hold two USB-serial-JTAG connections at once — opening
+the second reliably drops the first — and opening a port resets the board it is
+attached to, which zeroes the counters being compared. Both facts are worth
+writing down, because between them they invalidate the obvious experiment
+design. What works is a single persistent connection to the receiver, with the
+peer left alone to broadcast on its own schedule, and `status` uptime read
+alongside the counters to prove no reset happened mid-measurement.
+
 ### The blocker was the idle task, and Reflex now runs the whole system
 
 Timed waits never woke. Every part of the waking machinery was correct — the

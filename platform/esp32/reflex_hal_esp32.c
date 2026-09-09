@@ -201,6 +201,11 @@ void reflex_hal_pwm_release(void) {}
  * Values chosen so a caller reads "this platform cannot report that" rather
  * than a plausible-looking zero state: no lines are dispatched, none are
  * masked, and no source is found on any line. */
+bool reflex_hal_intr_dispatch_foreign(int cpu_int) {
+    (void)cpu_int;
+    return false; /* ESP-IDF owns the trap vector on this target. */
+}
+
 bool reflex_hal_intr_dispatch_line(int cpu_int) {
     (void)cpu_int;
     return false; /* ESP-IDF owns the trap vector on this target. */

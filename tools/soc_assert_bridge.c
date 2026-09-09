@@ -410,6 +410,8 @@ _Static_assert(REFLEX_INTR_SRC_SYSTIMER_TARGET1 == (uint32_t)(ETS_SYSTIMER_TARGE
                "REFLEX_INTR_SRC_SYSTIMER_TARGET1 diverges from ETS_SYSTIMER_TARGET1_INTR_SOURCE");
 _Static_assert(REFLEX_INTR_SRC_USB_SERIAL_JTAG == (uint32_t)(ETS_USB_SERIAL_JTAG_INTR_SOURCE),
                "REFLEX_INTR_SRC_USB_SERIAL_JTAG diverges from ETS_USB_SERIAL_JTAG_INTR_SOURCE");
+_Static_assert(REFLEX_INTR_SRC_ZB_MAC == (uint32_t)(ETS_ZB_MAC_SOURCE),
+               "REFLEX_INTR_SRC_ZB_MAC diverges from ETS_ZB_MAC_SOURCE");
 
 /* Silence the unused-translation-unit warning. */
 const int reflex_soc_bridge_ok = 1;

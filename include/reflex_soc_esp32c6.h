@@ -391,5 +391,9 @@
  * cannot replace it because the shell idles 50ms while a 64-byte FIFO fills in 5.5ms at 115200 baud
  */
 #define REFLEX_INTR_SRC_USB_SERIAL_JTAG 0x00000030u
+/* literal — interrupt-matrix source number; enum position in soc/interrupts.h. The 802.15.4 MAC.
+ * Needed so the hand-off can adopt the radio's line rather than quiescing it: under Reflex's trap
+ * vector only the tick and console were live, which left the blob-free radio unable to receive */
+#define REFLEX_INTR_SRC_ZB_MAC 0x0000000Cu
 
 #endif /* REFLEX_SOC_ESP32C6_H */

@@ -309,6 +309,8 @@ LITERALS = [
      "interrupt-matrix source number; an enum position in soc/interrupts.h, not SVD data"),
     ("REFLEX_INTR_SRC_USB_SERIAL_JTAG", "ETS_USB_SERIAL_JTAG_INTR_SOURCE", 48,
      "interrupt-matrix source number; enum position in soc/interrupts.h. Needed to own console RX: the ESP-IDF driver cannot be left installed alongside direct FIFO reads, and polling cannot replace it because the shell idles 50ms while a 64-byte FIFO fills in 5.5ms at 115200 baud"),
+    ("REFLEX_INTR_SRC_ZB_MAC", "ETS_ZB_MAC_SOURCE", 12,
+     "interrupt-matrix source number; enum position in soc/interrupts.h. The 802.15.4 MAC. Needed so the hand-off can adopt the radio's line rather than quiescing it: under Reflex's trap vector only the tick and console were live, which left the blob-free radio unable to receive"),
 ]
 
 
