@@ -1219,6 +1219,8 @@ static void shell_cmd_kernel_tick(void) {
     reflex_sched_tick_debug(&st_ena, &st_raw, &st_st);
     uint32_t st_conf = 0, st_t1conf = 0;
     reflex_sched_tick_debug_conf(&st_conf, &st_t1conf);
+    uint64_t unit_now = 0, real_target = 0, t1_target = 0;
+    reflex_sched_tick_debug_target(&unit_now, &real_target, &t1_target);
 
     reflex_sched_tick_stop();
 
@@ -1279,6 +1281,17 @@ static void shell_cmd_kernel_tick(void) {
          * where the fault is. */
         printf("  comparator: conf=0x%08lx target1_conf=0x%08lx\n", (unsigned long)st_conf,
                (unsigned long)st_t1conf);
+        /* Where the comparator is aiming, against where the counter is.
+         *
+         * The signed delta is the whole point: positive means the alarm is
+         * still ahead and will arrive, negative means it is behind the counter
+         * and the match it is waiting for has already gone past. Everything
+         * else about a working arm and a failing one reads identically, so if
+         * they differ at all they differ here. */
+        printf("  target:     unit_now=%llu real_target=%llu delta=%lld t1_target=%llu\n",
+               (unsigned long long)unit_now, (unsigned long long)real_target,
+               (long long)((int64_t)real_target - (int64_t)unit_now),
+               (unsigned long long)t1_target);
         {
             unsigned n = 0;
             for (unsigned b = 0; b < 32; b++) {

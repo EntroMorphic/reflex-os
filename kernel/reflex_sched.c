@@ -51,6 +51,12 @@
 #define SYSTIMER_CONF           (SYSTIMER_BASE + 0x00)
 #define SYSTIMER_TARGET1_CONF   (SYSTIMER_BASE + 0x38)
 #define SYSTIMER_COMP1_LOAD     (SYSTIMER_BASE + 0x54)
+#define SYSTIMER_TARGET1_HI (SYSTIMER_BASE + 0x24)
+#define SYSTIMER_TARGET1_LO (SYSTIMER_BASE + 0x28)
+#define SYSTIMER_UNIT0_VALUE_HI (SYSTIMER_BASE + 0x40)
+#define SYSTIMER_UNIT0_VALUE_LO (SYSTIMER_BASE + 0x44)
+#define SYSTIMER_REAL_TARGET1_LO (SYSTIMER_BASE + 0x7C)
+#define SYSTIMER_REAL_TARGET1_HI (SYSTIMER_BASE + 0x80)
 #define SYSTIMER_INT_ENA        (SYSTIMER_BASE + 0x64)
 #define SYSTIMER_INT_CLR (SYSTIMER_BASE + 0x6C)
 #define SYSTIMER_INT_RAW (SYSTIMER_BASE + 0x68)
@@ -270,9 +276,43 @@ void reflex_sched_tick_stop(void) {
     /* Peripheral first, for the same reason: never leave a routed line with an
      * armed source and no handler. */
     REFLEX_REG(SYSTIMER_INT_ENA) &= ~(1u << 1);
-    /* Stop the comparator too, not just its interrupt. Leaving TARGET1_WORK_EN
-     * set keeps it matching and re-raising into SYSTIMER_INT_RAW forever. */
-    REFLEX_REG(SYSTIMER_CONF) &= ~(1u << SYSTIMER_TARGET1_WORK_EN_BIT);
+    /* The comparator is deliberately left running. Only its interrupt stops.
+     *
+     * This used to clear TARGET1_WORK_EN as well, on the reasonable-sounding
+     * grounds that leaving it set keeps the comparator matching and re-raising
+     * into SYSTIMER_INT_RAW forever. It does — and stopping it cost far more
+     * than that, because it is what made the tick work exactly once per boot:
+     * the first `kernel tick` of a boot measured 998 Hz and every later one
+     * measured 2 Hz, a single tick and then nothing.
+     *
+     * The reason is in REAL_TARGET1, the alarm the hardware actually matches
+     * on, which no readback exposed until one was added for this. In period
+     * mode COMP1_LOAD does not set the alarm to "now + period" — it adds one
+     * period to whatever REAL_TARGET1 already holds, and clearing
+     * TARGET1_WORK_EN freezes it. So a re-arm after a stop armed the comparator
+     * one period past a timestamp from the previous run: measured at
+     * -19,182,014 ticks, some 1.2 seconds in the past. An alarm behind the
+     * counter matches once and never again.
+     *
+     * Left running, REAL_TARGET1 keeps tracking, and the accumulate lands about
+     * two thousand ticks ahead of the counter every time: four consecutive
+     * arms in one boot now measure 998, 998, 1000, 1000 Hz.
+     *
+     * Two fixes that look obviously right were tried on hardware first and both
+     * failed, because both stayed inside period mode where nothing can rebase
+     * the accumulator: clearing TARGET1_WORK_EN before reconfiguring (ESP-IDF's
+     * systimer_hal_set_alarm_period ordering), and re-latching COMP1_LOAD after
+     * enabling. A third — a one-shot absolute load of `now + period` to rebase,
+     * then a switch back to period mode — did move REAL_TARGET1, and broke the
+     * auto-reload instead: 0 Hz on the first arm, the alarm frozen where it was
+     * placed. None of them are worth re-attempting.
+     *
+     * What this costs, stated so it reads as a decision rather than an
+     * oversight: the comparator keeps running while Reflex is not using the
+     * tick, setting INT_RAW at 1 kHz into a status bit nobody reads. Nothing is
+     * delivered — INT_ENA is cleared above, the routed line is given back with
+     * the handle below, and setup_systimer_tick clears INT_CLR before it
+     * re-enables — so what is released is everything that can reach the core. */
     REFLEX_REG(SYSTIMER_INT_CLR) = (1u << 1);
     if (s_tick_intr) {
         reflex_hal_intr_free(s_tick_intr);
@@ -288,6 +328,30 @@ void reflex_sched_tick_debug_conf(uint32_t *conf, uint32_t *target1_conf) {
 #else
     if (conf) *conf = 0;
     if (target1_conf) *target1_conf = 0;
+#endif
+}
+
+void reflex_sched_tick_debug_target(uint64_t *unit_now, uint64_t *real_target, uint64_t *target) {
+#ifndef REFLEX_HOST_BUILD
+    REFLEX_REG(REFLEX_SYSTIMER_UNIT0_OP_REG) = REFLEX_SYSTIMER_UNIT0_UPDATE;
+    while (!(REFLEX_REG(REFLEX_SYSTIMER_UNIT0_OP_REG) & REFLEX_SYSTIMER_UNIT0_VALUE_VALID)) {
+    }
+    if (unit_now) {
+        *unit_now = ((uint64_t)REFLEX_REG(SYSTIMER_UNIT0_VALUE_HI) << 32) |
+                    REFLEX_REG(SYSTIMER_UNIT0_VALUE_LO);
+    }
+    if (real_target) {
+        *real_target = ((uint64_t)REFLEX_REG(SYSTIMER_REAL_TARGET1_HI) << 32) |
+                       REFLEX_REG(SYSTIMER_REAL_TARGET1_LO);
+    }
+    if (target) {
+        *target =
+            ((uint64_t)REFLEX_REG(SYSTIMER_TARGET1_HI) << 32) | REFLEX_REG(SYSTIMER_TARGET1_LO);
+    }
+#else
+    if (unit_now) *unit_now = 0;
+    if (real_target) *real_target = 0;
+    if (target) *target = 0;
 #endif
 }
 

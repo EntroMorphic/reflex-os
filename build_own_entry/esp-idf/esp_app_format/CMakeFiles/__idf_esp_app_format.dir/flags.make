@@ -8,5 +8,5 @@ C_INCLUDES = -I/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/c
 
 C_FLAGS = -march=rv32imac_zicsr_zifencei -DREFLEX_OWN_ENTRY=1 -fdiagnostics-color=always -ffunction-sections -fdata-sections -Wall -Werror=all -Wno-error=unused-function -Wno-error=unused-variable -Wno-error=unused-but-set-variable -Wno-error=deprecated-declarations -Wextra -Wno-error=extra -Wno-unused-parameter -Wno-sign-compare -Wno-enum-conversion -gdwarf-4 -ggdb -nostartfiles -Og -fno-shrink-wrap -fmacro-prefix-map=/Users/aaronjosserand-austin/Projects/reflex-os=. -fmacro-prefix-map=/Users/aaronjosserand-austin/Projects/esp-idf=/IDF -fstrict-volatile-bitfields -fno-jump-tables -fno-tree-switch-conversion -std=gnu17 -Wno-old-style-declaration
 
-# Custom defines: esp-idf/esp_app_format/CMakeFiles/__idf_esp_app_format.dir/esp_app_desc.c.obj_DEFINES = PROJECT_VER="v2.6.0-257-g72b60de-dirty"; PROJECT_NAME="reflex_os"
+# Custom defines: esp-idf/esp_app_format/CMakeFiles/__idf_esp_app_format.dir/esp_app_desc.c.obj_DEFINES = PROJECT_VER="v2.6.0-258-gb9abd18-dirty"; PROJECT_NAME="reflex_os"
 

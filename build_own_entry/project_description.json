@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "reflex_os",
-    "project_version":    "v2.6.0-257-g72b60de-dirty",
+    "project_version":    "v2.6.0-258-gb9abd18-dirty",
     "project_path":       "/Users/aaronjosserand-austin/Projects/reflex-os",
     "idf_path":           "/Users/aaronjosserand-austin/Projects/esp-idf",
     "build_dir":          "/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry",

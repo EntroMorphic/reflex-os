@@ -3223,8 +3223,8 @@ CMakeFiles/gen_project_binary.dir/clean:
 # Target rules for target CMakeFiles/app.dir
 
 # All Build rule for target.
-CMakeFiles/app.dir/all: CMakeFiles/gen_project_binary.dir/all
 CMakeFiles/app.dir/all: esp-idf/esptool_py/CMakeFiles/app_check_size.dir/all
+CMakeFiles/app.dir/all: CMakeFiles/gen_project_binary.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/app.dir/build.make CMakeFiles/app.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/app.dir/build.make CMakeFiles/app.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num= "Built target app"
@@ -3242,8 +3242,8 @@ app: CMakeFiles/app.dir/rule
 .PHONY : app
 
 # codegen rule for target.
-CMakeFiles/app.dir/codegen: CMakeFiles/gen_project_binary.dir/all
 CMakeFiles/app.dir/codegen: esp-idf/esptool_py/CMakeFiles/app_check_size.dir/all
+CMakeFiles/app.dir/codegen: CMakeFiles/gen_project_binary.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/app.dir/build.make CMakeFiles/app.dir/codegen
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num= "Finished codegen for target app"
 .PHONY : CMakeFiles/app.dir/codegen
@@ -3355,9 +3355,9 @@ CMakeFiles/monitor.dir/clean:
 # Target rules for target CMakeFiles/flash.dir
 
 # All Build rule for target.
+CMakeFiles/flash.dir/all: esp-idf/partition_table/CMakeFiles/partition_table_bin.dir/all
 CMakeFiles/flash.dir/all: CMakeFiles/bootloader.dir/all
 CMakeFiles/flash.dir/all: CMakeFiles/app.dir/all
-CMakeFiles/flash.dir/all: esp-idf/partition_table/CMakeFiles/partition_table_bin.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/flash.dir/build.make CMakeFiles/flash.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/flash.dir/build.make CMakeFiles/flash.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num= "Built target flash"
@@ -3375,9 +3375,9 @@ flash: CMakeFiles/flash.dir/rule
 .PHONY : flash
 
 # codegen rule for target.
+CMakeFiles/flash.dir/codegen: esp-idf/partition_table/CMakeFiles/partition_table_bin.dir/all
 CMakeFiles/flash.dir/codegen: CMakeFiles/bootloader.dir/all
 CMakeFiles/flash.dir/codegen: CMakeFiles/app.dir/all
-CMakeFiles/flash.dir/codegen: esp-idf/partition_table/CMakeFiles/partition_table_bin.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/flash.dir/build.make CMakeFiles/flash.dir/codegen
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num= "Finished codegen for target flash"
 .PHONY : CMakeFiles/flash.dir/codegen
@@ -3455,6 +3455,18 @@ CMakeFiles/_project_elf_src.dir/clean:
 # Target rules for target CMakeFiles/reflex_os.elf.dir
 
 # All Build rule for target.
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/app_trace/CMakeFiles/__idf_app_trace.dir/all
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/unity/CMakeFiles/__idf_unity.dir/all
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/cmock/CMakeFiles/__idf_cmock.dir/all
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/console/CMakeFiles/__idf_console.dir/all
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_driver_cam/CMakeFiles/__idf_esp_driver_cam.dir/all
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_eth/CMakeFiles/__idf_esp_eth.dir/all
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_hid/CMakeFiles/__idf_esp_hid.dir/all
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_https_server/CMakeFiles/__idf_esp_https_server.dir/all
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_lcd/CMakeFiles/__idf_esp_lcd.dir/all
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/protobuf-c/CMakeFiles/__idf_protobuf-c.dir/all
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all
+CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/all
 CMakeFiles/reflex_os.elf.dir/all: esp-idf/espcoredump/CMakeFiles/__idf_espcoredump.dir/all
 CMakeFiles/reflex_os.elf.dir/all: esp-idf/wear_levelling/CMakeFiles/__idf_wear_levelling.dir/all
 CMakeFiles/reflex_os.elf.dir/all: esp-idf/fatfs/CMakeFiles/__idf_fatfs.dir/all
@@ -3473,18 +3485,6 @@ CMakeFiles/reflex_os.elf.dir/all: esp-idf/main/CMakeFiles/__idf_main.dir/all
 CMakeFiles/reflex_os.elf.dir/all: CMakeFiles/_project_elf_src.dir/all
 CMakeFiles/reflex_os.elf.dir/all: CMakeFiles/__ldgen_output_sections.ld.dir/all
 CMakeFiles/reflex_os.elf.dir/all: esp-idf/riscv/CMakeFiles/__idf_riscv.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/app_trace/CMakeFiles/__idf_app_trace.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/unity/CMakeFiles/__idf_unity.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/cmock/CMakeFiles/__idf_cmock.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/console/CMakeFiles/__idf_console.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_driver_cam/CMakeFiles/__idf_esp_driver_cam.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_eth/CMakeFiles/__idf_esp_eth.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_hid/CMakeFiles/__idf_esp_hid.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_https_server/CMakeFiles/__idf_esp_https_server.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_lcd/CMakeFiles/__idf_esp_lcd.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/protobuf-c/CMakeFiles/__idf_protobuf-c.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all
-CMakeFiles/reflex_os.elf.dir/all: esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/reflex_os.elf.dir/build.make CMakeFiles/reflex_os.elf.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/reflex_os.elf.dir/build.make CMakeFiles/reflex_os.elf.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num= "Built target reflex_os.elf"
@@ -3677,6 +3677,18 @@ CMakeFiles/uf2-app.dir/clean:
 # Target rules for target CMakeFiles/__ldgen_output_sections.ld.dir
 
 # All Build rule for target.
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/app_trace/CMakeFiles/__idf_app_trace.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/unity/CMakeFiles/__idf_unity.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/cmock/CMakeFiles/__idf_cmock.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/console/CMakeFiles/__idf_console.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_driver_cam/CMakeFiles/__idf_esp_driver_cam.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_eth/CMakeFiles/__idf_esp_eth.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_hid/CMakeFiles/__idf_esp_hid.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_https_server/CMakeFiles/__idf_esp_https_server.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_lcd/CMakeFiles/__idf_esp_lcd.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/protobuf-c/CMakeFiles/__idf_protobuf-c.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/all
 CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/espcoredump/CMakeFiles/__idf_espcoredump.dir/all
 CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/wear_levelling/CMakeFiles/__idf_wear_levelling.dir/all
 CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/fatfs/CMakeFiles/__idf_fatfs.dir/all
@@ -3693,18 +3705,6 @@ CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/services/CMakeFiles/__idf
 CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/shell/CMakeFiles/__idf_shell.dir/all
 CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/main/CMakeFiles/__idf_main.dir/all
 CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/riscv/CMakeFiles/__idf_riscv.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/app_trace/CMakeFiles/__idf_app_trace.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/unity/CMakeFiles/__idf_unity.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/cmock/CMakeFiles/__idf_cmock.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/console/CMakeFiles/__idf_console.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_driver_cam/CMakeFiles/__idf_esp_driver_cam.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_eth/CMakeFiles/__idf_esp_eth.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_hid/CMakeFiles/__idf_esp_hid.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_https_server/CMakeFiles/__idf_esp_https_server.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_lcd/CMakeFiles/__idf_esp_lcd.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/protobuf-c/CMakeFiles/__idf_protobuf-c.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/all: esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/__ldgen_output_sections.ld.dir/build.make CMakeFiles/__ldgen_output_sections.ld.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/__ldgen_output_sections.ld.dir/build.make CMakeFiles/__ldgen_output_sections.ld.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num= "Built target __ldgen_output_sections.ld"
@@ -3722,6 +3722,11 @@ __ldgen_output_sections.ld: CMakeFiles/__ldgen_output_sections.ld.dir/rule
 .PHONY : __ldgen_output_sections.ld
 
 # codegen rule for target.
+CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/unity/CMakeFiles/__idf_unity.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/console/CMakeFiles/__idf_console.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/esp_https_server/CMakeFiles/__idf_esp_https_server.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/protobuf-c/CMakeFiles/__idf_protobuf-c.dir/all
+CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all
 CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/wear_levelling/CMakeFiles/__idf_wear_levelling.dir/all
 CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/ieee802154/CMakeFiles/__idf_ieee802154.dir/all
 CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/json/CMakeFiles/__idf_json.dir/all
@@ -3730,11 +3735,6 @@ CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/storage/CMakeFiles/__
 CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/services/CMakeFiles/__idf_services.dir/all
 CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/shell/CMakeFiles/__idf_shell.dir/all
 CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/riscv/CMakeFiles/__idf_riscv.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/unity/CMakeFiles/__idf_unity.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/console/CMakeFiles/__idf_console.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/esp_https_server/CMakeFiles/__idf_esp_https_server.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/protobuf-c/CMakeFiles/__idf_protobuf-c.dir/all
-CMakeFiles/__ldgen_output_sections.ld.dir/codegen: esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/__ldgen_output_sections.ld.dir/build.make CMakeFiles/__ldgen_output_sections.ld.dir/codegen
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num= "Finished codegen for target __ldgen_output_sections.ld"
 .PHONY : CMakeFiles/__ldgen_output_sections.ld.dir/codegen
@@ -4260,8 +4260,8 @@ esp-idf/esptool_py/CMakeFiles/encrypted-app-flash.dir/clean:
 # Target rules for target esp-idf/esptool_py/CMakeFiles/app_check_size.dir
 
 # All Build rule for target.
-esp-idf/esptool_py/CMakeFiles/app_check_size.dir/all: CMakeFiles/gen_project_binary.dir/all
 esp-idf/esptool_py/CMakeFiles/app_check_size.dir/all: esp-idf/partition_table/CMakeFiles/partition_table_bin.dir/all
+esp-idf/esptool_py/CMakeFiles/app_check_size.dir/all: CMakeFiles/gen_project_binary.dir/all
 	$(MAKE) $(MAKESILENT) -f esp-idf/esptool_py/CMakeFiles/app_check_size.dir/build.make esp-idf/esptool_py/CMakeFiles/app_check_size.dir/depend
 	$(MAKE) $(MAKESILENT) -f esp-idf/esptool_py/CMakeFiles/app_check_size.dir/build.make esp-idf/esptool_py/CMakeFiles/app_check_size.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num= "Built target app_check_size"
@@ -4279,8 +4279,8 @@ app_check_size: esp-idf/esptool_py/CMakeFiles/app_check_size.dir/rule
 .PHONY : app_check_size
 
 # codegen rule for target.
-esp-idf/esptool_py/CMakeFiles/app_check_size.dir/codegen: CMakeFiles/gen_project_binary.dir/all
 esp-idf/esptool_py/CMakeFiles/app_check_size.dir/codegen: esp-idf/partition_table/CMakeFiles/partition_table_bin.dir/all
+esp-idf/esptool_py/CMakeFiles/app_check_size.dir/codegen: CMakeFiles/gen_project_binary.dir/all
 	$(MAKE) $(MAKESILENT) -f esp-idf/esptool_py/CMakeFiles/app_check_size.dir/build.make esp-idf/esptool_py/CMakeFiles/app_check_size.dir/codegen
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num= "Finished codegen for target app_check_size"
 .PHONY : esp-idf/esptool_py/CMakeFiles/app_check_size.dir/codegen
@@ -6054,8 +6054,8 @@ esp-idf/unity/CMakeFiles/__idf_unity.dir/clean:
 # Target rules for target esp-idf/cmock/CMakeFiles/__idf_cmock.dir
 
 # All Build rule for target.
-esp-idf/cmock/CMakeFiles/__idf_cmock.dir/all: esp-idf/riscv/CMakeFiles/__idf_riscv.dir/all
 esp-idf/cmock/CMakeFiles/__idf_cmock.dir/all: esp-idf/unity/CMakeFiles/__idf_unity.dir/all
+esp-idf/cmock/CMakeFiles/__idf_cmock.dir/all: esp-idf/riscv/CMakeFiles/__idf_riscv.dir/all
 	$(MAKE) $(MAKESILENT) -f esp-idf/cmock/CMakeFiles/__idf_cmock.dir/build.make esp-idf/cmock/CMakeFiles/__idf_cmock.dir/depend
 	$(MAKE) $(MAKESILENT) -f esp-idf/cmock/CMakeFiles/__idf_cmock.dir/build.make esp-idf/cmock/CMakeFiles/__idf_cmock.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num= "Built target __idf_cmock"
@@ -6983,9 +6983,9 @@ esp-idf/protobuf-c/CMakeFiles/__idf_protobuf-c.dir/clean:
 # Target rules for target esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir
 
 # All Build rule for target.
-esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all: esp-idf/riscv/CMakeFiles/__idf_riscv.dir/all
 esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all: esp-idf/console/CMakeFiles/__idf_console.dir/all
 esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all: esp-idf/protobuf-c/CMakeFiles/__idf_protobuf-c.dir/all
+esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all: esp-idf/riscv/CMakeFiles/__idf_riscv.dir/all
 	$(MAKE) $(MAKESILENT) -f esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/build.make esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/depend
 	$(MAKE) $(MAKESILENT) -f esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/build.make esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num=63 "Built target __idf_protocomm"
@@ -7017,11 +7017,11 @@ esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/clean:
 # Target rules for target esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir
 
 # All Build rule for target.
-esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/all: esp-idf/riscv/CMakeFiles/__idf_riscv.dir/all
 esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/all: esp-idf/console/CMakeFiles/__idf_console.dir/all
 esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/all: esp-idf/esp_https_server/CMakeFiles/__idf_esp_https_server.dir/all
 esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/all: esp-idf/protobuf-c/CMakeFiles/__idf_protobuf-c.dir/all
 esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/all: esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all
+esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/all: esp-idf/riscv/CMakeFiles/__idf_riscv.dir/all
 	$(MAKE) $(MAKESILENT) -f esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/build.make esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/depend
 	$(MAKE) $(MAKESILENT) -f esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/build.make esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num= "Built target __idf_esp_local_ctrl"
@@ -7342,9 +7342,9 @@ esp-idf/spiffs/CMakeFiles/__idf_spiffs.dir/clean:
 # Target rules for target esp-idf/ulp/CMakeFiles/__idf_ulp.dir
 
 # All Build rule for target.
-esp-idf/ulp/CMakeFiles/__idf_ulp.dir/all: esp-idf/mbedtls/CMakeFiles/custom_bundle.dir/all
 esp-idf/ulp/CMakeFiles/__idf_ulp.dir/all: esp-idf/esp_system/CMakeFiles/memory.ld.dir/all
 esp-idf/ulp/CMakeFiles/__idf_ulp.dir/all: esp-idf/esp_system/CMakeFiles/sections.ld.in.dir/all
+esp-idf/ulp/CMakeFiles/__idf_ulp.dir/all: esp-idf/mbedtls/CMakeFiles/custom_bundle.dir/all
 	$(MAKE) $(MAKESILENT) -f esp-idf/ulp/CMakeFiles/__idf_ulp.dir/build.make esp-idf/ulp/CMakeFiles/__idf_ulp.dir/depend
 	$(MAKE) $(MAKESILENT) -f esp-idf/ulp/CMakeFiles/__idf_ulp.dir/build.make esp-idf/ulp/CMakeFiles/__idf_ulp.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num=73 "Built target __idf_ulp"
@@ -7376,11 +7376,11 @@ esp-idf/ulp/CMakeFiles/__idf_ulp.dir/clean:
 # Target rules for target esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir
 
 # All Build rule for target.
-esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/all: esp-idf/json/CMakeFiles/__idf_json.dir/all
-esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/all: esp-idf/riscv/CMakeFiles/__idf_riscv.dir/all
 esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/all: esp-idf/console/CMakeFiles/__idf_console.dir/all
 esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/all: esp-idf/protobuf-c/CMakeFiles/__idf_protobuf-c.dir/all
 esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/all: esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/all
+esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/all: esp-idf/json/CMakeFiles/__idf_json.dir/all
+esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/all: esp-idf/riscv/CMakeFiles/__idf_riscv.dir/all
 	$(MAKE) $(MAKESILENT) -f esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/build.make esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/depend
 	$(MAKE) $(MAKESILENT) -f esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/build.make esp-idf/wifi_provisioning/CMakeFiles/__idf_wifi_provisioning.dir/build
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/aaronjosserand-austin/Projects/reflex-os/build_own_entry/CMakeFiles --progress-num=77 "Built target __idf_wifi_provisioning"

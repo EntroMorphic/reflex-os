@@ -885,9 +885,9 @@ that line is very likely reporting bits that mean nothing on this target, and
 `mip=0` should not be read as "the core never saw it". An instrument that has
 not been shown able to fail is not evidence.
 
-### The tick works exactly once per boot
+### The tick worked exactly once per boot — found, and fixed
 
-Found while establishing a baseline for the above, and reproducible on the
+Found while establishing a baseline for the entry point, and reproducible on the
 independence build in a single boot:
 
 ```
@@ -896,26 +896,73 @@ kernel tick: 1 ticks in 499841 us -> 2 Hz (target 1000)
 kernel tick: 1 ticks in 499846 us -> 2 Hz (target 1000)
 ```
 
-The first arming is correct. Every later one delivers a single tick and stops —
-which is the same "single tick" symptom `setup_systimer_tick`'s own comment
-records for configuring around a live comparator. So `tick_start` →
-`tick_stop` → `tick_start` does not restore the tick: another acquire/release
-pair where the release does not undo the acquire.
-
-Two fixes were tried on hardware and **both failed**, which is recorded because
-each looks obviously right and would otherwise be tried again:
+The first arming was correct; every later one delivered a single tick and
+stopped. Three fixes were tried on hardware before the cause was known and all
+three failed, which is worth recording because each looks obviously right:
 
 - Clearing `TARGET1_WORK_EN` before reconfiguring, matching ESP-IDF's
   `systimer_hal_set_alarm_period` ordering exactly. No change.
-- Re-latching `COMP1_LOAD` after enabling the comparator, to flush a stale
-  internal target. No change.
+- Re-latching `COMP1_LOAD` after enabling the comparator. No change.
+- A one-shot absolute load of `now + period` to rebase, then a switch back to
+  period mode. This one did move the alarm, and broke the auto-reload instead:
+  0 Hz on the first arm, with the alarm frozen where it had been placed.
 
-`kernel tick` now also reads back the comparator itself, which is what ruled it
-out: a working arm and a failing one are **register-identical** —
-`conf=0xf7c00002 target1_conf=0x40003e80`, period mode, unit 0, period 16000,
-`TARGET1_WORK_EN` set in both. The fault is therefore in state no register
-exposed so far, and the next move is to read the comparator's alarm target
-against the live unit count rather than to guess again. Open.
+What none of them could reach was `REAL_TARGET1` — the alarm the hardware
+actually matches on, at `SYSTIMER + 0x7C/0x80`, maintained by the hardware in
+period mode and described by no other register. `kernel tick` reads it now,
+against the live `UNIT0` count, and the reading was immediate:
+
+```
+arm 1 (998 Hz): unit_now=55796837 real_target=55798300 delta=+1463
+arm 2 (2 Hz):   unit_now=74996314 real_target=55814300 delta=-19182014
+arm 3 (2 Hz):   unit_now=94196313 real_target=55830300 delta=-38366013
+```
+
+Arm 2's alarm is **exactly 16,000 ticks** — one period — past arm 1's, and arm
+3's is exactly one period past arm 2's. So in period mode `COMP1_LOAD` does not
+set the alarm to "now + period"; it adds one period to whatever `REAL_TARGET1`
+already holds. And `reflex_sched_tick_stop` was clearing `TARGET1_WORK_EN`,
+which freezes it. Every re-arm therefore placed the alarm one period past a
+timestamp from the previous run — 1.2 seconds in the past by arm 2 — and an
+alarm behind the counter matches once and then never again.
+
+The fix is that `tick_stop` no longer stops the comparator, only its interrupt.
+`REAL_TARGET1` keeps tracking, the accumulate lands about two thousand ticks
+ahead of the counter, and four consecutive arms in one boot measure **998, 998,
+1000, 1000 Hz**. The cost is stated in the code so it reads as a decision:
+the comparator keeps running while the tick is unused, setting `INT_RAW` into a
+status bit nobody reads. Everything that can reach the core is still released —
+`INT_ENA`, the routed line, and the handle.
+
+The general shape, for the third time in this work: a release that did not undo
+its acquire. This one differed only in being invisible until the register that
+held the evidence was found and read.
+
+### What that leaves at the entry point: delivery, not the source
+
+Re-measured after the fix, and the entry path still falls back — but the failure
+is now isolated rather than ambiguous. The same is true of the default build,
+where `kernel tick` still reports 0 Hz while the comparator reads healthy:
+
+```
+kernel tick: 0 ticks in 499785 us -> 0 Hz (target 1000)
+  console: src=48 -> cpu_int=10
+  intmtx:  src=58 -> cpu_int=11
+  target:  unit_now=51156476 real_target=51158975 delta=+2499
+```
+
+The alarm is ahead of the counter and `REAL_TARGET1` advances between runs, so
+the comparator is arming and matching correctly on the default build too. The
+source is exonerated on both. What remains in both is that a matching,
+correctly-routed, PLIC-enabled interrupt is **not delivered to the core** —
+`int_raw`/`int_st` stay set at the entry point, meaning nothing ever
+acknowledged them.
+
+Line collision is not a sufficient explanation: at the entry point the tick
+lands on `cpu_int=10` and on the default build it lands on 11 with the console
+on 10, and both fail. Wi-Fi remains the untested suspect for the default build,
+but it cannot explain the entry point, which is the blob-free 802.15.4
+configuration. Open, and now a narrower question than it was.
 
 **The board that came back was not fully working, and the cause was not what
 was guessed.** That build booted and answered, then failed the hardware suite

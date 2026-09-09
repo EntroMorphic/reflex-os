@@ -191,13 +191,13 @@ void reflex_sched_tick_debug(uint32_t *ena, uint32_t *raw, uint32_t *st);
  * cause: a working arm and a failing one read identically. */
 void reflex_sched_tick_debug_conf(uint32_t *conf, uint32_t *target1_conf);
 
-/** @brief Read back the comparator's own configuration.
+/** @brief Read the comparator's live alarm target against the live counter.
  *
- * The interrupt registers say whether the source fired; they say nothing about
- * whether the comparator is still armed to fire again. A re-arm that yields
- * exactly one tick and then stops is invisible in @ref reflex_sched_tick_debug
- * and obvious here. */
-void reflex_sched_tick_debug_conf(uint32_t *conf, uint32_t *target1_conf);
+ * The last piece of comparator state that no register read so far exposed. In
+ * period mode the hardware recomputes the alarm on every match, so this says
+ * whether the comparator is waiting for a moment that will arrive or one that
+ * has already passed — which a working and a failing arm cannot both be. */
+void reflex_sched_tick_debug_target(uint64_t *unit_now, uint64_t *real_target, uint64_t *target);
 #endif
 
 /* ---- Trap-side tick routing (reflex_trap.c) ----
