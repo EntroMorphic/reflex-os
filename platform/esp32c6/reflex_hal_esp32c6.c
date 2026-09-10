@@ -719,6 +719,45 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
     if (!handler)
         return REFLEX_ERR_INVALID_ARG;
 
+#ifdef REFLEX_OWN_ENTRY
+    /* Refuse to allocate before Reflex's vector is the one on mtvec.
+     *
+     * This build no longer registers anything in ESP-IDF's interrupt table, so
+     * a line allocated while ESP-IDF still owns mtvec is routed, enabled,
+     * above threshold — and delivered to a dispatcher that has never heard of
+     * it. Nothing faults. The interrupt simply never arrives, which for the
+     * tick means a scheduler that parks on wfi and goes quiet, and that is
+     * indistinguishable from a hang.
+     *
+     * The ordering in reflex_app_entry.c is what makes this safe: the vector is
+     * taken before the first allocation. That ordering is a property of one
+     * file, and the failure it prevents is silent, so it is checked here rather
+     * than trusted. A caller added later that allocates too early gets an error
+     * it can print instead of a board that stops.
+     *
+     * Read from the CSR rather than tracked in a flag, because the question is
+     * what the hardware will actually do with the interrupt. mtvec's low two
+     * bits are the mode field and the base is 256-byte aligned, so both sides
+     * are masked before comparing. */
+    {
+        extern uint32_t reflex_vector_table[];
+        uint32_t mtvec;
+        __asm__ volatile("csrr %0, mtvec" : "=r"(mtvec));
+        if ((mtvec & ~0xFFu) != ((uint32_t)(uintptr_t)reflex_vector_table & ~0xFFu)) {
+            /* esp_rom_printf, not REFLEX_LOGE. This file is where REFLEX_LOG*
+             * is implemented, and the log path takes a lock and writes through
+             * the console — neither of which is a good idea from inside the
+             * interrupt allocator. The ROM routine is the same escape hatch
+             * reflex_trap_handler uses, for the same reason. */
+            esp_rom_printf("[reflex.hal] intr_alloc(source=%d) before Reflex took mtvec "
+                           "(mtvec=0x%x, expected base 0x%x): it would never be delivered\n",
+                           source, (unsigned)mtvec,
+                           (unsigned)((uint32_t)(uintptr_t)reflex_vector_table));
+            return REFLEX_ERR_INVALID_STATE;
+        }
+    }
+#endif
+
     /* Allocate a free CPU interrupt number.
      *
      * This scans Reflex's own bitmap only. An attempt was made to also skip

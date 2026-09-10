@@ -236,17 +236,74 @@ def apply_build_defines():
             entries = json.load(fh)
     except (OSError, ValueError):
         return {}
-    defined = set()
+    # Unanimity, not union. A symbol defined for one translation unit and not
+    # another has no single value for the whole build, and taking the union
+    # would let a flag on a single file discount a fence in every other one —
+    # the tool being fooled by exactly the kind of asymmetry it exists to catch.
+    # Counted over C compilations only: the scan reads .c/.h/.S, and headers
+    # take their value from the .c that includes them.
+    seen_c = 0
+    counts_defined = {sym: 0 for sym in BUILD_DEFINED_SYMBOLS}
     for e in entries:
+        if not str(e.get("file", "")).endswith(".c"):
+            continue
+        seen_c += 1
         cmd = e.get("command") or " ".join(e.get("arguments", []))
-        for tok in cmd.split():
-            if tok.startswith("-D"):
-                defined.add(tok[2:].split("=", 1)[0])
+        toks = {t[2:].split("=", 1)[0] for t in cmd.split() if t.startswith("-D")}
+        for sym in BUILD_DEFINED_SYMBOLS:
+            if sym in toks:
+                counts_defined[sym] += 1
+    if not seen_c:
+        return {}
     resolved = {}
     for sym in BUILD_DEFINED_SYMBOLS:
-        PATH_SYMBOLS[sym] = sym in defined
-        resolved[sym] = sym in defined
+        n = counts_defined[sym]
+        if n == seen_c:
+            value = True
+        elif n == 0:
+            value = False
+        else:
+            # Split across the build. No honest single value, so leave it
+            # unknown: both branches get counted, which overstates rather than
+            # understates the dependency.
+            print(f"  {sym} defined for {n} of {seen_c} C files — no single value, "
+                  f"left unknown and both branches counted")
+            continue
+        PATH_SYMBOLS[sym] = value
+        resolved[sym] = value
     return resolved
+
+
+def assembly_uses_build_symbol():
+    """Scanned .S files that condition on a build-defined symbol.
+
+    CMAKE_C_FLAGS does not reach the assembler — measured, 0 of 8 .S
+    compilations carry -DREFLEX_OWN_ENTRY while 980 of 980 .c ones do — so a
+    value resolved from C compilations says nothing about an assembly file. No
+    .S file conditions on one today; this reports it if that ever changes,
+    rather than quietly applying the C answer to a file that never saw the flag.
+    """
+    hits = []
+    for d in SCAN:
+        base = os.path.join(ROOT, d)
+        if not os.path.isdir(base):
+            continue
+        for dirpath, _dirs, files in os.walk(base):
+            if "build" in dirpath.split(os.sep):
+                continue
+            for f in files:
+                if not f.endswith(".S"):
+                    continue
+                full = os.path.join(dirpath, f)
+                try:
+                    text = open(full, errors="replace").read()
+                except OSError:
+                    continue
+                for sym in BUILD_DEFINED_SYMBOLS:
+                    if re.search(r"^\s*#\s*(if|ifdef|ifndef|elif)\b.*\b" + sym + r"\b",
+                                 text, re.M):
+                        hits.append((os.path.relpath(full, ROOT), sym))
+    return hits
 
 COND_RE = re.compile(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b\s*(.*)$")
 
@@ -368,6 +425,32 @@ def compiled_sources():
     return srcs or None
 
 
+def load_baseline_doc():
+    """The baseline file as a dict, or an empty one if it is absent/unreadable."""
+    try:
+        with open(BASELINE) as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(doc, dict):
+        return {}
+    return migrate_baseline_doc(doc)
+
+
+def migrate_baseline_doc(doc):
+    """Read a pre-per-configuration baseline as the one build it measured.
+
+    The file used to hold a single flat "on_path", from the days when
+    build_independence was the only configuration measured. An un-migrated
+    checkout must keep ratcheting rather than failing open, so that shape is
+    read as that configuration's floor.
+    """
+    if "configurations" not in doc and "on_path" in doc:
+        doc = dict(doc)
+        doc["configurations"] = {os.path.basename(INDEPENDENCE_BUILD): doc["on_path"]}
+    return doc
+
+
 def counts(records):
     c = {}
     for _rel, _n, _inc, tier, _what in records:
@@ -397,7 +480,11 @@ def main():
         print(f"  {sym} = {'defined' if val else 'not defined'} (from compile_commands.json)")
     missing = [s for s in BUILD_DEFINED_SYMBOLS if s not in resolved]
     if missing:
-        print(f"  no compile_commands.json: {', '.join(missing)} unknown, both branches counted")
+        print(f"  {', '.join(missing)} unresolved for this build, both branches counted")
+    asm_hits = assembly_uses_build_symbol()
+    for rel, sym in asm_hits:
+        print(f"  WARNING: {rel} conditions on {sym}, which the assembler is never "
+              f"given — the value above does not apply to it")
 
     on, off, unknown = scan()
     cur = counts(on)
@@ -434,14 +521,19 @@ def main():
         for rel, n, inc, _t, _w in sorted(unknown):
             print(f"    {rel}:{n}  {inc}")
 
+    config = os.path.basename(_build_dir)
+
     if update:
+        doc = load_baseline_doc()
+        doc.setdefault("configurations", {})[config] = cur
+        doc["note"] = ("Ratchet baseline, per build configuration. Lower is the only "
+                       "legal direction. Regenerate deliberately with "
+                       "tools/check_independence.py --update [--build <dir>].")
+        doc.pop("on_path", None)
         with open(BASELINE, "w") as fh:
-            json.dump({"on_path": cur, "note":
-                       "Ratchet baseline. Lower is the only legal direction. "
-                       "Regenerate deliberately with tools/check_independence.py --update."},
-                      fh, indent=2, sort_keys=True)
+            json.dump(doc, fh, indent=2, sort_keys=True)
             fh.write("\n")
-        print(f"\nBaseline updated: {os.path.relpath(BASELINE, ROOT)}")
+        print(f"\nBaseline updated for {config}: {os.path.relpath(BASELINE, ROOT)}")
         return 0
 
     if not check:
@@ -452,12 +544,22 @@ def main():
               "tools/check_independence.py, or remove it.")
         return 1
 
-    try:
-        with open(BASELINE) as fh:
-            base = json.load(fh)["on_path"]
-    except (OSError, KeyError, ValueError):
-        print(f"\nFAILED: no baseline. Create it with --update.")
+    doc = load_baseline_doc()
+    configs = doc.get("configurations")
+    if configs is None:
+        print("\nFAILED: no baseline. Create it with --update.")
         return 1
+    if config not in configs:
+        # Refused rather than passed. A configuration with no recorded floor is
+        # a configuration nothing is holding, and the whole point of measuring
+        # build_own_entry separately is that its numbers are the ones the
+        # independence claim rests on.
+        print(f"\nFAILED: no ratchet baseline for configuration '{config}'. "
+              f"Known: {', '.join(sorted(configs)) or '(none)'}.")
+        print(f"  Record it deliberately with:")
+        print(f"    python3 tools/check_independence.py --update --build {config}")
+        return 1
+    base = configs[config]
 
     # Without the independence build there is nothing to filter against, so the
     # numbers include files that configuration never compiles — an upper bound,
@@ -465,8 +567,8 @@ def main():
     # build for a reason that has nothing to do with the code, so it says so and
     # declines to judge rather than reporting a regression it cannot support.
     if compiled_sources() is None:
-        print("\n  No build_independence/ present, so these counts include "
-              "sources the independence configuration does not compile.")
+        print(f"\n  No {config}/ present, so these counts include "
+              "sources that configuration does not compile.")
         print("  Upper bound only — the ratchet is not applied. Build it with:")
         print("    SDKCONFIG_DEFAULTS=sdkconfig.defaults.independence \\")
         print("      idf.py -B build_independence "
@@ -487,7 +589,7 @@ def main():
     for t, b, n in improved:
         print(f"\n  Tier {t} improved: {b} -> {n}. "
               f"Run --update to lower the ratchet.")
-    print("\nIndependence: no tier has regressed.")
+    print(f"\nIndependence: no tier has regressed ({config}).")
     return 0
 
 

@@ -1,31 +1,49 @@
 {
-  "note": "Ratchet baseline. Lower is the only legal direction. Regenerate deliberately with tools/check_independence.py --update.",
-  "on_path": {
-    "B": 2,
-    "C": 8,
-    "D": 1,
-    "F": 3
+  "configurations": {
+    "build_independence": {
+      "B": 2,
+      "C": 8,
+      "D": 1,
+      "F": 2
+    },
+    "build_own_entry": {
+      "B": 2,
+      "C": 2,
+      "D": 1,
+      "F": 3
+    }
   },
   "deliberate_increases": [
     {
-      "tier": "F",
+      "decided": "2026-09-09",
+      "evidence": "With the dependency: parity-diff reports 0 capability regressions for both the independence build and the own-entry build against stock ESP-IDF. Without it: 1, persistence.",
       "from": 1,
+      "tier": "F",
       "to": 3,
       "what": "esp_flash.h and esp_flash_internal.h in platform/esp32c6/reflex_kv_flash.c",
-      "why": "Reflex's own key-value store used raw esp_rom_spiflash_* to hold this tier at 1, and that is exactly why it persisted nothing: raw ROM flash access while the CPU executes XIP from the same flash never reaches the medium. The count was protecting a store that silently lost every key it was given \u2014 aura pairing impossible, purpose gone by the next boot. Independence measured as subtraction rewarded that; make parity-diff, which measures capability, did not.",
-      "evidence": "With the dependency: parity-diff reports 0 capability regressions for both the independence build and the own-entry build against stock ESP-IDF. Without it: 1, persistence.",
-      "decided": "2026-09-09"
+      "why": "Reflex's own key-value store used raw esp_rom_spiflash_* to hold this tier at 1, and that is exactly why it persisted nothing: raw ROM flash access while the CPU executes XIP from the same flash never reaches the medium. The count was protecting a store that silently lost every key it was given \u2014 aura pairing impossible, purpose gone by the next boot. Independence measured as subtraction rewarded that; make parity-diff, which measures capability, did not."
     }
   ],
   "measurement_corrections": [
     {
-      "tier": "C",
+      "consequence": "The claim that Tier C was clear for the own-entry build was wrong and is retracted. Measured honestly it is 4 there, 8 here. check_independence.py counts externs now, so lowering the number by changing declaration style is no longer possible.",
+      "corrected": "2026-09-09",
       "from": 4,
+      "tier": "C",
       "to": 8,
       "what": "intr_handler_set / intr_handler_get / intr_handler_get_arg, reached by local extern",
-      "why": "Not a regression \u2014 these dependencies were always there and the tool could not see them. It read #include lines only, so anything declared with a local extern was invisible, and this codebase declares symbols that way deliberately for ROM entry points. These three are not ROM: they are ESP-IDF C in components/riscv/interrupt.c, and a comment in reflex_hal_esp32c6.c claimed they lived in mask ROM, which is false. Reflex's allocator registers into ESP-IDF's handler table and reflex_trap_handler reads it to dispatch every interrupt Reflex does not own.",
-      "consequence": "The claim that Tier C was clear for the own-entry build was wrong and is retracted. Measured honestly it is 4 there, 8 here. check_independence.py counts externs now, so lowering the number by changing declaration style is no longer possible.",
-      "corrected": "2026-09-09"
+      "why": "Not a regression \u2014 these dependencies were always there and the tool could not see them. It read #include lines only, so anything declared with a local extern was invisible, and this codebase declares symbols that way deliberately for ROM entry points. These three are not ROM: they are ESP-IDF C in components/riscv/interrupt.c, and a comment in reflex_hal_esp32c6.c claimed they lived in mask ROM, which is false. Reflex's allocator registers into ESP-IDF's handler table and reflex_trap_handler reads it to dispatch every interrupt Reflex does not own."
+    },
+    {
+      "configuration": "build_independence",
+      "consequence": "The two configurations now carry separate baselines, because they genuinely have different numbers and a single flat baseline could only be right about one of them. Reported to the user as pre-existing drift when first seen; that was wrong, it was caused by this change and is correct.",
+      "corrected": "2026-09-10",
+      "from": 3,
+      "tier": "F",
+      "to": 2,
+      "what": "esp_flash_internal.h in platform/esp32c6/reflex_kv_flash.c",
+      "why": "Not a removal. That include sits behind #ifdef REFLEX_OWN_ENTRY, and until the tool could resolve that symbol it counted both branches \u2014 so the independence build, which never compiles the include, was charged for it. Reading REFLEX_OWN_ENTRY back from the build's own compile_commands.json resolves it to not-defined there and the include drops out. The same change resolves it to defined for build_own_entry, where the include is real and Tier F is correspondingly 3."
     }
-  ]
+  ],
+  "note": "Ratchet baseline, per build configuration. Lower is the only legal direction. Regenerate deliberately with tools/check_independence.py --update [--build <dir>]."
 }

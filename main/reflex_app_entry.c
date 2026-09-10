@@ -222,6 +222,14 @@ void __wrap_esp_startup_start_app(void) {
     reflex_hal_delay_us(50000);
     uint32_t t2 = reflex_sched_get_tick();
     if (t2 == t1) {
+        /* Re-read the routing rather than reporting the copy taken before the
+         * wait. The fields that decide this question are the ones that change
+         * during it — mip_pending is a sample of what is asserting *now*, and
+         * plic_enabled and live_line_mask can be cleared by the trap handler
+         * masking an unclaimed line while the 50ms elapses. Printing the
+         * pre-wait copy would describe the machine as it was before the failure
+         * it is being asked to explain. */
+        reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &tick);
         uint32_t ena, raw, st;
         reflex_sched_tick_debug(&ena, &raw, &st);
         /* Both halves, because "routed but not firing" and "firing but not

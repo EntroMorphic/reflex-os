@@ -136,6 +136,11 @@ else:
               "present in build" if gone in text else "still claimed")
 
 print("\n--- build-defined symbols come from the build, not from a table ---")
+# These tests point the module at throwaway directories and mutate its global
+# PATH_SYMBOLS. Both are restored at the end of the section, so a test added
+# below still measures the real tree instead of a deleted temp directory.
+_saved_build_dir = ci._build_dir
+_saved_path_symbols = dict(ci.PATH_SYMBOLS)
 # The value of REFLEX_OWN_ENTRY decides whether two Tier C dependencies are
 # counted. Getting it from a hand-written table would be an assertion; these
 # check that it is read back from the build the tool was pointed at, and that
@@ -183,6 +188,73 @@ with _tempfile.TemporaryDirectory() as td:
     check("and leaves the symbol unknown",
           ci._eval_cond("ifndef", "REFLEX_OWN_ENTRY") is None,
           ci.PATH_SYMBOLS.get("REFLEX_OWN_ENTRY"))
+
+ci.set_build_dir(_saved_build_dir)
+ci.PATH_SYMBOLS.clear()
+ci.PATH_SYMBOLS.update(_saved_path_symbols)
+check("module state is restored for anything that follows",
+      ci._build_dir == _saved_build_dir and ci.PATH_SYMBOLS == _saved_path_symbols,
+      ci._build_dir)
+
+print("\n--- unanimity, not union ---")
+# A symbol defined for one file and not another has no single value for the
+# build. Taking the union would let a flag on a single file discount a fence in
+# every other one, which is the tool being fooled by the asymmetry it exists to
+# catch.
+with _tempfile.TemporaryDirectory() as td:
+    with open(os.path.join(td, "compile_commands.json"), "w") as fh:
+        _json.dump([
+            {"command": "cc -DREFLEX_OWN_ENTRY=1 -c a.c", "file": "/x/a.c"},
+            {"command": "cc -c b.c", "file": "/x/b.c"},
+        ], fh)
+    ci.set_build_dir(td)
+    ci.PATH_SYMBOLS.pop("REFLEX_OWN_ENTRY", None)
+    got = ci.apply_build_defines()
+    check("a split build resolves nothing", "REFLEX_OWN_ENTRY" not in got, got)
+    check("and leaves the symbol unknown, counting both branches",
+          ci._eval_cond("ifndef", "REFLEX_OWN_ENTRY") is None,
+          ci.PATH_SYMBOLS.get("REFLEX_OWN_ENTRY"))
+
+with _tempfile.TemporaryDirectory() as td:
+    # Non-C entries must not break unanimity: CMAKE_C_FLAGS does not reach the
+    # assembler, so .S compilations never carry the flag and counting them would
+    # make every build look split.
+    with open(os.path.join(td, "compile_commands.json"), "w") as fh:
+        _json.dump([
+            {"command": "cc -DREFLEX_OWN_ENTRY=1 -c a.c", "file": "/x/a.c"},
+            {"command": "as -c v.S", "file": "/x/v.S"},
+            {"command": "c++ -c t.cpp", "file": "/x/t.cpp"},
+        ], fh)
+    ci.set_build_dir(td)
+    got = ci.apply_build_defines()
+    check("assembly and C++ entries do not break unanimity",
+          got.get("REFLEX_OWN_ENTRY") is True, got)
+
+check("no scanned .S file conditions on a build-defined symbol",
+      ci.assembly_uses_build_symbol() == [], ci.assembly_uses_build_symbol())
+
+ci.set_build_dir(_saved_build_dir)
+ci.PATH_SYMBOLS.clear()
+ci.PATH_SYMBOLS.update(_saved_path_symbols)
+
+print("\n--- the ratchet is per configuration ---")
+# One flat baseline could only ever be right about one build. The own-entry
+# numbers are the lower ones and the ones quoted, so they need their own floor.
+_doc = ci.load_baseline_doc()
+_cfgs = _doc.get("configurations", {})
+check("baseline records build_independence", "build_independence" in _cfgs, sorted(_cfgs))
+check("baseline records build_own_entry", "build_own_entry" in _cfgs, sorted(_cfgs))
+check("own-entry Tier C floor is at most 2", _cfgs.get("build_own_entry", {}).get("C", 99) <= 2,
+      _cfgs.get("build_own_entry"))
+check("the two configurations are not assumed equal",
+      _cfgs.get("build_independence") != _cfgs.get("build_own_entry"), _cfgs)
+_migrated = ci.migrate_baseline_doc({"on_path": {"C": 1}})
+check("a legacy flat baseline migrates to build_independence",
+      _migrated.get("configurations", {}).get("build_independence") == {"C": 1},
+      _migrated)
+check("migration does not disturb an already-per-configuration baseline",
+      ci.migrate_baseline_doc({"configurations": {"x": {"C": 1}}})["configurations"]
+      == {"x": {"C": 1}}, "idempotent")
 
 print("\n--- the own-entry build really has dropped intr_handler_set ---")
 # The claim that Tier C fell from 4 to 2 rests on the compiler, not the scan.

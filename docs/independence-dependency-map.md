@@ -1353,6 +1353,117 @@ hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
 forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
 this entry.
 
+### Red-teaming that change found four things (2026-09-10)
+
+**1. The number I had just lowered was not held by anything.**
+`make independence-own-entry` ran the tool *without* `--check` — it reported and
+returned zero. The gate in CI (`make independence-check`) measures
+`build_independence`, where `REFLEX_OWN_ENTRY` is undefined and Tier C reads 8,
+so the 4 → 2 was invisible to it. The configuration the independence claim rests
+on had no floor under it at all.
+
+The cause was structural: one baseline file with a single flat `on_path`, and no
+notion of configuration, which is exactly why the own-entry target had been left
+report-only. The baseline is now keyed by configuration:
+
+```json
+"configurations": {
+  "build_independence": { "B": 2, "C": 8, "D": 1, "F": 2 },
+  "build_own_entry":    { "B": 2, "C": 2, "D": 1, "F": 3 }
+}
+```
+
+`--check` refuses a configuration it has no baseline for rather than passing it,
+`--update` writes only the configuration measured, and a legacy flat file still
+migrates rather than failing open. `make independence-own-entry` now checks, and
+a CI job builds the own-entry configuration and ratchets it — after first
+asserting that the flag reached the compiler and that the object really has
+dropped `intr_handler_set`, so the job cannot go green while proving nothing.
+
+Verified by making it fail on purpose: an unknown configuration exits 1, and a
+tier lowered below its measured value exits 1.
+
+**2. Reading defines as a union let one file speak for the build.**
+`apply_build_defines` collected `-D` flags across all entries and took the union,
+so a symbol defined for a single translation unit would have been treated as
+defined everywhere — discounting fences in every other file. That is the tool
+being fooled by precisely the asymmetry it exists to catch. It now requires
+unanimity across C compilations; a split prints the split and leaves the symbol
+unknown, which counts both branches. Measured: 980 of 980 `.c` files carry the
+flag, 0 of 8 `.S` files do, because `CMAKE_C_FLAGS` never reaches the assembler
+— so `.S` sources are excluded from the vote, and a separate check reports any
+`.S` file that conditions on a build-defined symbol, since the resolved value
+would not apply to it.
+
+**3. Tier F 3 → 2 on the independence build was mine, and I said it was not.**
+Reported to the user as pre-existing drift on first sight. It is not:
+`esp_flash_internal.h` in `reflex_kv_flash.c` sits behind the same
+`#ifdef REFLEX_OWN_ENTRY`, and until the tool could resolve that symbol it
+counted both branches and charged the independence build for an include it never
+compiles. Recorded in the baseline as a measurement correction, not a removal.
+
+**4. The failure path reported the machine as it was before the failure.**
+The reordering left `reflex_hal_intr_describe` being called once, before the
+50 ms wait, with the failure branch printing that stale copy. The fields that
+decide the question are the ones that change during the wait — `mip_pending` is
+a sample of what is asserting *now*, and `plic_enabled`/`live_line_mask` can be
+cleared by the trap handler masking an unclaimed line meanwhile. In the one
+place where the evidence cannot be gathered afterwards, it now re-reads.
+
+### A silent failure the fence made possible
+
+With `intr_handler_set` fenced out, a line allocated while ESP-IDF still owns
+`mtvec` is routed, enabled and above threshold — and delivered to a dispatcher
+that has never heard of it. Nothing faults; the interrupt simply never arrives,
+and for the tick that is a scheduler parked on `wfi`, indistinguishable from a
+hang. Before the fence that case worked, because ESP-IDF's table caught it.
+
+The ordering in `reflex_app_entry.c` is what prevents it, and that is a property
+of one file guarding a silent failure in another. `reflex_hal_intr_alloc` now
+checks it directly under `REFLEX_OWN_ENTRY`: read `mtvec`, mask off the mode
+field and the 256-byte base alignment, compare against `reflex_vector_table`, and
+refuse with `REFLEX_ERR_INVALID_STATE` if Reflex is not the one installed. Read
+from the CSR rather than tracked in a flag, because the question is what the
+hardware will actually do with the interrupt.
+
+Its true branch is exercised on every boot — a wrong comparison would refuse the
+tick allocation and send the board to `handback`, and the board boots and ticks.
+The refusing branch is reasoned, not measured.
+
+### Mesh RX with a second peer, finally measured — and it works
+
+This had been open since the radio was ported: RX was only ever observed as "the
+ISR runs", never as "a frame from another board arrives", because the bench
+cannot hold two USB-serial-JTAG connections at once. It can be done by only ever
+opening one: flash both boards, leave board A untouched and transmitting, and
+read counters on board B.
+
+Three runs, 45–60 s each, board B on the own-entry build:
+
+| Board A | `tx_discover` (B) | `rx_aura_fail` (B) |
+|---|---|---|
+| own-entry, 802.15.4 | 9 | **9** |
+| FreeRTOS entry, 802.15.4 (control) | 14 | **14** |
+| default build, no 802.15.4 (silenced) | 9 | **0** |
+
+`rx_aura_fail` is incremented inside `atmosphere_recv_cb`, on the receive path,
+after the self-MAC check (`rx_self_drop` stayed 0 throughout). So frames were
+arriving from the air, through Reflex's trap handler, through
+`reflex_hal_intr_dispatch_foreign`, into ESP-IDF's 802.15.4 ISR and out to the
+mesh callback. Silencing the peer takes the count to zero while B keeps
+transmitting at the same rate, which is what makes the attribution airtight
+rather than a single suggestive reading.
+
+**Foreign dispatch works under Reflex's own vector, with a real peer.** That is
+the path the two remaining Tier C entries serve, and it had never been proven.
+
+The frames fail authentication because each board holds its own aura key from
+NVS — the boards are unpaired, which is a provisioning state and not a fault.
+`mesh status` reporting `rx=0` while `mesh stat` reports nine received frames is
+a reporting gap worth closing, but it is a mesh concern rather than an
+independence one and is left open here.
+
+
 
 ### The measure could be satisfied by changing declaration style
 

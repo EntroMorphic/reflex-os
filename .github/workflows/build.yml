@@ -180,6 +180,38 @@ jobs:
           ! nm build/reflex_os.elf | grep -q ' xQueueCreate$' || true
           echo "Reflex task backend linked."
 
+  # The configuration the independence claim actually rests on.
+  #
+  # `independence` above runs on a bare checkout with no build directory, so it
+  # reports an upper bound and declines to ratchet — by design, but it means
+  # nothing was holding the own-entry numbers. They are the lower ones, and the
+  # ones quoted: Tier C fell from 4 to 2 there because REFLEX_OWN_ENTRY fences
+  # out ESP-IDF's interrupt table, and a fence is exactly the kind of change
+  # that can be undone by accident. This job builds that configuration and
+  # ratchets it against its own baseline.
+  independence-own-entry:
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the own-entry configuration
+        run: |
+          . $IDF_PATH/export.sh
+          make own-entry-build
+      - name: Confirm the flag really reached the compiler
+        # The measurement below reads REFLEX_OWN_ENTRY back from
+        # compile_commands.json. If the flag silently stopped being passed, the
+        # tool would resolve it to "not defined", count the fenced dependencies,
+        # and fail honestly — but it would fail for a confusing reason. Say so
+        # here instead.
+        run: |
+          grep -q 'DREFLEX_OWN_ENTRY' build_own_entry/compile_commands.json
+          ! nm build_own_entry/esp-idf/esp32c6/CMakeFiles/__idf_esp32c6.dir/reflex_hal_esp32c6.c.obj \
+            | grep -q 'U intr_handler_set'
+          echo "own-entry build carries the flag and has dropped intr_handler_set."
+      - name: Ratchet the own-entry independence floor
+        run: make independence-own-entry
+
   build-esp32:
     runs-on: ubuntu-latest
     container: espressif/idf:release-v5.5

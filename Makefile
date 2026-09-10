@@ -152,7 +152,7 @@ independence-check:
 # Needs `make own-entry-build` first, since "compiled" is read from the build
 # directory.
 independence-own-entry:
-	@python3 tools/check_independence.py --build build_own_entry -v
+	@python3 tools/check_independence.py --check --build build_own_entry -v
 
 # Measure the Reflex scheduler tick across repeated cold starts. Delivery is
 # intermittent, so a single run proves nothing — this reports the distribution.
