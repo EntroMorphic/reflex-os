@@ -123,8 +123,11 @@ def run_battery(port, label):
     results["led_on"] = "led=on" in ask(s, "led on")
     results["led_off"] = "led=off" in ask(s, "led off")
 
-    ask(s, "bonsai exp4 connect")
-    results["pwm_attach"] = "orient=rising" in ask(s, "bonsai exp4 status") or True
+    # Read the reply to `connect` itself. This used to ask `bonsai exp4 status`
+    # — not a subcommand, so the match always failed — and then `or True`ed the
+    # result, which made it a check that could not fail. In a tool written to
+    # catch exactly that.
+    results["pwm_attach"] = "orient=rising" in ask(s, "bonsai exp4 connect")
     results["pwm_detach"] = "orient=unchanged" in ask(s, "bonsai exp4 detach")
 
     mesh = ask(s, "mesh status")
@@ -146,10 +149,40 @@ def run_battery(port, label):
         return results
     after = ask(s2, "purpose get")
     results["persist_across_reboot"] = "photography" in after
+    # Put it back. The persistence probe is the one part of this battery that
+    # writes to the device, and on a build where persistence works it therefore
+    # leaves a purpose set behind — observed on a board that came up
+    # `purpose=photography` long after a run. A measuring tool that changes what
+    # it measures is only acceptable if it changes it back.
+    ask(s2, "auth admin")
+    ask(s2, "purpose clear")
+    results["cleaned_up"] = "photography" not in ask(s2, "purpose get")
     s2.close()
     results["silent_commands"] = list(SILENT)
     results["trustworthy"] = not SILENT
     return results
+
+
+# What a difference means has to be declared, because most of these numbers are
+# not comparable between builds. Reporting every field with a verdict made a
+# temperature reading look like a capability check and, worse, let a real
+# numeric regression print "same": tick_hz could fall from 999 to 100 and the
+# old logic only ever flagged booleans and None.
+BOOL_CHECKS = (
+    "boots", "auth_admin", "led_on", "led_off",
+    "pwm_attach", "pwm_detach", "purpose_set_ok", "persist_across_reboot",
+    "cleaned_up",
+)
+# Numeric checks, with what a regression means for each.
+NUM_CHECKS = {
+    "tick_hz": ("at least 95% of the baseline", lambda base, other: other >= 0.95 * base),
+    "vm_programs": ("no fewer than the baseline", lambda base, other: other >= base),
+    "sched_slots_dead": ("no unreclaimed task slots", lambda base, other: other == 0),
+}
+# Reported for context and never given a verdict: they legitimately differ
+# between builds, boards and moments.
+OBSERVATIONS = ("temp_c", "lp_heartbeat", "mesh_tx", "mesh_rx", "mesh_peers",
+                "sched_slots_used")
 
 
 def diff(a, b):
@@ -158,20 +191,23 @@ def diff(a, b):
             print(f"WARNING: '{run['label']}' had silent commands "
                   f"{run.get('silent_commands')} — treat this run as a transport "
                   f"failure, not as capability data.\n")
-    keys = [k for k in a if k not in ("label", "port", "mac", "silent_commands", "trustworthy")]
+    keys = list(BOOL_CHECKS) + list(NUM_CHECKS) + list(OBSERVATIONS)
     width = max(len(k) for k in keys)
     print(f"{'capability'.ljust(width)}  {a['label'][:18].ljust(18)}  {b['label'][:18].ljust(18)}  verdict")
     print("-" * (width + 48))
     regressions = 0
     for k in keys:
         va, vb = a.get(k), b.get(k)
-        if isinstance(va, bool) or isinstance(vb, bool):
-            verdict = "same" if va == vb else ("REGRESSION" if va and not vb else "gain")
+        if k in OBSERVATIONS:
+            verdict = "(observed)"
         elif va is None or vb is None:
             verdict = "same" if va == vb else ("REGRESSION" if vb is None else "gain")
+        elif k in BOOL_CHECKS:
+            verdict = "same" if va == vb else ("REGRESSION" if va and not vb else "gain")
         else:
-            verdict = "same"
-        if verdict == "REGRESSION":
+            rule, ok = NUM_CHECKS[k]
+            verdict = "same" if ok(va, vb) else "REGRESSION (%s)" % rule
+        if verdict.startswith("REGRESSION"):
             regressions += 1
         print(f"{k.ljust(width)}  {str(va)[:18].ljust(18)}  {str(vb)[:18].ljust(18)}  {verdict}")
     print()

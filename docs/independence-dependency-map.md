@@ -1194,6 +1194,29 @@ with nothing to wake them — the machine died mid-command. A diagnostic that
 destroys the system it is diagnosing. It now stops only a tick it started
 itself.
 
+Red-teaming the tool then found three defects in it, all of the kind it exists
+to catch:
+
+- **A check that could not fail.** `pwm_attach` read `"orient=rising" in ask(s,
+  "bonsai exp4 status") or True`. `status` is not an exp4 subcommand, so the
+  match always failed and the `or True` reported success anyway. Every parity
+  run so far had reported PWM attach as working without testing it. It reads
+  the reply to `connect` now, and re-measured, it is genuinely true — the old
+  answer was right for no reason.
+- **Numeric regressions were invisible.** The verdict logic only compared
+  booleans and `None`, so `tick_hz` could fall from 999 to 100 and print "same".
+  Checks and observations are now declared separately: booleans and three
+  numeric rules (tick within 95% of baseline, no fewer VM programs, no
+  unreclaimed task slots) produce verdicts; temperature, heartbeat, mesh
+  counters and slot usage are reported as context and never given one, because
+  they legitimately differ between builds and moments. Mutation-checked against
+  a synthetic degraded run: all three numeric rules fire and the exit code
+  turns 1.
+- **It left state on the device.** The persistence probe writes a purpose and
+  never cleared it, so on a build where persistence works the board kept it —
+  observed later as a board still reading `purpose=photography`. It clears up
+  after itself now, and reports whether that worked.
+
 That near-miss is also why the tool distinguishes a silent command from an
 absent capability. It did not at first, and one dead connection reported as a
 dozen capability regressions; that very nearly went into the record as "Reflex
