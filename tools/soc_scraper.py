@@ -143,6 +143,47 @@ REGS = [
     ("REFLEX_SYSTIMER_UNIT0_UPDATE",       "SYSTIMER_TIMER_UNIT0_UPDATE",      "SYSTIMER", "UNIT0_OP", "TIMER_UNIT0_UPDATE",      "write to latch"),
     ("REFLEX_SYSTIMER_UNIT0_VALUE_VALID",  "SYSTIMER_TIMER_UNIT0_VALUE_VALID", "SYSTIMER", "UNIT0_OP", "TIMER_UNIT0_VALUE_VALID", "poll until latched"),
 
+    # --- IEEE 802.15.4 MAC (Tier D: owning the radio) ---
+    #
+    # Reflex does not drive this peripheral yet: ESP-IDF's ieee802154 driver
+    # does, and reflex_radio_802154.c calls it through esp_ieee802154.h, which
+    # is the single on-path Tier D dependency. These constants are the
+    # groundwork for changing that, and they are added ahead of the driver on
+    # purpose — a register map is the part that cannot be debugged by staring at
+    # it, and this bridge proves every address against the vendor's own macro at
+    # compile time before a single line of MAC code depends on it.
+    #
+    # ESP-IDF has no _REG macros for this peripheral in the usual place; they
+    # live in components/soc/esp32c6/register/soc/ieee802154_reg.h, and its
+    # driver reaches the registers through a struct rather than through them.
+    # The macros exist and are what the struct is generated from, so they are
+    # still the right thing to assert against.
+    #
+    # Scoped to what a minimal MAC needs — command, configuration, addressing,
+    # the two DMA pointers and the event/status registers. The other 70-odd
+    # registers cover ACK handling, security, multi-PAN, scan and debug, none of
+    # which Reflex's broadcast mesh uses.
+    ("REFLEX_DR_REG_IEEE802154_BASE",   "IEEE802154_REG_BASE",              "IEEE802154", None,               None, "peripheral base, not a register"),
+    ("REFLEX_154_COMMAND_REG",          "IEEE802154_COMMAND_REG",           "IEEE802154", "COMMAND",          None, "TX/RX/stop commands"),
+    ("REFLEX_154_CTRL_CFG_REG",         "IEEE802154_CTRL_CFG_REG",          "IEEE802154", "CTRL_CFG",         None, "promiscuous, auto-ACK, coordinator"),
+    # Holds a frequency index, NOT a channel number: freq = (channel - 11) * 5 + 3,
+    # so 802.15.4 channel 15 reads back as 23. Measured on silicon before any
+    # MAC code depended on it, and worth the note — the address is right and
+    # writing a channel number here would tune the radio to the wrong frequency
+    # without failing anything. That is the same class of error the bridge
+    # exists to catch, one level up: a correct address with a wrong encoding.
+    ("REFLEX_154_CHANNEL_REG",          "IEEE802154_CHANNEL_REG",           "IEEE802154", "CHANNEL",          None, "frequency index, not channel: (ch-11)*5+3"),
+    ("REFLEX_154_TX_POWER_REG",         "IEEE802154_TX_POWER_REG",          "IEEE802154", "TX_POWER",         None, ""),
+    ("REFLEX_154_INF0_SHORT_ADDR_REG",  "IEEE802154_INF0_SHORT_ADDR_REG",   "IEEE802154", "INF0_SHORT_ADDR",  None, "PAN info bank 0 is the one a single-PAN node uses"),
+    ("REFLEX_154_INF0_PAN_ID_REG",      "IEEE802154_INF0_PAN_ID_REG",       "IEEE802154", "INF0_PAN_ID",      None, ""),
+    ("REFLEX_154_EVENT_EN_REG",         "IEEE802154_EVENT_EN_REG",          "IEEE802154", "EVENT_EN",         None, "which events raise the interrupt"),
+    ("REFLEX_154_EVENT_STATUS_REG",     "IEEE802154_EVENT_STATUS_REG",      "IEEE802154", "EVENT_STATUS",     None, "write-1-to-clear"),
+    ("REFLEX_154_TXDMA_ADDR_REG",       "IEEE802154_TXDMA_ADDR_REG",        "IEEE802154", "TXDMA_ADDR",       None, "pointer to the frame to send"),
+    ("REFLEX_154_RXDMA_ADDR_REG",       "IEEE802154_RXDMA_ADDR_REG",        "IEEE802154", "RXDMA_ADDR",       None, "pointer to the receive buffer"),
+    ("REFLEX_154_RX_STATUS_REG",        "IEEE802154_RX_STATUS_REG",         "IEEE802154", "RX_STATUS",        None, ""),
+    ("REFLEX_154_TX_STATUS_REG",        "IEEE802154_TX_STATUS_REG",         "IEEE802154", "TX_STATUS",        None, ""),
+    ("REFLEX_154_RX_LENGTH_REG",        "IEEE802154_RX_LENGTH_REG",         "IEEE802154", "RX_LENGTH",        None, ""),
+
     # --- USB-serial-JTAG console (Tier E: owning console RX) ---
     # The SVD calls this peripheral USB_DEVICE; IDF calls it USB_SERIAL_JTAG.
     # Same base, different name, which is exactly what this table is for.
@@ -455,6 +496,12 @@ def render_bridge(bridge):
         "#include \"soc/timer_group_reg.h\"",
         "#include \"soc/wdt_periph.h\"",
         "#include \"soc/interrupts.h\"",
+        # Not in soc/include like the others: this peripheral's macros live
+        # under soc/esp32c6/register/. ESP-IDF's own driver reaches these
+        # registers through a struct rather than through the macros, but the
+        # macros are what the struct is generated from and are the right thing
+        # to assert an address against.
+        "#include \"soc/ieee802154_reg.h\"",
         "",
     ]
     for name, idf in bridge:

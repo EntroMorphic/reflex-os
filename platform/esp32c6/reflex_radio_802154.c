@@ -11,6 +11,8 @@
 
 #include "reflex_radio.h"
 #include "reflex_hal.h"
+#include "reflex_soc_esp32c6.h"
+#include "reflex_regops.h"
 #include "esp_ieee802154.h"
 #include <string.h>
 
@@ -181,4 +183,36 @@ reflex_err_t reflex_radio_register_recv(reflex_radio_recv_cb_t cb) {
 reflex_err_t reflex_radio_add_peer(const uint8_t mac[6]) {
     (void)mac;
     return REFLEX_OK;
+}
+
+/* Read the MAC's registers through Reflex's own constants.
+ *
+ * Nothing here writes. ESP-IDF's driver owns this peripheral and is actively
+ * using it; programming a register behind that driver's back would corrupt a
+ * state machine Reflex does not model yet. The point is narrower and comes
+ * first: prove that Reflex's register map reaches the real peripheral.
+ *
+ * make soc-bridge proves each of these addresses equals ESP-IDF's macro at
+ * compile time. That is a claim about headers. This is the claim about silicon,
+ * and the two are not the same — a correct constant still has to be a correct
+ * constant *for this chip*, reached through a peripheral whose clock is on. The
+ * check that makes it evidence is that these values are not arbitrary: the
+ * channel, PAN ID and short address were set by reflex_radio_init through
+ * ESP-IDF's API, so reading Reflex's own addresses must return exactly what
+ * Reflex asked for. Anything else and the map is wrong.
+ */
+void reflex_radio_reg_snapshot(reflex_radio_reg_snapshot_t *out) {
+    if (!out) return;
+    out->valid = true;
+    out->base = REFLEX_DR_REG_IEEE802154_BASE;
+    out->channel = REFLEX_REG_READ(REFLEX_154_CHANNEL_REG);
+    out->panid = REFLEX_REG_READ(REFLEX_154_INF0_PAN_ID_REG);
+    out->short_addr = REFLEX_REG_READ(REFLEX_154_INF0_SHORT_ADDR_REG);
+    out->ctrl_cfg = REFLEX_REG_READ(REFLEX_154_CTRL_CFG_REG);
+    out->event_en = REFLEX_REG_READ(REFLEX_154_EVENT_EN_REG);
+    out->event_status = REFLEX_REG_READ(REFLEX_154_EVENT_STATUS_REG);
+    out->rx_status = REFLEX_REG_READ(REFLEX_154_RX_STATUS_REG);
+    out->tx_status = REFLEX_REG_READ(REFLEX_154_TX_STATUS_REG);
+    out->txdma_addr = REFLEX_REG_READ(REFLEX_154_TXDMA_ADDR_REG);
+    out->rxdma_addr = REFLEX_REG_READ(REFLEX_154_RXDMA_ADDR_REG);
 }

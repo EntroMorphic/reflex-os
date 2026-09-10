@@ -9,6 +9,24 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Changed
 
+- **The 802.15.4 extraction assessment was wrong in its central claim, and the shim it recommended has been deleted.** `docs/assessment-802154-extraction.md` stated that a shim header at `radio/ieee802154/reflex_ieee802154_shim.h` "satisfies the driver's compile-time dependencies" and that "the 802.15.4 driver compiles against this shim". It never did. `radio/` is in no `EXTRA_COMPONENT_DIRS`, the header appears **0 times** in `compile_commands.json`, no `.obj.d` references it, and ESP-IDF's driver is linked wholesale as ten objects while `reflex_radio_802154.c` includes `esp_ieee802154.h` directly. The document's recommendation — "Option C: accept the shim boundary — Effort: Zero (already done)" — described a boundary that did not exist. The 94-line header is deleted rather than wired in; a file that has never been compiled, cited as the project's isolation mechanism, is worse than nothing. The isolation that *does* exist is real and is a different file: `include/reflex_radio.h`, which application code genuinely goes through.
+
+- **Tier D's floor is stated plainly, and it is not zero.** `esp_ieee802154_enable()` is four calls, two of which are binary blobs: `ieee802154_rf_enable()` reaches `esp_phy_enable()` in `libphy.a` (178 KB), and `esp_btbb_enable()` is `libbtbb.a`. A Reflex-owned MAC would still call into the PHY, and that call would become the new Tier D entry. The honest target is replacing the driver and leaving only the blob — bedrock, the same shape as Tier A — not reaching 0.
+
+- **Option B was re-costed from measurement and is not "months, high risk".** ESP-IDF exposes 87 `IEEE802154_*_REG` macros; a broadcast-only MAC needs about fourteen. CCA, CRC, frame filtering and ACK timing are in the peripheral, not the driver. And "debugging requires RF test equipment" is false here — a second board running ESP-IDF's driver is a better oracle, and that method is already proven on this bench.
+
+### Added
+
+- **Fourteen IEEE 802.15.4 registers are now under the SoC bridge**, scraped from the SVD and among the **198 constants `make soc-bridge` proves identical to ESP-IDF's macros** with the real toolchain. Groundwork for Tier D, added before any MAC code depends on them, because a wrong register address does not fail to build — it writes to a different peripheral.
+
+- **`mesh regs` reads the 802.15.4 MAC back through Reflex's own constants**, verifying the map on silicon rather than only against headers. Since ESP-IDF's driver set those fields at Reflex's request, the readback is a test: `panid=0x4f52` and `short_addr=0xc7d4` are exactly what `reflex_radio_init` asked for.
+
+  **It caught what the static asserts could not.** The `CHANNEL` register holds a frequency index, not a channel number — `freq = (channel - 11) * 5 + 3`, so channel 15 reads back as 23. The address was correct; writing `15` there would have tuned the radio between channels 13 and 14 with no build error and no runtime error. A correct address with a wrong encoding is the same class of failure the bridge exists to prevent, one level up. Now recorded in the scraper note and decoded by the command.
+
+  Nothing writes. ESP-IDF's driver owns this peripheral's state machine, and programming a register behind it would corrupt state Reflex does not model yet.
+
+- **Tier D is unchanged at 1.** This is groundwork; no MAC code exists yet, and the ledger says so.
+
 - **Tier C is 0.** Not by reclassifying anything: `intr_handler_get` and `intr_handler_get_arg` are gone from the code, and `reflex_hal_intr_dispatch_foreign` was deleted rather than fenced, because nothing reads ESP-IDF's interrupt table any more. On-path total 10 → **6** (A 0, B 2, C 0, D 1, E 0, F 3).
 
   **Why this is not the rename refused three times.** `--wrap=intr_handler_set` leaves ESP-IDF's `s_intr_handlers` exactly where it is and changes only which symbol writes to it. `--wrap=esp_intr_alloc` intercepts the *registration*: a driver's ISR is filed in **Reflex's** table and dispatched by `reflex_hal_intr_dispatch_line` like the tick and the console. The store moves, not the name. That is why the getters could be deleted instead of hidden.

@@ -63,6 +63,35 @@ reflex_err_t reflex_radio_register_recv(reflex_radio_recv_cb_t cb);
 /** @brief Register a unicast peer. Broadcast needs no registration. */
 reflex_err_t reflex_radio_add_peer(const uint8_t mac[6]);
 
+/** @brief The 802.15.4 MAC's registers, read through Reflex's own SoC constants.
+ *
+ * Groundwork for Tier D, and a measurement rather than a feature. Reflex does
+ * not drive this peripheral — ESP-IDF's ieee802154 driver does — so every field
+ * here was written by that driver. Reading them back through
+ * `reflex_soc_esp32c6.h` proves on silicon what `make soc-bridge` proves at
+ * compile time: that Reflex's register map points at the real peripheral. A
+ * wrong address does not fail to build, and it does not fail to read either —
+ * it returns whatever else lives there.
+ *
+ * @param out Filled in; `valid` is false on backends that have no such MAC.
+ */
+typedef struct {
+    bool valid;    /**< false when this backend is not the 802.15.4 MAC */
+    uint32_t base; /**< the peripheral base Reflex believes in */
+    uint32_t channel;
+    uint32_t panid;
+    uint32_t short_addr;
+    uint32_t ctrl_cfg;
+    uint32_t event_en;
+    uint32_t event_status;
+    uint32_t rx_status;
+    uint32_t tx_status;
+    uint32_t txdma_addr;
+    uint32_t rxdma_addr;
+} reflex_radio_reg_snapshot_t;
+
+void reflex_radio_reg_snapshot(reflex_radio_reg_snapshot_t *out);
+
 #ifdef __cplusplus
 }
 #endif

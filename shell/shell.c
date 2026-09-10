@@ -37,6 +37,7 @@
 #endif
 
 #include "reflex_types.h"
+#include "reflex_radio.h"
 #include "reflex_hal.h"
 #include "reflex_task.h"
 #include "reflex_soc_esp32c6.h" /* LEDC signal index; was soc/gpio_sig_map.h */
@@ -1871,6 +1872,41 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         uint8_t weight = (uint8_t)weight_in;
         reflex_err_t rc = goose_atmosphere_emit_posture(state, weight);
         printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc); outcome_rc(rc);
+    } else if (argc >= 2 && strcmp(argv[1], "regs") == 0) {
+        /* The 802.15.4 MAC's registers, read through Reflex's own SoC map.
+         *
+         * Groundwork for Tier D and a measurement, not a feature. Reflex does
+         * not drive this peripheral yet — every value here was written by
+         * ESP-IDF's driver — and that is exactly what makes it a test: the
+         * channel, PAN ID and short address were set through ESP-IDF's API, so
+         * reading Reflex's own addresses must return what Reflex asked for. A
+         * wrong register address does not fail to build and does not fail to
+         * read; it quietly returns whatever else lives there. */
+        reflex_radio_reg_snapshot_t r;
+        reflex_radio_reg_snapshot(&r);
+        if (!r.valid) {
+            printf("radio regs: this backend has no 802.15.4 MAC\n");
+            outcome_rc(REFLEX_ERR_NOT_SUPPORTED);
+        } else {
+            printf("802.15.4 MAC @ 0x%08lx (Reflex's own map)\n", (unsigned long)r.base);
+            /* The CHANNEL register holds a frequency index, not a channel
+             * number: freq = (channel - 11) * 5 + 3. Printed decoded and raw,
+             * because the raw value looks like a plausible channel number and
+             * is not one — writing 15 here would tune the radio between
+             * channels 13 and 14 without failing anything. */
+            unsigned long freq = (unsigned long)(r.channel & 0xFFu);
+            printf("  channel=%lu (freq index %lu) panid=0x%04lx short_addr=0x%04lx\n",
+                   freq >= 3 ? (freq - 3) / 5 + 11 : 0, freq, (unsigned long)(r.panid & 0xFFFF),
+                   (unsigned long)(r.short_addr & 0xFFFF));
+            printf("  ctrl_cfg=0x%08lx event_en=0x%08lx event_status=0x%08lx\n",
+                   (unsigned long)r.ctrl_cfg, (unsigned long)r.event_en,
+                   (unsigned long)r.event_status);
+            printf("  rx_status=0x%08lx tx_status=0x%08lx\n", (unsigned long)r.rx_status,
+                   (unsigned long)r.tx_status);
+            printf("  txdma=0x%08lx rxdma=0x%08lx\n", (unsigned long)r.txdma_addr,
+                   (unsigned long)r.rxdma_addr);
+            outcome_rc(REFLEX_OK);
+        }
     } else if (argc >= 2 && strcmp(argv[1], "stat") == 0) {
         /* Print every counter the struct carries. DISCOVER and MMIO_SYNC were
          * omitted here, and they are precisely the ops the supervisor emits on

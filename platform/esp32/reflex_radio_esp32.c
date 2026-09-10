@@ -35,3 +35,17 @@ reflex_err_t reflex_radio_add_peer(const uint8_t mac[6]) {
     memcpy(peer_info.peer_addr, mac, 6);
     return (reflex_err_t)esp_now_add_peer(&peer_info);
 }
+
+/* The classic ESP32 has no 802.15.4 MAC at all.
+ *
+ * Reported as invalid rather than as zeros, so a caller reads "this backend has
+ * no such peripheral" instead of a plausible-looking all-zero register dump.
+ * Implemented here and not only on the 802.15.4 backend because reflex_radio.h
+ * is the contract: declaring a function for every backend and defining it for
+ * one is a link error waiting for the first caller that is not fenced off, and
+ * that mistake has already been made twice in this tree. */
+void reflex_radio_reg_snapshot(reflex_radio_reg_snapshot_t *out) {
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    out->valid = false;
+}

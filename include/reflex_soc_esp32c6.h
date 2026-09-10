@@ -127,6 +127,34 @@
 #define REFLEX_SYSTIMER_UNIT0_UPDATE 0x40000000u
 /* SYSTIMER.UNIT0_OP.TIMER_UNIT0_VALUE_VALID bit 29 — poll until latched */
 #define REFLEX_SYSTIMER_UNIT0_VALUE_VALID 0x20000000u
+/* IEEE802154 base — peripheral base, not a register */
+#define REFLEX_DR_REG_IEEE802154_BASE 0x600A3000u
+/* IEEE802154.COMMAND @ base+0x0 — TX/RX/stop commands */
+#define REFLEX_154_COMMAND_REG 0x600A3000u
+/* IEEE802154.CTRL_CFG @ base+0x4 — promiscuous, auto-ACK, coordinator */
+#define REFLEX_154_CTRL_CFG_REG 0x600A3004u
+/* IEEE802154.CHANNEL @ base+0x48 — frequency index, not channel: (ch-11)*5+3 */
+#define REFLEX_154_CHANNEL_REG 0x600A3048u
+/* IEEE802154.TX_POWER @ base+0x4C */
+#define REFLEX_154_TX_POWER_REG 0x600A304Cu
+/* IEEE802154.INF0_SHORT_ADDR @ base+0x8 — PAN info bank 0 is the one a single-PAN node uses */
+#define REFLEX_154_INF0_SHORT_ADDR_REG 0x600A3008u
+/* IEEE802154.INF0_PAN_ID @ base+0xC */
+#define REFLEX_154_INF0_PAN_ID_REG 0x600A300Cu
+/* IEEE802154.EVENT_EN @ base+0x60 — which events raise the interrupt */
+#define REFLEX_154_EVENT_EN_REG 0x600A3060u
+/* IEEE802154.EVENT_STATUS @ base+0x64 — write-1-to-clear */
+#define REFLEX_154_EVENT_STATUS_REG 0x600A3064u
+/* IEEE802154.TXDMA_ADDR @ base+0xD0 — pointer to the frame to send */
+#define REFLEX_154_TXDMA_ADDR_REG 0x600A30D0u
+/* IEEE802154.RXDMA_ADDR @ base+0xE0 — pointer to the receive buffer */
+#define REFLEX_154_RXDMA_ADDR_REG 0x600A30E0u
+/* IEEE802154.RX_STATUS @ base+0x80 */
+#define REFLEX_154_RX_STATUS_REG 0x600A3080u
+/* IEEE802154.TX_STATUS @ base+0x84 */
+#define REFLEX_154_TX_STATUS_REG 0x600A3084u
+/* IEEE802154.RX_LENGTH @ base+0xA4 */
+#define REFLEX_154_RX_LENGTH_REG 0x600A30A4u
 /* USB_DEVICE base — peripheral base; SVD name is USB_DEVICE */
 #define REFLEX_DR_REG_USB_SERIAL_JTAG_BASE 0x6000F000u
 /* USB_DEVICE.EP1 @ base+0x0 — FIFO data register, both directions */
