@@ -465,7 +465,30 @@ reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
  *
  * tools/check_independence.py counts these now, under EXTERN_TIERS, because a
  * dependency reached by a local extern is as real as one reached by an
- * #include and was previously invisible to the measure. */
+ * #include and was previously invisible to the measure.
+ *
+ * Why they cannot simply be removed, which is worth stating because the
+ * tempting fixes all rename the dependency rather than end it. Wrapping
+ * intr_handler_set with --wrap, or calling _global_interrupt_handler instead,
+ * leaves ESP-IDF's table exactly where it is and only changes which symbol
+ * names it. The four uses split two ways:
+ *
+ *   - intr_handler_set, in alloc and free. Registers Reflex's dispatch with
+ *     ESP-IDF's vector so Reflex's own interrupts are delivered *before* Reflex
+ *     takes mtvec. The entry path depends on that: it proves the tick under
+ *     ESP-IDF's vector first and hands the machine back if it is dead, which is
+ *     the check that stops a bad hand-off stranding a board. Structural to the
+ *     design, not to the radio.
+ *   - intr_handler_get and intr_handler_get_arg, in dispatch_foreign. Reads
+ *     ESP-IDF's table to service drivers Reflex does not own. Measured on the
+ *     own-entry build, that is exactly one driver: the PLIC has three live
+ *     lines, 10 is the tick and 11 the console — both Reflex's — and 8 is the
+ *     802.15.4 MAC, the only ESP-IDF component allocating an interrupt here.
+ *
+ * So half of Tier C's remainder is Tier D wearing a different hat: it ends when
+ * Reflex owns the radio, and not before. The other half ends only if the
+ * pre-install tick check is given up, which trades a measurable dependency for
+ * the ability to strand a board. */
 
 #define INTMTX_BASE           0x60010000
 #define INTMTX_SOURCE_MAX     63

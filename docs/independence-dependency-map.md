@@ -1216,6 +1216,39 @@ The supervisor now runs where it did not: the banner,
 removed an include. It did not remove the dependency, because the measure could
 not see the one that mattered.
 
+### Tier C's floor, and why it is Tier D's problem
+
+The four remaining Tier C entries are `intr_handler_set` (twice) and
+`intr_handler_get`/`intr_handler_get_arg`. None of them can be removed by
+another change of expression, and the tempting fixes all do exactly that:
+`--wrap=intr_handler_set`, or calling `_global_interrupt_handler` directly,
+leave ESP-IDF's `s_intr_handlers` table precisely where it is and only change
+which symbol names it. That is the fourth rename in a row this measure would
+have accepted, and it is refused here.
+
+They split two ways:
+
+- **`intr_handler_set`, in alloc and free.** Registers Reflex's dispatch with
+  ESP-IDF's vector so Reflex's own interrupts are delivered *before* Reflex
+  takes `mtvec`. The entry path depends on it: it proves the tick under
+  ESP-IDF's vector first and hands the machine back if the tick is dead. That
+  check is what stops a bad hand-off stranding a board — it has caught a real
+  failure twice. Removing the dependency here means giving that up.
+- **`intr_handler_get` / `intr_handler_get_arg`, in `dispatch_foreign`.** Reads
+  ESP-IDF's table to service drivers Reflex does not own. Measured on the
+  own-entry build, that is **one driver**: the PLIC has three live lines
+  (`0x00000d00`), 10 is the tick and 11 the console — both Reflex's — and 8 is
+  the 802.15.4 MAC, the only ESP-IDF component allocating an interrupt in this
+  build.
+
+So half of Tier C's remainder is Tier D wearing a different hat. It ends when
+Reflex owns the radio and not before, and the radio is the tier whose floor is
+set by a 178 KB PHY blob. The other half ends only by giving up the safety check
+on the hand-off.
+
+**Tier C's honest floor is 4, and 2 of those are Tier D's.** That is the useful
+statement, and it is more useful than a zero would have been.
+
 ### The measure could be satisfied by changing declaration style
 
 `check_independence.py` read `#include` lines. Anything reached by a local

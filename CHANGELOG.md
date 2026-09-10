@@ -32,6 +32,12 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Changed
 
+- **Tier C's floor is 4, and half of it is Tier D's.** Recorded rather than renamed. The four entries are `intr_handler_set` (twice) and `intr_handler_get`/`intr_handler_get_arg`, and every tempting fix — `--wrap=intr_handler_set`, calling `_global_interrupt_handler` directly — leaves ESP-IDF's `s_intr_handlers` table exactly where it is and only changes which symbol names it. That would have been the fourth rename this measure accepted; it is refused.
+
+  `intr_handler_set` registers Reflex's dispatch with ESP-IDF's vector so Reflex's interrupts are delivered *before* Reflex takes `mtvec` — which is what lets the entry path prove the tick under ESP-IDF's vector and hand the machine back if it is dead. That check has caught a real failure twice; removing this dependency means giving it up. `intr_handler_get`/`get_arg` read ESP-IDF's table to service drivers Reflex does not own, and measured on the own-entry build that is exactly **one** driver: the PLIC has three live lines (`0x00000d00`) — 10 the tick and 11 the console, both Reflex's, and 8 the 802.15.4 MAC, the only ESP-IDF component allocating an interrupt in this build.
+
+  So Tier C ends when Reflex owns the radio, and the radio's own floor is a 178 KB PHY blob. The two tiers are one problem.
+
 - **Retracted: "Tier C is clear."** Removing the `freertos/portmacro.h` include removed an include; it did not remove the dependency. `check_independence.py` read `#include` lines only, so anything reached by a local `extern` was invisible — and `intr_handler_set`, `intr_handler_get` and `intr_handler_get_arg` are ESP-IDF C in `components/riscv/interrupt.c`, declared locally here. A comment in `reflex_hal_esp32c6.c` claimed they live in mask ROM; no linker script PROVIDEs them, and that false claim is what let a borrowed interrupt layer read as a hardware fact. Reflex's allocator registers into ESP-IDF's `s_intr_handlers` and `reflex_trap_handler` reads it to dispatch every interrupt Reflex does not own.
 
   One of those declarations was added in this very work, with the reason in its own comment: *"which would add an ESP-IDF header to this file for two symbols and move the independence count in the wrong direction."* The metric was gamed and the gaming was documented.
