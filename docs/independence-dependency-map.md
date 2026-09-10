@@ -1353,6 +1353,65 @@ hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
 forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
 this entry.
 
+### esp_btbb_enable is Reflex's, and the PHY is fully measured (2026-09-10)
+
+**Tier D: 1. On-path total: 6, plus 2 bedrock.**
+
+`esp_btbb_enable()` looked unavoidable and was not. Read, everything it does
+besides one call is refcounting Reflex has no use for and sleep-retention
+registration behind `SOC_PM_MODEM_RETENTION_BY_REGDMA && FREERTOS_USE_TICKLESS_IDLE`,
+which this configuration does not have. What remains is
+`bt_bb_v2_init_cmplx(1)` — a bedrock symbol Reflex now calls directly. Keeping a
+header for that would be borrowing a dependency rather than typing a
+declaration.
+
+Confirmed on hardware by the blob's own output, which is what that argument
+selects: `I (661) phy: libbtbb version: ec2ecba`. Radio up, receive
+authenticated against a peer, `peers=1`.
+
+`esp_private/phy.h` is the last one, and it is the largest. It is now fully
+measured, so the work is decomposition rather than discovery.
+
+#### What esp_phy_enable actually does here
+
+Stripped of the branches this configuration never reaches — Wi-Fi light sleep,
+retention DMA, brownout TX reduction, `CONFIG_ESP_PHY_REDUCE_TX_POWER`,
+multiple-init-data country selection — the first and only call reduces to:
+
+| step | |
+|---|---|
+| `esp_phy_common_clock_enable()` | `modem_clock_module_enable(PERIPH_PHY_MODULE)`, three domains: I2C_MASTER, MODEM_ADC_COMMON_FE, MODEM_PRIVATE_FE |
+| `phy_init_param_set(1)` | **bedrock** — `SOC_PHY_COMBO_MODULE` is 1 on the C6 |
+| build `cal_data` | 1,904-byte struct, zeroed, MAC filled from efuse |
+| obtain `init_data` | 128 bytes — and **source**, not a binary: `phy_init_data.c` is a readable table of per-rate TX power limits, Apache-2.0 |
+| `register_chipv7_phy(init, cal, PHY_RF_CAL_FULL)` | **bedrock**. `PHY_RF_CAL_FULL` is `0x02` |
+| `phy_track_pll_init()` | a 1 Hz `esp_timer` that calls `phy_param_track_tot(false, true)` — **bedrock**, driven from source |
+
+Two pleasant findings. The PHY init data is **not** an opaque vendor binary —
+`phy_init_data` is defined in `phy_init_data.c`, in `libesp_phy.a` built from
+source, as a readable table. And the antenna branch is dead here:
+`phy_ant_need_update()` returns a flag only the country/antenna API sets, which
+Reflex never calls, so `ant_dft_cfg`/`ant_rx_cfg`/`ant_tx_cfg` are linked but
+never executed.
+
+Calibration storage can go too. This build already fails to load calibration
+from NVS — `esp_phy_load_cal_data_from_nvs: NVS has not been initialized` in
+every boot log — and falls back to `PHY_RF_CAL_FULL`. Reflex doing full
+calibration every boot is not a regression; it is what happens today.
+
+#### The risk worth naming before starting
+
+The PHY is the one place where a subtly wrong sequence does not fail visibly. A
+radio that associates and passes frames can still have degraded sensitivity,
+wrong TX power, or PLL drift that only appears across temperature. A bench test
+that says "it works" is weak evidence here.
+
+The verification that would not be weak is available: RSSI and LQI are already
+delivered to Reflex's receive callback and currently discarded. Recording their
+distribution over a fixed peer setup, under ESP-IDF's PHY bring-up and then
+under Reflex's, turns "it works" into a comparison against a reference. That is
+the first thing to build, before the bring-up itself.
+
 ### The dotted line, drawn around the binaries (2026-09-10)
 
 A standing decision, and it changes what "remaining" means: **the vendor

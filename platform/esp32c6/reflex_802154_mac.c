@@ -28,8 +28,22 @@
  * public header, called once here exactly as ESP-IDF's mac_init calls it.
  */
 #include "esp_private/phy.h"
-#include "esp_phy_init.h"
+
+/* Bedrock, reached directly rather than through ESP-IDF's wrapper.
+ *
+ * Both are defined only inside a vendor binary — check_independence.py
+ * classifies them by asking nm, not by being told — so they are the far side of
+ * the dotted line and there is nothing to reimplement.
+ *
+ * esp_btbb_enable() was the wrapper around the second. Reading it, everything
+ * else it does is refcounting Reflex does not need and sleep-retention
+ * registration behind SOC_PM_MODEM_RETENTION_BY_REGDMA && FREERTOS_USE_TICKLESS_IDLE,
+ * which this configuration does not have. What remains is one call with a
+ * constant argument, and keeping a header for that would be borrowing a
+ * dependency for the sake of not typing a declaration. */
 extern void ieee802154_txon_delay_set(void);
+extern void bt_bb_v2_init_cmplx(int print_version);
+#define REFLEX_BTBB_ENABLE_VERSION_PRINT 1
 
 /* Modem clock gating, taken from ESP-IDF rather than called.
  *
@@ -183,7 +197,7 @@ reflex_err_t reflex_802154_mac_init(uint8_t channel, uint16_t panid, uint16_t sh
     /* --- bring-up Reflex does not own --- */
     reflex_802154_clock_enable();
     esp_phy_enable(PHY_MODEM_IEEE802154);
-    esp_btbb_enable();
+    bt_bb_v2_init_cmplx(REFLEX_BTBB_ENABLE_VERSION_PRINT);
     reflex_802154_mac_reset();
 
     /* --- from here down it is Reflex's --- */
