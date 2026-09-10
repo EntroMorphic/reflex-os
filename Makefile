@@ -9,6 +9,7 @@ RELEASE_DIR := release/$(RELEASE_NAME)
         format format-check format-diff warn-check lock-check independence independence-check tick-measure ci-lint soc-header soc-bridge \
         own-entry-build parity-base parity-other parity-diff independence-own-entry \
         blob-check blob-check-all blobs-test \
+        own-mac-build independence-own-mac blob-check-own-mac \
         soc-check rom-check idf-build verify config-reset docs atlas
 
 build:
@@ -86,6 +87,22 @@ own-entry-build:
 	SDKCONFIG_DEFAULTS=sdkconfig.defaults.own_entry \
 	  idf.py -B build_own_entry -DSDKCONFIG=build_own_entry/sdkconfig \
 	  -DCMAKE_C_FLAGS=-DREFLEX_OWN_ENTRY=1 build
+
+# Reflex's own 802.15.4 MAC: ESP-IDF's ieee802154 component is not in the image.
+#
+# Off by default (CONFIG_REFLEX_RADIO_802154_OWN_MAC) until receive is proved
+# against a second board. Transmit is proved; see the ledger.
+own-mac-build:
+	. $$IDF_PATH/export.sh >/dev/null 2>&1; \
+	SDKCONFIG_DEFAULTS="sdkconfig.defaults.own_entry;sdkconfig.defaults.own_mac" \
+	  idf.py -B build_ownmac -DSDKCONFIG=build_ownmac/sdkconfig \
+	  -DCMAKE_C_FLAGS=-DREFLEX_OWN_ENTRY=1 build
+
+independence-own-mac:
+	@python3 tools/check_independence.py --check --build build_ownmac -v
+
+blob-check-own-mac:
+	@python3 tools/check_blobs.py --check --build build_ownmac
 
 # The other half of the independence measurement.
 #

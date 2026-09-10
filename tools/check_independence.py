@@ -43,6 +43,15 @@ TIERS = [
     ("freertos/",        "C", "FreeRTOS as the scheduler"),
     ("esp_intr_alloc",   "C", "FreeRTOS as the scheduler"),
     ("esp_ieee802154",   "D", "Radio"),
+    # RF bring-up, and Tier D's bedrock rather than a driver dependency.
+    # esp_phy/btbb sequence libphy.a and libbtbb.a for calibration and the
+    # analog front end; esp_modem_clock is refcounted clock gating shared with
+    # Wi-Fi and Bluetooth. Reflex's own MAC calls these three and owns
+    # everything above them. They are one-shot silicon bring-up, not a state
+    # machine, which is the distinction that makes the trade worth making.
+    ("esp_private/phy",  "D", "Radio"),
+    ("esp_phy",          "D", "Radio"),
+    ("esp_private/esp_modem_clock", "D", "Radio"),
     ("esp_now",          "D", "Radio"),
     ("esp_wifi",         "D", "Radio"),
     ("esp_netif",        "D", "Radio"),
@@ -102,6 +111,10 @@ ROM_EXTERN_NAMES = ("software_reset",)
 PROJECT_EXTERN_PREFIXES = ("reflex_", "goose_", "__real_", "__wrap_", "app_main")
 
 EXTERN_TIERS = {
+    # A libbtbb symbol with no public header, called once from Reflex's MAC
+    # init exactly where ESP-IDF's mac_init calls it. Declared locally because
+    # there is nothing to include; counted because it is still borrowed.
+    "ieee802154_txon_delay_set": ("D", "Radio"),
     "intr_handler_set": ("C", "ESP-IDF interrupt dispatch table"),
     "intr_handler_get": ("C", "ESP-IDF interrupt dispatch table"),
     "intr_handler_get_arg": ("C", "ESP-IDF interrupt dispatch table"),
@@ -219,6 +232,49 @@ PATH_SYMBOLS = {
 # Only symbols named here are read this way. A stray -D on some unrelated
 # symbol changes nothing, because an unknown symbol still counts both branches.
 BUILD_DEFINED_SYMBOLS = ("REFLEX_OWN_ENTRY",)
+
+
+def apply_build_config():
+    """Set PATH_SYMBOLS from the measured build's sdkconfig.
+
+    The values of CONFIG_* symbols are a property of the configuration, exactly
+    like REFLEX_OWN_ENTRY, and they were previously asserted in PATH_SYMBOLS by
+    hand — CONFIG_REFLEX_RADIO_802154 and CONFIG_IDF_TARGET_ESP32C6 were simply
+    declared true. That was right for the two builds that existed and became
+    wrong the moment a third appeared: CONFIG_REFLEX_RADIO_802154_OWN_MAC is set
+    in one configuration and not the others, and a hand-written table cannot be
+    right about both.
+
+    Reading them from the build's own sdkconfig makes the tool measure the
+    configuration rather than remember it. A symbol the file marks "is not set"
+    is False; anything absent entirely stays unknown, so both its branches are
+    counted.
+    """
+    path = os.path.join(_build_dir, "sdkconfig")
+    if not os.path.isfile(path):
+        return 0
+    n = 0
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                m = re.match(r"^(CONFIG_[A-Za-z0-9_]+)=(.*)$", line)
+                if m:
+                    val = m.group(2).strip()
+                    # Only booleans decide preprocessor branches. A string or
+                    # number left as True would make `#if CONFIG_X` look taken
+                    # when the value is what matters.
+                    if val in ("y", "n"):
+                        PATH_SYMBOLS[m.group(1)] = (val == "y")
+                        n += 1
+                    continue
+                m = re.match(r"^#\s*(CONFIG_[A-Za-z0-9_]+) is not set$", line)
+                if m:
+                    PATH_SYMBOLS[m.group(1)] = False
+                    n += 1
+    except OSError:
+        return 0
+    return n
 
 
 def apply_build_defines():
@@ -475,6 +531,11 @@ def main():
     # After the build directory is settled and before anything is scanned: the
     # configuration decides what "compiled" means, and it also decides the value
     # of the symbols the sources are fenced with.
+    n_cfg = apply_build_config()
+    if n_cfg:
+        print(f"  {n_cfg} CONFIG_* symbols read from {os.path.relpath(_build_dir, ROOT)}/sdkconfig")
+    else:
+        print("  no sdkconfig for this build: CONFIG_* values fall back to the table")
     resolved = apply_build_defines()
     for sym, val in sorted(resolved.items()):
         print(f"  {sym} = {'defined' if val else 'not defined'} (from compile_commands.json)")

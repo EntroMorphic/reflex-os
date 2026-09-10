@@ -203,6 +203,18 @@ REGS = [
     ("REFLEX_154_TX_ABORT_INTR_CTRL_REG","IEEE802154_TX_ABORT_INTERRUPT_CONTROL_REG","IEEE802154","TX_ABORT_INTERRUPT_CONTROL",None,""),
     ("REFLEX_154_ENHANCE_ACK_CFG_REG",   "IEEE802154_ENHANCE_ACK_CFG_REG",   "IEEE802154", "ENHANCE_ACK_CFG",   None, ""),
     ("REFLEX_154_SEC_CTRL_REG",          "IEEE802154_SEC_CTRL_REG",          "IEEE802154", "SEC_CTRL",          None, "touched by the transmit path even unused"),
+    # CTRL_CFG bits Reflex's own MAC programs. Bit 19 of that register reads as
+    # set on a working radio and is named by neither the SVD nor ESP-IDF, so the
+    # MAC read-modify-writes the named bits and leaves the rest alone rather
+    # than reconstructing the word and quietly dropping something undocumented.
+    ("REFLEX_154_CFG_AUTO_ACK_TX",       "IEEE802154_HW_AUTO_ACK_TX_EN",     "IEEE802154", "CTRL_CFG", "HW_AUTO_ACK_TX_EN", ""),
+    ("REFLEX_154_CFG_AUTO_ACK_RX",       "IEEE802154_HW_AUTO_ACK_RX_EN",     "IEEE802154", "CTRL_CFG", "HW_AUTO_ACK_RX_EN", ""),
+    ("REFLEX_154_CFG_ENHANCE_ACK_TX",    "HW_ENHANCE_ACK_TX_EN",             "IEEE802154", "CTRL_CFG", "HW_ENHANCE_ACK_TX_EN", "set in the reset state; Reflex implements no ACK"),
+    ("REFLEX_154_CFG_PAN_COORDINATOR",   "IEEE802154_PAN_COORDINATOR",       "IEEE802154", "CTRL_CFG", "PAN_COORDINATOR", ""),
+    ("REFLEX_154_CFG_PROMISCUOUS",       "IEEE802154_PROMISCUOUS_MODE",      "IEEE802154", "CTRL_CFG", "PROMISCUOUS_MODE", ""),
+    ("REFLEX_154_CFG_NO_RSS_TRK",        "IEEE802154_NO_RSS_TRK_ENB",        "IEEE802154", "CTRL_CFG", "NO_RSS_TRK_ENB", "set on a working radio"),
+    ("REFLEX_154_CFG_RX_DONE_IDLE",      "IEEE802154_RX_DONE_TRIGGER_IDLE",  "IEEE802154", "CTRL_CFG", "RX_DONE_TRIGGER_IDLE", "clear = stay in receive after a frame"),
+    ("REFLEX_154_CFG_MAC_INF0_ENABLE",   "IEEE802154_MAC_INF0_ENABLE",       "IEEE802154", "CTRL_CFG", "MAC_INF0_ENABLE", "address-filter bank 0"),
 
     # --- USB-serial-JTAG console (Tier E: owning console RX) ---
     # The SVD calls this peripheral USB_DEVICE; IDF calls it USB_SERIAL_JTAG.
@@ -307,6 +319,10 @@ WIDTH_MASKS = [
     # bridge-verified fields instead of the magic 0x83 the measurement produced.
     ("REFLEX_154_COEX_PTI_MASK",     "IEEE802154_COEX_PTI",     "IEEE802154", "COEX_PTI", "COEX_PTI",     "traffic priority, 4 bits"),
     ("REFLEX_154_COEX_ACK_PTI_MASK", "IEEE802154_COEX_ACK_PTI", "IEEE802154", "COEX_PTI", "COEX_ACK_PTI", "hardware-ACK priority, 4 bits"),
+    ("REFLEX_154_CHANNEL_HOP_MASK",  "IEEE802154_HOP",          "IEEE802154", "CHANNEL",  "HOP",          "frequency index field"),
+    ("REFLEX_154_TX_POWER_MASK",     "IEEE802154_TX_POWER",     "IEEE802154", "TX_POWER", "TX_POWER",     ""),
+    ("REFLEX_154_ED_SAMPLE_MODE_MASK","IEEE802154_ED_SAMPLE_MODE","IEEE802154","ED_SCAN_CFG","ED_SAMPLE_MODE",""),
+    ("REFLEX_154_RX_STATE_MASK",     "IEEE802154_RX_STATE",     "IEEE802154", "RX_STATUS","RX_STATE",     ""),
     ("REFLEX_PCR_LEDC_SCLK_SEL_MASK","PCR_LEDC_SCLK_SEL_V",     "PCR",  "LEDC_SCLK_CONF", "LEDC_SCLK_SEL", "3 selects XTAL"),
     ("REFLEX_PCNT_MODE_MASK",        "PCNT_CH0_POS_MODE_U0_V",  "PCNT", "U%s_CONF0", "CH0_POS_MODE", "all four mode fields are 2 bits"),
     ("REFLEX_PCNT_LIM_MASK",         "PCNT_CNT_H_LIM_U0_V",     "PCNT", "U%s_CONF2", "CNT_H_LIM",    ""),
@@ -335,6 +351,10 @@ SHIFTS = [
     ("REFLEX_LEDC_DUTY_S",        "LEDC_DUTY_CH0_S",        "LEDC", "CH%s_DUTY",    "DUTY",        ""),
     ("REFLEX_154_COEX_PTI_S",     "IEEE802154_COEX_PTI_S",     "IEEE802154", "COEX_PTI", "COEX_PTI",     ""),
     ("REFLEX_154_COEX_ACK_PTI_S", "IEEE802154_COEX_ACK_PTI_S", "IEEE802154", "COEX_PTI", "COEX_ACK_PTI", ""),
+    ("REFLEX_154_CHANNEL_HOP_S",   "IEEE802154_HOP_S",           "IEEE802154", "CHANNEL",  "HOP",          ""),
+    ("REFLEX_154_TX_POWER_S",      "IEEE802154_TX_POWER_S",      "IEEE802154", "TX_POWER", "TX_POWER",     ""),
+    ("REFLEX_154_ED_SAMPLE_MODE_S","IEEE802154_ED_SAMPLE_MODE_S","IEEE802154", "ED_SCAN_CFG","ED_SAMPLE_MODE",""),
+    ("REFLEX_154_RX_STATE_S",      "IEEE802154_RX_STATE_S",      "IEEE802154", "RX_STATUS","RX_STATE",     ""),
     ("REFLEX_LEDC_DUTY_RES_S",    "LEDC_TIMER0_DUTY_RES_S", "LEDC", "TIMER%s_CONF", "DUTY_RES",    ""),
     ("REFLEX_LEDC_CLK_DIV_S",     "LEDC_CLK_DIV_TIMER0_S",  "LEDC", "TIMER%s_CONF", "CLK_DIV",     ""),
     ("REFLEX_PCR_LEDC_SCLK_SEL_S","PCR_LEDC_SCLK_SEL_S",    "PCR",  "LEDC_SCLK_CONF", "LEDC_SCLK_SEL", ""),

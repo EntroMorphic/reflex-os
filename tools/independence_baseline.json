@@ -15,6 +15,14 @@
       "D": 1,
       "E": 0,
       "F": 3
+    },
+    "build_ownmac": {
+      "A": 0,
+      "B": 2,
+      "C": 0,
+      "D": 4,
+      "E": 0,
+      "F": 3
     }
   },
   "deliberate_increases": [
@@ -26,6 +34,17 @@
       "to": 3,
       "what": "esp_flash.h and esp_flash_internal.h in platform/esp32c6/reflex_kv_flash.c",
       "why": "Reflex's own key-value store used raw esp_rom_spiflash_* to hold this tier at 1, and that is exactly why it persisted nothing: raw ROM flash access while the CPU executes XIP from the same flash never reaches the medium. The count was protecting a store that silently lost every key it was given \u2014 aura pairing impossible, purpose gone by the next boot. Independence measured as subtraction rewarded that; make parity-diff, which measures capability, did not."
+    },
+    {
+      "configuration": "build_ownmac",
+      "decided": "2026-09-10",
+      "evidence": "0 esp_ieee802154_* symbols remain in the image (nm on reflex_os.elf). Image 1,087,792 -> 1,077,024 bytes, 10,768 smaller. make blob-check unchanged at 48,566 bytes / 14 symbols, because the PHY floor is exactly what does not move. On hardware: Reflex's MAC brings the radio up, reports the right channel, PAN ID and short address, and its own interrupt reports tx_done=10 tx_abort=0 spurious=0 over 45s with the mesh transmitting through it; ctrl_cfg reads 0x12080080, identical to what ESP-IDF's driver produces.",
+      "from": 1,
+      "not_yet_proved": "Receive. rx_done stayed 0 for want of a second board \u2014 the bench's other C6 needs a power cycle after the transmit experiment recorded in the ledger. CONFIG_REFLEX_RADIO_802154_OWN_MAC is off by default until a peer confirms RX.",
+      "tier": "D",
+      "to": 4,
+      "what": "esp_private/esp_modem_clock.h, esp_private/phy.h, esp_phy_init.h and the libbtbb symbol ieee802154_txon_delay_set, in platform/esp32c6/reflex_802154_mac.c",
+      "why": "Reflex's own 802.15.4 MAC replaces ESP-IDF's ieee802154 component \u2014 about 3,240 lines across ten objects, and the owner of the peripheral's state machine \u2014 with 229 lines of register programming against bridge-proved constants. What it cannot replace is the RF bring-up: esp_phy_enable and esp_btbb_enable sequence libphy.a and libbtbb.a for calibration and the analog front end, and modem_clock_module_enable is refcounted clock gating shared with Wi-Fi and Bluetooth. Those three are one-shot silicon bring-up, not an ongoing state machine, and they are Tier D's acknowledged bedrock. The include count treats a whole driver and a one-line bring-up call as equal weight, which is the known weakness of counting surface rather than substance; every other measure moves the right way or not at all."
     }
   ],
   "measurement_corrections": [

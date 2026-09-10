@@ -1353,6 +1353,130 @@ hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
 forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
 this entry.
 
+### Reflex owns the 802.15.4 MAC. Transmit is proved; receive is not (2026-09-10)
+
+`platform/esp32c6/reflex_802154_mac.c` — 229 lines — replaces ESP-IDF's
+`ieee802154` component, about 3,240 lines across ten objects. Behind
+`CONFIG_REFLEX_RADIO_802154_OWN_MAC`, off by default, built with
+`make own-mac-build`.
+
+The driver is not merely unused; it is not in the image. The platform
+`CMakeLists` drops `ieee802154` from `REQUIRES` when the option is set, because
+leaving the component in would keep 3,240 lines nothing calls.
+
+```
+$ nm build_ownmac/reflex_os.elf | grep -c esp_ieee802154_
+0
+image: 1,087,792 -> 1,077,024 bytes  (10,768 smaller)
+blobs: 48,566 bytes / 14 symbols, unchanged
+```
+
+**On hardware**, one C6, Reflex's MAC bringing the radio up from cold:
+
+```
+I (reflex.radio.154) 802.15.4 radio (Reflex MAC): ch=15 panid=0x4f52 addr=0xc824
+802.15.4 MAC @ 0x600a3000 (Reflex's own map)
+  channel=15 (freq index 23) panid=0x4f52 short_addr=0xc824
+  ctrl_cfg=0x12080080 event_en=0x00000023 coex_pti=0x00000083 (pti=3 hw_ack_pti=8)
+reflex mac: tx_done=10 tx_abort=0 rx_done=0 rx_dropped=0 spurious=0
+            last_events=0x00000001
+```
+
+`event_en` is exactly the three events Reflex enables. `ctrl_cfg` reads
+`0x12080080` — *identical* to what ESP-IDF's driver produces, which is the
+strongest single statement that the initialisation sequence is right rather than
+merely functional. `tx_done` is counted by Reflex's own interrupt handler, so
+transmit is complete end to end: Reflex's init, Reflex's registers, Reflex's
+ISR, no ESP-IDF driver anywhere.
+
+**Receive is not proved.** `rx_done` stayed 0 because there is no peer: the
+bench's second C6 needs a power cycle after the transmit experiment recorded
+below. The option stays off by default until a peer confirms RX. Saying the MAC
+"works" on the strength of transmit alone would be exactly the overreach this
+ledger keeps recording.
+
+#### What Reflex does not own, and will not
+
+Three ESP-IDF entry points remain, and they are Tier D's bedrock:
+
+| call | what it is |
+|---|---|
+| `modem_clock_module_enable` | refcounted clock gating across four domains, shared with Wi-Fi and BT |
+| `esp_phy_enable` | sequences `libphy.a` for RF calibration |
+| `esp_btbb_enable` | sequences `libbtbb.a` for the baseband |
+
+plus `ieee802154_txon_delay_set`, a libbtbb symbol with no public header, called
+once exactly where ESP-IDF's `mac_init` calls it. These are one-shot silicon
+bring-up, not a state machine, and no register documentation would let Reflex
+replace them.
+
+#### The measure says this is four times worse
+
+**Tier D goes from 1 to 4**, and that is recorded as a deliberate increase
+rather than argued away. Counting includes weighs a 3,240-line driver that owns
+the peripheral's state machine exactly the same as a one-line bring-up call.
+That is the known limit of counting surface instead of substance — the same
+limit that let a key-value store persisting nothing look like good independence
+until `parity-diff` was built. Every other measure moves the right way or not at
+all: the driver leaves the image, the image shrinks, the blob floor is unmoved.
+
+#### Two things the MAC got right only because they were measured
+
+- **`CHANNEL` holds a frequency index**, `(channel - 11) * 5 + 3`. Writing the
+  channel number tunes the radio between two channels and fails nothing.
+- **`COEX_PTI` must read `pti=3, hw_ack=8`.** Reflex is not linking the coex
+  blob, so it writes what the blob would have. The blob's own "disable" path
+  writes 1/1, and the radio then receives nothing at all.
+
+Neither is in any header. Both cost a measurement earlier in this work and would
+otherwise have cost a day here.
+
+#### And one it got wrong, caught by reading the register back
+
+`CTRL_CFG` came up `0x12080082` on the first run against ESP-IDF's `0x12080080`.
+Bit 1 is `HW_ENHANCE_ACK_TX_EN`, set in the register's reset state and preserved
+by read-modify-write. Reflex implements no ACK of any kind, so a hardware ACK
+generator armed behind its back is a frame on the air nobody asked for. Cleared
+explicitly. Bit 19 is still set and is named by neither the SVD nor ESP-IDF, so
+it is deliberately left alone: reconstructing the word from the named fields
+would quietly drop it.
+
+#### The tool was asserting the configuration instead of reading it
+
+`check_independence.py` caught all four new dependencies as **UNCLASSIFIED — a
+new kind of dependency has appeared**, which is what it is for. It also revealed
+a stale assumption: `PATH_SYMBOLS` declared `CONFIG_REFLEX_RADIO_802154` and
+`CONFIG_IDF_TARGET_ESP32C6` true by hand. That was right for two builds and
+wrong the moment a third existed, because
+`CONFIG_REFLEX_RADIO_802154_OWN_MAC` is set in one configuration and not the
+others. The tool now reads every `CONFIG_*` from the measured build's own
+`sdkconfig` — 1,257 symbols — so it measures the configuration rather than
+remembering it. Only booleans are taken; a string or number left as "true" would
+make `#if CONFIG_X` look taken when the value is what matters.
+
+### A wire-format defect, found and deliberately not fixed
+
+`FRAME_HDR_LEN` is 10 and the 802.15.4 header this mesh builds is 9 bytes: 2
+frame control, 1 sequence, 2 destination PAN, 2 destination address, 2 source
+address. `build_broadcast_frame` writes `frame[1..9]` and then places the payload
+at `frame[1 + FRAME_HDR_LEN]`, which is `frame[11]`. **`frame[10]` is never
+written and is transmitted in every frame**, and the length byte is one too
+large to match.
+
+Both sides use the same constant, so the errors cancel and Reflex talks to
+Reflex perfectly. They do not cancel for anyone else: a standards-compliant
+802.15.4 receiver reads that byte as the first octet of payload. These frames
+are interoperable only with themselves.
+
+It also leaked memory over the air. The frame was built on the stack, so
+`frame[10]` carried whatever that slot last held — one uninitialised byte per
+frame, broadcast. Making the buffer static ended that incidentally: the byte is
+now a stable zero because nothing ever writes it.
+
+**Not fixed here.** The fix changes the wire format, and there is one working C6
+on the bench. Changing a protocol that demonstrably works, with no second board
+to prove the change against, is how a working mesh becomes a silent one.
+
 ### Reflex-driven TX: two attempts, one real fact, one wedged board (2026-09-10)
 
 The step after the groundwork was to transmit one frame with Reflex's own

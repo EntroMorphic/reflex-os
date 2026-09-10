@@ -73,7 +73,16 @@ endif()
 # os_func layer so that path needs no scheduler. The dependency is the price of
 # a store that keeps what it is given; it is recorded in
 # docs/independence-dependency-map.md rather than hidden.
-set(REFLEX_PLATFORM_REQUIRES ieee802154 spi_flash)
+# ieee802154 is ESP-IDF's MAC driver; esp_phy is the RF bring-up blob wrapper.
+# With Reflex's own MAC the driver goes and the blob stays — which is the whole
+# point of the option, and the reason it is a REQUIRES change rather than just a
+# source file: leaving the component in would keep 3,240 lines of driver in the
+# image that nothing calls.
+if(CONFIG_REFLEX_RADIO_802154_OWN_MAC)
+    set(REFLEX_PLATFORM_REQUIRES esp_phy esp_hw_support spi_flash)
+else()
+    set(REFLEX_PLATFORM_REQUIRES ieee802154 spi_flash)
+endif()
 if(NOT CONFIG_REFLEX_RADIO_802154)
     list(APPEND REFLEX_PLATFORM_REQUIRES nvs_flash)
 endif()
@@ -82,6 +91,9 @@ set(REFLEX_PLATFORM_PRIV_REQUIRES)
 # Radio backend selection
 if(CONFIG_REFLEX_RADIO_802154)
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_radio_802154.c")
+    if(CONFIG_REFLEX_RADIO_802154_OWN_MAC)
+        list(APPEND REFLEX_PLATFORM_SRCS "reflex_802154_mac.c")
+    endif()
 else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_radio_esp32c6.c")
     list(APPEND REFLEX_PLATFORM_REQUIRES esp_wifi)

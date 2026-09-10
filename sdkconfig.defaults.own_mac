@@ -1,0 +1,24 @@
+# Reflex drives the 802.15.4 MAC itself.
+#
+# ESP-IDF's ieee802154 component leaves the build entirely — the platform
+# CMakeLists drops it from REQUIRES — and platform/esp32c6/reflex_802154_mac.c
+# programs the peripheral directly, against constants `make soc-bridge` proves
+# identical to ESP-IDF's own macros.
+#
+# What remains is the RF bring-up, which is Tier D's bedrock and not replaceable
+# from any register documentation: esp_phy_enable and esp_btbb_enable sequence
+# libphy.a and libbtbb.a, and modem_clock_module_enable is refcounted clock
+# gating shared with Wi-Fi and Bluetooth.
+#
+# Measured against the same build without it: 0 esp_ieee802154_* symbols remain,
+# the image is 10,768 bytes smaller, and the blob floor does not move — 48,566
+# bytes across 14 symbols either way, because the blob is exactly the part that
+# cannot go.
+#
+# This *raises* the Tier D include count from 1 to 4, recorded as a deliberate
+# increase in tools/independence_baseline.json. Counting includes weighs a
+# 3,240-line driver and a one-shot bring-up call the same; that is the known
+# limit of the measure, not a reason to pretend the trade is bad.
+#
+# Build with `make own-mac-build`.
+CONFIG_REFLEX_RADIO_802154_OWN_MAC=y

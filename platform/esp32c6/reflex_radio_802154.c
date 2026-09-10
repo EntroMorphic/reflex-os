@@ -22,7 +22,11 @@
 #include "reflex_rom_esp32c6.h"
 #include "reflex_regops.h"
 #include "reflex_soc_esp32c6.h"
+#if CONFIG_REFLEX_RADIO_802154_OWN_MAC
+#include "reflex_802154_mac.h"
+#else
 #include "esp_ieee802154.h"
+#endif
 #include <string.h>
 
 /* Coexistence may only be compiled out when nothing else uses the radio, and
@@ -45,7 +49,30 @@
 /* 802.15.4 broadcast frame with PAN ID compression:
  * [1 len] [2 frame_ctrl] [1 seq] [2 dst_panid] [2 dst_addr] [2 src_addr] [N payload]
  * FCS (2 bytes) is appended by hardware on TX, included in len on RX.
- * Header: 10 bytes (after the length byte). */
+ *
+ * KNOWN DEFECT, deliberately not fixed here: the header above is 9 bytes —
+ * 2 frame control, 1 sequence, 2 destination PAN, 2 destination address,
+ * 2 source address — and FRAME_HDR_LEN is 10. build_broadcast_frame writes
+ * frame[1..9] and then places the payload at frame[1 + FRAME_HDR_LEN], which is
+ * frame[11], so frame[10] is never written and is transmitted in every frame.
+ * The length byte is correspondingly one too large.
+ *
+ * Both sides use the same constant, so the two errors cancel and Reflex talks
+ * to Reflex perfectly. They do not cancel for anyone else: a standards
+ * compliant 802.15.4 receiver parses that byte as the first octet of payload,
+ * so these frames are interoperable only with themselves.
+ *
+ * It also used to leak memory over the air. The frame was built on the stack,
+ * so frame[10] carried whatever that stack slot last held — one uninitialised
+ * byte per frame, broadcast. Making the buffer static (see reflex_radio_send)
+ * incidentally ended that: the byte is now a stable zero, because nothing ever
+ * writes it.
+ *
+ * Not fixed in this commit because the fix changes the wire format, and there
+ * is currently one working C6 on the bench — the other needs a power cycle
+ * after the transmit experiment recorded in the ledger. Changing a protocol
+ * that demonstrably works, with no second board to prove the change against, is
+ * how a working mesh becomes a silent one. It is fixed with a peer present. */
 #define FRAME_HDR_LEN 10
 
 static reflex_radio_recv_cb_t s_user_cb = NULL;
@@ -78,6 +105,42 @@ static void build_broadcast_frame(uint8_t *frame, const uint8_t *payload, size_t
     memcpy(&frame[1 + FRAME_HDR_LEN], payload, payload_len);
 }
 
+#if CONFIG_REFLEX_RADIO_802154_OWN_MAC
+/* Receive, when Reflex's own MAC is the driver.
+ *
+ * The same filtering and copying as the ESP-IDF path below, over a slightly
+ * different view of the frame: Reflex's MAC hands over the PSDU with the PHY
+ * length byte already stripped and the FCS excluded from the length, so every
+ * index here is one lower than in the ESP-IDF version and there is no buffer to
+ * hand back — the MAC re-arms its own DMA. */
+static void own_mac_rx(const uint8_t *psdu, uint8_t len, int8_t rssi, uint8_t lqi) {
+    (void)rssi;
+    (void)lqi;
+    if (len <= FRAME_HDR_LEN) return;
+
+    /* Self-arc suppression, in the radio layer so the protocol above never
+     * sees its own frames. psdu[7..8] is the source short address. */
+    uint16_t src_short = ((uint16_t)psdu[8] << 8) | psdu[7];
+    if (src_short == s_local_addr) return;
+
+    int payload_len = (int)len - FRAME_HDR_LEN;
+    if (payload_len <= 0 || payload_len > 114) return;
+
+    uint8_t payload_copy[114];
+    memcpy(payload_copy, &psdu[FRAME_HDR_LEN], (size_t)payload_len);
+
+    uint8_t src_addr[6] = {0};
+    src_addr[4] = psdu[7];
+    src_addr[5] = psdu[8];
+
+    if (s_user_cb) {
+        reflex_radio_recv_info_t info = {.src_addr = src_addr};
+        s_user_cb(&info, payload_copy, payload_len);
+    }
+}
+#endif /* CONFIG_REFLEX_RADIO_802154_OWN_MAC */
+
+#if !CONFIG_REFLEX_RADIO_802154_OWN_MAC
 /* Called by the 802.15.4 driver when a frame is received. */
 void esp_ieee802154_receive_done(uint8_t *frame, esp_ieee802154_frame_info_t *frame_info) {
     (void)frame_info;
@@ -165,11 +228,29 @@ void esp_ieee802154_transmit_failed(const uint8_t *frame, esp_ieee802154_tx_erro
     (void)error;
 }
 
+#endif /* !CONFIG_REFLEX_RADIO_802154_OWN_MAC */
+
 reflex_err_t reflex_radio_init(void) {
     uint8_t mac[6];
     reflex_hal_mac_read(mac);
     s_local_addr = ((uint16_t)mac[4] << 8) | mac[5];
 
+#if CONFIG_REFLEX_RADIO_802154_OWN_MAC
+    /* Reflex's own MAC. ESP-IDF's ieee802154 component is not in this build at
+     * all — the CMakeLists drops it from REQUIRES — so there is no second owner
+     * of the peripheral and none of the state-machine hazards that made
+     * borrowing it impossible. */
+    reflex_802154_mac_set_rx_cb(own_mac_rx);
+    reflex_err_t mrc = reflex_802154_mac_init(REFLEX_154_CHANNEL, REFLEX_154_PANID, s_local_addr,
+                                              /*promiscuous=*/true);
+    if (mrc != REFLEX_OK) {
+        REFLEX_LOGE(TAG, "own MAC init failed rc=0x%x", mrc);
+        return mrc;
+    }
+    REFLEX_LOGI(TAG, "802.15.4 radio (Reflex MAC): ch=%d panid=0x%04x addr=0x%04x",
+                REFLEX_154_CHANNEL, REFLEX_154_PANID, s_local_addr);
+    return REFLEX_OK;
+#else
     esp_ieee802154_enable();
 
 #if !CONFIG_ESP_COEX_SW_COEXIST_ENABLE
@@ -218,6 +299,7 @@ reflex_err_t reflex_radio_init(void) {
     REFLEX_LOGI(TAG, "802.15.4 radio: ch=%d panid=0x%04x addr=0x%04x",
                 REFLEX_154_CHANNEL, REFLEX_154_PANID, s_local_addr);
     return REFLEX_OK;
+#endif /* CONFIG_REFLEX_RADIO_802154_OWN_MAC */
 }
 
 reflex_err_t reflex_radio_send(const uint8_t *dest_mac, const uint8_t *data, size_t len) {
@@ -250,12 +332,18 @@ reflex_err_t reflex_radio_send(const uint8_t *dest_mac, const uint8_t *data, siz
     }
     s_tx_busy = true;
     build_broadcast_frame(s_tx_frame, data, len);
+#if CONFIG_REFLEX_RADIO_802154_OWN_MAC
+    reflex_err_t trc = reflex_802154_mac_transmit(s_tx_frame);
+    s_tx_busy = false;
+    return trc;
+#else
     /* CCA=false: transmit without channel-busy check. Acceptable for
      * our low-rate mesh (~5 Hz). Receive mode re-entered via
      * transmit_done/transmit_failed callbacks. */
     esp_ieee802154_transmit(s_tx_frame, false);
     s_tx_busy = false;
     return REFLEX_OK;
+#endif
 }
 
 reflex_err_t reflex_radio_register_recv(reflex_radio_recv_cb_t cb) {

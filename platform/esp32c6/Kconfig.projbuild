@@ -19,6 +19,30 @@ menu "Reflex OS"
         config REFLEX_RADIO_802154
             bool "IEEE 802.15.4 (no Wi-Fi blob)"
     endchoice
+    config REFLEX_RADIO_802154_OWN_MAC
+        bool "Drive the 802.15.4 MAC with Reflex's own driver"
+        depends on REFLEX_RADIO_802154 && IDF_TARGET_ESP32C6
+        default n
+        help
+            Replace ESP-IDF's ieee802154 component — about 3,240 lines across
+            ten objects — with Reflex's own register programming, against
+            constants `make soc-bridge` proves identical to ESP-IDF's macros.
+
+            The RF bring-up is not replaced and cannot be: esp_phy_enable and
+            esp_btbb_enable sequence binary blobs for calibration and the
+            analog front end, and modem_clock_module_enable is refcounted clock
+            gating shared with Wi-Fi and Bluetooth. Reflex calls those and owns
+            everything above them — initialisation, transmit, receive and the
+            interrupt.
+
+            This *raises* the Tier D include count from 1 to 3, and that is
+            recorded as a deliberate increase in tools/independence_baseline.json
+            rather than hidden: three one-shot silicon bring-up calls in place
+            of a driver that owns the peripheral's state machine is the trade,
+            and it is the direction of the whole effort.
+
+            Off by default until it has been proved against a second board.
+
     config REFLEX_KERNEL_SCHEDULER
         bool "Enable Reflex kernel supervisor and port assembly"
         depends on IDF_TARGET_ESP32C6

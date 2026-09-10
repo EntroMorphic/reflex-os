@@ -38,6 +38,9 @@
 
 #include "reflex_types.h"
 #include "reflex_radio.h"
+#if CONFIG_REFLEX_RADIO_802154_OWN_MAC
+#include "reflex_802154_mac.h"
+#endif
 #include "reflex_hal.h"
 #include "reflex_task.h"
 #include "reflex_soc_esp32c6.h" /* LEDC signal index; was soc/gpio_sig_map.h */
@@ -1872,6 +1875,24 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         uint8_t weight = (uint8_t)weight_in;
         reflex_err_t rc = goose_atmosphere_emit_posture(state, weight);
         printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc); outcome_rc(rc);
+    } else if (argc >= 2 && strcmp(argv[1], "macstats") == 0) {
+#if CONFIG_REFLEX_RADIO_802154_OWN_MAC
+        /* Reflex's own MAC counts what its interrupt actually saw. The mesh's
+         * tx_discover counts transmissions *attempted*; tx_done here counts the
+         * ones the radio reported complete, which is the difference between
+         * "we asked" and "it happened". */
+        reflex_154_mac_stats_t m;
+        reflex_802154_mac_get_stats(&m);
+        printf("reflex mac: tx_done=%lu tx_abort=%lu rx_done=%lu rx_dropped=%lu\n",
+               (unsigned long)m.tx_done, (unsigned long)m.tx_abort, (unsigned long)m.rx_done,
+               (unsigned long)m.rx_dropped);
+        printf("            spurious=%lu last_events=0x%08lx\n", (unsigned long)m.spurious,
+               (unsigned long)m.last_events);
+        outcome_rc(REFLEX_OK);
+#else
+        printf("mac stats: this build uses ESP-IDF's 802.15.4 driver\n");
+        outcome_rc(REFLEX_ERR_NOT_SUPPORTED);
+#endif
     } else if (argc >= 3 && strcmp(argv[1], "pti") == 0) {
         /* Diagnostic, and it exists because of a measurement rather than a
          * hunch. Building with CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n drops

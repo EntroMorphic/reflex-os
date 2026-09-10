@@ -132,6 +132,7 @@ honest claim, and it is a good one; "blob-free" was not true.
 | `mesh status` | Mesh summary (peer count, total RX/TX across every op including DISCOVER, per-peer status) |
 | `mesh regs` | Read the 802.15.4 MAC's key registers through Reflex's own SoC map (channel, PAN ID, short address, DMA pointers, event/status). Groundwork for Tier D and a test rather than a dump: ESP-IDF's driver set those fields at Reflex's request, so the values must match what was asked for. `CHANNEL` holds a frequency index, not a channel number — it is decoded for you. |
 | `mesh regs all` | The whole peripheral, `0x000..0x184`. Ground truth for a Reflex-owned MAC. Reads only. |
+| `mesh macstats` | Reflex's own 802.15.4 MAC counters (`CONFIG_REFLEX_RADIO_802154_OWN_MAC` builds): tx_done, tx_abort, rx_done, rx_dropped, spurious, last event word. `tx_discover` counts transmissions attempted; `tx_done` counts the ones the radio reported complete. |
 | `mesh pti <value>` | Write the 802.15.4 `COEX_PTI` register. Diagnostic, and it exists because of a measurement: with coexistence compiled out the radio transmits but receives nothing, and this one register is the entire difference. |
 | `mesh ping` | Broadcast a sync arc to all peers |
 | `mesh peer add <name> <mac>` | Register a named peer for MMIO sync (e.g., `mesh peer add bravo B4:3A:45:8A:C8:24`). Names are capped at 11 characters and a longer one is **refused**, not truncated. Re-adding a known MAC renames it, and the rename is persisted. |
