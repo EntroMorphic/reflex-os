@@ -27,10 +27,74 @@
  * ieee802154_txon_delay_set is declared locally: it is a libbtbb symbol with no
  * public header, called once here exactly as ESP-IDF's mac_init calls it.
  */
-#include "esp_private/esp_modem_clock.h"
 #include "esp_private/phy.h"
 #include "esp_phy_init.h"
 extern void ieee802154_txon_delay_set(void);
+
+/* Modem clock gating, taken from ESP-IDF rather than called.
+ *
+ * This used to be modem_clock_module_enable(PERIPH_IEEE802154_MODULE) and
+ * modem_clock_module_mac_reset(...). Both are ESP-IDF *source* — a refcounted
+ * layer that tracks four clock domains across Wi-Fi, Bluetooth and 802.15.4 so
+ * that enabling one does not disable another's shared clocks.
+ *
+ * Reflex runs neither Wi-Fi nor Bluetooth in this configuration, so there is
+ * nothing to refcount against: what that layer does for 802.15.4 reduces to six
+ * bits and a reset pulse. The dotted line is drawn around the vendor binaries,
+ * and this is not one of them.
+ *
+ * The four domains ESP-IDF enables for PERIPH_IEEE802154_MODULE are
+ * MODEM_CLOCK_802154_MAC, MODEM_CLOCK_BT_I154_COMMON_BB, MODEM_CLOCK_ETM and
+ * MODEM_CLOCK_COEXIST, and each `configure` function is one or two bit writes:
+ *
+ *   802154_MAC          clk_zb_apb_en, clk_zb_mac_en   (MODEM_SYSCON.CLK_CONF)
+ *   BT_I154_COMMON_BB   clk_bt_apb_en, clk_bt_en       (MODEM_SYSCON.CLK_CONF1)
+ *   ETM                 clk_etm_en                     (MODEM_SYSCON.CLK_CONF)
+ *   COEXIST             clk_coex_en                    (MODEM_LPCON.CLK_CONF)
+ *
+ * Read-modify-write throughout: these registers carry Wi-Fi and Bluetooth
+ * clock enables in neighbouring bits, and a whole-word write would switch off
+ * things this file knows nothing about. Not that anything else is running here
+ * — but a clock-gating routine that only works because the rest of the chip is
+ * idle is a trap for whoever enables Wi-Fi next.
+ *
+ * What is deliberately not reproduced: modem_clock_module_icg_map_init_all(),
+ * which programs the PMU's clock-gating map for modem sleep states. Reflex does
+ * not use modem sleep. Skipping it is safe here for a reason worth stating
+ * rather than assuming: esp_phy_enable still calls modem_clock_module_enable
+ * for PERIPH_PHY_MODULE, and that runs the ICG map init anyway. If the PHY
+ * bring-up is ever taken too, this is the piece that comes with it.
+ *
+ * Equivalence checked two ways rather than argued. The three clock registers
+ * read *identically* under Reflex's enable and ESP-IDF's —
+ * clk_conf=0x01e00000 clk_conf1=0x0007e7ff lpcon=0x00000007 — and receive
+ * throughput against a live peer matches the reference within noise: 13 frames
+ * in four minutes here against 14 for ESP-IDF's, with transmission and the
+ * scheduler tick unaffected in both.
+ */
+static void reflex_802154_clock_enable(void) {
+    uint32_t c = REFLEX_REG_READ(REFLEX_MODEM_SYSCON_CLK_CONF_REG);
+    c |= REFLEX_MODEM_CLK_ZB_APB_EN | REFLEX_MODEM_CLK_ZB_MAC_EN | REFLEX_MODEM_CLK_ETM_EN;
+    REFLEX_REG_WRITE(REFLEX_MODEM_SYSCON_CLK_CONF_REG, c);
+
+    uint32_t c1 = REFLEX_REG_READ(REFLEX_MODEM_SYSCON_CLK_CONF1_REG);
+    c1 |= REFLEX_MODEM_CLK_BT_APB_EN | REFLEX_MODEM_CLK_BT_EN;
+    REFLEX_REG_WRITE(REFLEX_MODEM_SYSCON_CLK_CONF1_REG, c1);
+
+    uint32_t lp = REFLEX_REG_READ(REFLEX_MODEM_LPCON_CLK_CONF_REG);
+    lp |= REFLEX_MODEM_LPCON_CLK_COEX_EN;
+    REFLEX_REG_WRITE(REFLEX_MODEM_LPCON_CLK_CONF_REG, lp);
+}
+
+/* Reset the MAC: assert then release, which is what
+ * modem_syscon_ll_reset_zbmac does. The ESP32-C6 has no separate APB reset for
+ * this block — ESP-IDF's _zbmac_apb counterpart is an empty function on this
+ * target — so one bit is the whole operation. */
+static void reflex_802154_mac_reset(void) {
+    uint32_t r = REFLEX_REG_READ(REFLEX_MODEM_SYSCON_RST_CONF_REG);
+    REFLEX_REG_WRITE(REFLEX_MODEM_SYSCON_RST_CONF_REG, r | REFLEX_MODEM_RST_ZBMAC);
+    REFLEX_REG_WRITE(REFLEX_MODEM_SYSCON_RST_CONF_REG, r & ~REFLEX_MODEM_RST_ZBMAC);
+}
 
 /* Receive buffer, written by DMA.
  *
@@ -117,10 +181,10 @@ reflex_err_t reflex_802154_mac_init(uint8_t channel, uint16_t panid, uint16_t sh
     if (channel < 11 || channel > 26) return REFLEX_ERR_INVALID_ARG;
 
     /* --- bring-up Reflex does not own --- */
-    modem_clock_module_enable(PERIPH_IEEE802154_MODULE);
+    reflex_802154_clock_enable();
     esp_phy_enable(PHY_MODEM_IEEE802154);
     esp_btbb_enable();
-    modem_clock_module_mac_reset(PERIPH_IEEE802154_MODULE);
+    reflex_802154_mac_reset();
 
     /* --- from here down it is Reflex's --- */
 

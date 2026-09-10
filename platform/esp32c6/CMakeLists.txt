@@ -79,7 +79,7 @@ endif()
 # source file: leaving the component in would keep 3,240 lines of driver in the
 # image that nothing calls.
 if(CONFIG_REFLEX_RADIO_802154_OWN_MAC)
-    set(REFLEX_PLATFORM_REQUIRES esp_phy esp_hw_support spi_flash)
+    set(REFLEX_PLATFORM_REQUIRES esp_phy spi_flash)
 else()
     set(REFLEX_PLATFORM_REQUIRES ieee802154 spi_flash)
 endif()

@@ -83,6 +83,9 @@ typedef struct {
     uint32_t short_addr;
     uint32_t ctrl_cfg;
     uint32_t coex_pti; /**< COEX_PTI: load-bearing for receive, see the ledger */
+    uint32_t modem_clk_conf;   /**< MODEM_SYSCON.CLK_CONF */
+    uint32_t modem_clk_conf1;  /**< MODEM_SYSCON.CLK_CONF1 */
+    uint32_t modem_lpcon_conf; /**< MODEM_LPCON.CLK_CONF */
     uint32_t event_en;
     uint32_t event_status;
     uint32_t rx_status;

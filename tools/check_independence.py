@@ -123,12 +123,63 @@ EXTERN_TIERS = {
 EXTERN_RE = re.compile(r"^\s*extern\s+[A-Za-z_][\w \*]*?\b(\w+)\s*\(")
 
 
+# Bedrock: symbols defined only inside a vendor binary.
+#
+# The policy this encodes is a decision, not a measurement: a dotted line is
+# drawn around the blobs, and everything outside it is Reflex's to take. What
+# *is* a measurement is which symbols fall inside — a symbol is bedrock if the
+# vendor archives define it, which nm can answer and nobody has to adjudicate.
+# That distinction matters, because "this dependency is unavoidable" is exactly
+# the claim a project tells itself when it has stopped trying.
+#
+# Bedrock is reported apart from the ratcheted tiers and is deliberately not
+# ratcheted here: it cannot be driven down by writing code, so counting it
+# alongside the tiers that can would mix a floor with a debt. It is ratcheted by
+# make blob-check instead, which measures the binaries themselves.
+BEDROCK_ARCHIVES = (
+    "components/esp_phy/lib/{target}/libphy.a",
+    "components/esp_phy/lib/{target}/libbtbb.a",
+    "components/esp_coex/lib/{target}/libcoexist.a",
+)
+_bedrock_cache = None
+
+
+def bedrock_symbols(target="esp32c6"):
+    """Symbols the vendor archives define. Empty when the toolchain is absent."""
+    global _bedrock_cache
+    if _bedrock_cache is not None:
+        return _bedrock_cache
+    idf = os.environ.get("IDF_PATH", "")
+    syms = set()
+    if idf:
+        for rel in BEDROCK_ARCHIVES:
+            path = os.path.join(idf, rel.format(target=target))
+            if not os.path.isfile(path):
+                continue
+            try:
+                out = subprocess.run(["riscv32-esp-elf-nm", "-g", "--defined-only", path],
+                                     capture_output=True, text=True).stdout
+            except (OSError, subprocess.SubprocessError):
+                continue
+            for line in out.splitlines():
+                p = line.split()
+                if len(p) == 3 and p[1] in "TtWwDdBbRr":
+                    syms.add(p[2])
+    _bedrock_cache = syms
+    return syms
+
+
 def classify_extern(sym):
     """Tier for a symbol reached by a local extern, or None if it is ROM."""
     if sym.startswith(ROM_EXTERN_PREFIXES) or sym in ROM_EXTERN_NAMES:
         return None
     if sym.startswith(PROJECT_EXTERN_PREFIXES):
         return None
+    # Bedrock before the tier table, and by lookup rather than by listing: a
+    # symbol that only a vendor binary defines cannot be reimplemented from
+    # register documentation, because there is none.
+    if sym in bedrock_symbols():
+        return ("Z", "Bedrock: vendor binary")
     return EXTERN_TIERS.get(sym, ("?", "unclassified extern"))
 
 
@@ -560,12 +611,22 @@ def main():
         "D": "Radio",
         "E": "Console RX, peripheral drivers",
         "F": "Build system, startup, heap, image",
+        "Z": "Bedrock: vendor binary",
     }
     for tier in sorted(set(list(cur) + ["A", "B", "C", "D", "E", "F"])):
+        if tier == "Z":
+            continue
         n = cur.get(tier, 0)
         mark = "clear" if n == 0 else ""
         print(f"  Tier {tier}  {n:>3}  {labels.get(tier,''):<34} {mark}")
-    print(f"\n  ON-PATH TOTAL: {sum(cur.values())}")
+    ratcheted = {t: n for t, n in cur.items() if t != "Z"}
+    print(f"\n  ON-PATH TOTAL: {sum(ratcheted.values())}")
+    z = cur.get("Z", 0)
+    if z:
+        # Below the line, and said so plainly. This number going down is not
+        # progress and going up is not a regression; it is how much silicon
+        # Reflex reaches that has no documentation behind it.
+        print(f"  bedrock (vendor binary, not ratcheted here — see make blob-check): {z}")
 
     if verbose:
         print("\n  on-path detail:")
@@ -645,6 +706,8 @@ def main():
 
     regressed = False
     for tier, n in sorted(cur.items()):
+        if tier == "Z":
+            continue
         b = base.get(tier, 0)
         if n > b:
             print(f"\nFAILED: Tier {tier} grew from {b} to {n}. "

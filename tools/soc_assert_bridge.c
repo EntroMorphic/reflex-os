@@ -35,6 +35,8 @@
 #include "soc/wdt_periph.h"
 #include "soc/interrupts.h"
 #include "soc/ieee802154_reg.h"
+#include "modem/modem_syscon_reg.h"
+#include "modem/modem_lpcon_reg.h"
 #include "hal/ieee802154_common_ll.h"
 
 _Static_assert(REFLEX_LP_WDT_CONFIG0_REG == (uint32_t)(LP_WDT_CONFIG0_REG),
@@ -154,6 +156,32 @@ _Static_assert(REFLEX_SYSTIMER_UNIT0_UPDATE == (uint32_t)(SYSTIMER_TIMER_UNIT0_U
                "REFLEX_SYSTIMER_UNIT0_UPDATE diverges from SYSTIMER_TIMER_UNIT0_UPDATE");
 _Static_assert(REFLEX_SYSTIMER_UNIT0_VALUE_VALID == (uint32_t)(SYSTIMER_TIMER_UNIT0_VALUE_VALID),
                "REFLEX_SYSTIMER_UNIT0_VALUE_VALID diverges from SYSTIMER_TIMER_UNIT0_VALUE_VALID");
+_Static_assert(REFLEX_DR_REG_MODEM_SYSCON_BASE == (uint32_t)(DR_REG_MODEM_SYSCON_BASE),
+               "REFLEX_DR_REG_MODEM_SYSCON_BASE diverges from DR_REG_MODEM_SYSCON_BASE");
+_Static_assert(REFLEX_DR_REG_MODEM_LPCON_BASE == (uint32_t)(DR_REG_MODEM_LPCON_BASE),
+               "REFLEX_DR_REG_MODEM_LPCON_BASE diverges from DR_REG_MODEM_LPCON_BASE");
+_Static_assert(REFLEX_MODEM_SYSCON_CLK_CONF_REG == (uint32_t)(MODEM_SYSCON_CLK_CONF_REG),
+               "REFLEX_MODEM_SYSCON_CLK_CONF_REG diverges from MODEM_SYSCON_CLK_CONF_REG");
+_Static_assert(REFLEX_MODEM_SYSCON_CLK_CONF1_REG == (uint32_t)(MODEM_SYSCON_CLK_CONF1_REG),
+               "REFLEX_MODEM_SYSCON_CLK_CONF1_REG diverges from MODEM_SYSCON_CLK_CONF1_REG");
+_Static_assert(REFLEX_MODEM_SYSCON_RST_CONF_REG == (uint32_t)(MODEM_SYSCON_MODEM_RST_CONF_REG),
+               "REFLEX_MODEM_SYSCON_RST_CONF_REG diverges from MODEM_SYSCON_MODEM_RST_CONF_REG");
+_Static_assert(REFLEX_MODEM_LPCON_CLK_CONF_REG == (uint32_t)(MODEM_LPCON_CLK_CONF_REG),
+               "REFLEX_MODEM_LPCON_CLK_CONF_REG diverges from MODEM_LPCON_CLK_CONF_REG");
+_Static_assert(REFLEX_MODEM_CLK_ZB_APB_EN == (uint32_t)(MODEM_SYSCON_CLK_ZB_APB_EN),
+               "REFLEX_MODEM_CLK_ZB_APB_EN diverges from MODEM_SYSCON_CLK_ZB_APB_EN");
+_Static_assert(REFLEX_MODEM_CLK_ZB_MAC_EN == (uint32_t)(MODEM_SYSCON_CLK_ZB_MAC_EN),
+               "REFLEX_MODEM_CLK_ZB_MAC_EN diverges from MODEM_SYSCON_CLK_ZB_MAC_EN");
+_Static_assert(REFLEX_MODEM_CLK_ETM_EN == (uint32_t)(MODEM_SYSCON_CLK_ETM_EN),
+               "REFLEX_MODEM_CLK_ETM_EN diverges from MODEM_SYSCON_CLK_ETM_EN");
+_Static_assert(REFLEX_MODEM_CLK_BT_APB_EN == (uint32_t)(MODEM_SYSCON_CLK_BT_APB_EN),
+               "REFLEX_MODEM_CLK_BT_APB_EN diverges from MODEM_SYSCON_CLK_BT_APB_EN");
+_Static_assert(REFLEX_MODEM_CLK_BT_EN == (uint32_t)(MODEM_SYSCON_CLK_BT_EN),
+               "REFLEX_MODEM_CLK_BT_EN diverges from MODEM_SYSCON_CLK_BT_EN");
+_Static_assert(REFLEX_MODEM_RST_ZBMAC == (uint32_t)(MODEM_SYSCON_RST_ZBMAC),
+               "REFLEX_MODEM_RST_ZBMAC diverges from MODEM_SYSCON_RST_ZBMAC");
+_Static_assert(REFLEX_MODEM_LPCON_CLK_COEX_EN == (uint32_t)(MODEM_LPCON_CLK_COEX_EN),
+               "REFLEX_MODEM_LPCON_CLK_COEX_EN diverges from MODEM_LPCON_CLK_COEX_EN");
 _Static_assert(REFLEX_DR_REG_IEEE802154_BASE == (uint32_t)(IEEE802154_REG_BASE),
                "REFLEX_DR_REG_IEEE802154_BASE diverges from IEEE802154_REG_BASE");
 _Static_assert(REFLEX_154_COMMAND_REG == (uint32_t)(IEEE802154_COMMAND_REG),

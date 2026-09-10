@@ -377,6 +377,9 @@ void reflex_radio_reg_snapshot(reflex_radio_reg_snapshot_t *out) {
     out->short_addr = REFLEX_REG_READ(REFLEX_154_INF0_SHORT_ADDR_REG);
     out->ctrl_cfg = REFLEX_REG_READ(REFLEX_154_CTRL_CFG_REG);
     out->coex_pti = REFLEX_REG_READ(REFLEX_154_COEX_PTI_REG);
+    out->modem_clk_conf = REFLEX_REG_READ(REFLEX_MODEM_SYSCON_CLK_CONF_REG);
+    out->modem_clk_conf1 = REFLEX_REG_READ(REFLEX_MODEM_SYSCON_CLK_CONF1_REG);
+    out->modem_lpcon_conf = REFLEX_REG_READ(REFLEX_MODEM_LPCON_CLK_CONF_REG);
     out->event_en = REFLEX_REG_READ(REFLEX_154_EVENT_EN_REG);
     out->event_status = REFLEX_REG_READ(REFLEX_154_EVENT_STATUS_REG);
     out->rx_status = REFLEX_REG_READ(REFLEX_154_RX_STATUS_REG);

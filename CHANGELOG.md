@@ -7,6 +7,18 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ## [Unreleased]
 
+### Changed
+
+- **The dotted line is drawn around the vendor binaries, and it re-scored Tier D.** Standing decision: the blobs are bedrock and out of scope; everything else is Reflex's to take. The *decision* is a judgement; what falls inside it is not — a symbol is bedrock if `nm` finds it defined in `libphy.a`, `libbtbb.a` or `libcoexist.a`. `check_independence.py` classifies externs that way automatically now, as **Tier Z**, reported apart from the ratcheted tiers because it cannot be driven down by writing code; the binaries are ratcheted by `make blob-check` instead. That distinction matters, because *"this dependency is unavoidable"* is exactly what a project tells itself when it has stopped trying.
+
+  Applied, it showed Tier D was never "one dependency plus three unavoidable ones". **Three of its four were ESP-IDF source** — wrappers around blob calls, most of their bulk conditional code for Wi-Fi light sleep, retention DMA and PLL tracking this configuration never reaches. Only `ieee802154_txon_delay_set` is binary.
+
+- **The modem clock is Reflex's.** `modem_clock_module_enable(PERIPH_IEEE802154_MODULE)` is a refcounted layer tracking four clock domains across Wi-Fi, Bluetooth and 802.15.4. Reflex runs neither of the other two, so what it does here reduces to six bits and a reset pulse across `MODEM_SYSCON.CLK_CONF`, `CLK_CONF1`, `MODEM_RST_CONF` and `MODEM_LPCON.CLK_CONF` — read-modify-write, because those registers carry Wi-Fi and Bluetooth enables in neighbouring bits and a routine that works only while the rest of the chip is idle is a trap for whoever enables Wi-Fi next.
+
+  Equivalence checked two ways rather than argued: the three registers read **identically** under Reflex's enable and ESP-IDF's (`clk_conf=0x01e00000 clk_conf1=0x0007e7ff lpcon=0x00000007`), and receive throughput against a live peer matches the reference within noise — 13 frames in four minutes against 14. 245 constants now pass `make soc-bridge`.
+
+  **Tier D 4 → 2. On-path total 9 → 7, plus 1 bedrock.** `esp_private/esp_modem_clock.h` is gone, and `esp_hw_support` with it.
+
 ### Added
 
 - **Reflex drives the ESP32-C6's 802.15.4 MAC itself.** `platform/esp32c6/reflex_802154_mac.c` — 229 lines — replaces ESP-IDF's `ieee802154` component, about 3,240 lines across ten objects, using constants `make soc-bridge` proves identical to ESP-IDF's macros. `CONFIG_REFLEX_RADIO_802154_OWN_MAC`, **on by default** in the own-entry configuration.

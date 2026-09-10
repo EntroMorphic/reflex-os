@@ -143,6 +143,28 @@ REGS = [
     ("REFLEX_SYSTIMER_UNIT0_UPDATE",       "SYSTIMER_TIMER_UNIT0_UPDATE",      "SYSTIMER", "UNIT0_OP", "TIMER_UNIT0_UPDATE",      "write to latch"),
     ("REFLEX_SYSTIMER_UNIT0_VALUE_VALID",  "SYSTIMER_TIMER_UNIT0_VALUE_VALID", "SYSTIMER", "UNIT0_OP", "TIMER_UNIT0_VALUE_VALID", "poll until latched"),
 
+    # --- Modem clock gating for the 802.15.4 MAC ---
+    #
+    # ESP-IDF reaches these through modem_clock_module_enable, a refcounted
+    # layer shared with Wi-Fi and Bluetooth. Reflex runs neither, so what that
+    # layer does for 802.15.4 reduces to six bits across three registers, plus
+    # the MAC reset pulse. Owning them removes esp_private/esp_modem_clock.h,
+    # which is ESP-IDF source and therefore ours to take: the dotted line is
+    # drawn around the vendor *binaries*, not around every file that calls one.
+    ("REFLEX_DR_REG_MODEM_SYSCON_BASE", "DR_REG_MODEM_SYSCON_BASE", "MODEM_SYSCON", None, None, "peripheral base"),
+    ("REFLEX_DR_REG_MODEM_LPCON_BASE",  "DR_REG_MODEM_LPCON_BASE",  "MODEM_LPCON",  None, None, "peripheral base"),
+    ("REFLEX_MODEM_SYSCON_CLK_CONF_REG",  "MODEM_SYSCON_CLK_CONF_REG",  "MODEM_SYSCON", "CLK_CONF",  None, ""),
+    ("REFLEX_MODEM_SYSCON_CLK_CONF1_REG", "MODEM_SYSCON_CLK_CONF1_REG", "MODEM_SYSCON", "CLK_CONF1", None, ""),
+    ("REFLEX_MODEM_SYSCON_RST_CONF_REG",  "MODEM_SYSCON_MODEM_RST_CONF_REG", "MODEM_SYSCON", "MODEM_RST_CONF", None, ""),
+    ("REFLEX_MODEM_LPCON_CLK_CONF_REG",   "MODEM_LPCON_CLK_CONF_REG",   "MODEM_LPCON",  "CLK_CONF",  None, ""),
+    ("REFLEX_MODEM_CLK_ZB_APB_EN",  "MODEM_SYSCON_CLK_ZB_APB_EN",  "MODEM_SYSCON", "CLK_CONF",  "CLK_ZB_APB_EN",  "802.15.4 MAC APB clock"),
+    ("REFLEX_MODEM_CLK_ZB_MAC_EN",  "MODEM_SYSCON_CLK_ZB_MAC_EN",  "MODEM_SYSCON", "CLK_CONF",  "CLK_ZB_MAC_EN",  "802.15.4 MAC clock"),
+    ("REFLEX_MODEM_CLK_ETM_EN",     "MODEM_SYSCON_CLK_ETM_EN",     "MODEM_SYSCON", "CLK_CONF",  "CLK_ETM_EN",     ""),
+    ("REFLEX_MODEM_CLK_BT_APB_EN",  "MODEM_SYSCON_CLK_BT_APB_EN",  "MODEM_SYSCON", "CLK_CONF1", "CLK_BT_APB_EN",  "BT/802.15.4 common baseband APB clock"),
+    ("REFLEX_MODEM_CLK_BT_EN",      "MODEM_SYSCON_CLK_BT_EN",      "MODEM_SYSCON", "CLK_CONF1", "CLK_BT_EN",      "BT/802.15.4 common baseband clock"),
+    ("REFLEX_MODEM_RST_ZBMAC",      "MODEM_SYSCON_RST_ZBMAC",      "MODEM_SYSCON", "MODEM_RST_CONF", "RST_ZBMAC", "pulsed 1 then 0 to reset the MAC"),
+    ("REFLEX_MODEM_LPCON_CLK_COEX_EN", "MODEM_LPCON_CLK_COEX_EN",  "MODEM_LPCON",  "CLK_CONF",  "CLK_COEX_EN",    "coexistence arbiter clock"),
+
     # --- IEEE 802.15.4 MAC (Tier D: owning the radio) ---
     #
     # Reflex does not drive this peripheral yet: ESP-IDF's ieee802154 driver
@@ -561,6 +583,8 @@ def render_bridge(bridge):
         # macros are what the struct is generated from and are the right thing
         # to assert an address against.
         "#include \"soc/ieee802154_reg.h\"",
+        "#include \"modem/modem_syscon_reg.h\"",
+        "#include \"modem/modem_lpcon_reg.h\"",
         # The command and event codes are enums in the HAL, not registers.
         "#include \"hal/ieee802154_common_ll.h\"",
         "",

@@ -1353,6 +1353,89 @@ hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
 forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
 this entry.
 
+### The dotted line, drawn around the binaries (2026-09-10)
+
+A standing decision, and it changes what "remaining" means: **the vendor
+binaries are bedrock and out of scope; everything else is Reflex's to take.**
+
+The decision is a judgement. What falls inside it is not — a symbol is bedrock
+if `nm` finds it defined in `libphy.a`, `libbtbb.a` or `libcoexist.a`, which
+nobody has to adjudicate. `check_independence.py` now classifies externs that
+way automatically, as **Tier Z**, and reports it apart from the ratcheted tiers.
+Tier Z is deliberately not ratcheted there: it cannot be driven down by writing
+code, so counting it beside tiers that can would mix a floor with a debt. The
+binaries are ratcheted by `make blob-check` instead.
+
+That distinction matters because *"this dependency is unavoidable"* is exactly
+what a project tells itself when it has stopped trying.
+
+Applying it re-scored Tier D immediately. Of its four entries, **three were
+ESP-IDF source, not binary** — wrappers around blob calls, most of their bulk
+conditional code for Wi-Fi light sleep, retention DMA and PLL tracking that this
+configuration never reaches. Measured:
+
+| call | |
+|---|---|
+| `modem_clock_module_enable` / `_mac_reset` | source |
+| `esp_phy_enable` | source (calls 12 blob symbols) |
+| `esp_btbb_enable` | source (calls 1) |
+| `ieee802154_txon_delay_set` | **bedrock** |
+| `register_chipv7_phy`, `phy_wakeup_init`, … | **bedrock** |
+
+So Tier D was never "one dependency and three unavoidable ones". It was three
+pieces of ESP-IDF source Reflex had not taken yet, plus one blob symbol.
+
+### The modem clock is Reflex's
+
+`modem_clock_module_enable(PERIPH_IEEE802154_MODULE)` is a refcounted layer
+tracking four clock domains across Wi-Fi, Bluetooth and 802.15.4 so enabling one
+does not disable another's shared clocks. Reflex runs neither of the other two,
+so there is nothing to refcount against, and what it does for 802.15.4 reduces
+to six bits and a reset pulse:
+
+```
+802154_MAC          clk_zb_apb_en, clk_zb_mac_en   MODEM_SYSCON.CLK_CONF
+BT_I154_COMMON_BB   clk_bt_apb_en, clk_bt_en       MODEM_SYSCON.CLK_CONF1
+ETM                 clk_etm_en                     MODEM_SYSCON.CLK_CONF
+COEXIST             clk_coex_en                    MODEM_LPCON.CLK_CONF
+reset               rst_zbmac pulsed 1 then 0      MODEM_SYSCON.MODEM_RST_CONF
+```
+
+Read-modify-write throughout, because those registers carry Wi-Fi and Bluetooth
+enables in neighbouring bits. Nothing else is running here — but a clock routine
+that works only because the rest of the chip is idle is a trap for whoever
+enables Wi-Fi next.
+
+**Equivalence checked two ways rather than argued.** The three registers read
+*identically* under Reflex's enable and ESP-IDF's — `clk_conf=0x01e00000
+clk_conf1=0x0007e7ff lpcon=0x00000007` — and receive throughput against a live
+peer matches the reference within noise: 13 frames in four minutes against 14
+for ESP-IDF's, transmission and the scheduler tick unaffected in both.
+
+**Tier D: 4 → 2. On-path total: 9 → 7, plus 1 bedrock.**
+
+`modem_clock_module_icg_map_init_all()` is deliberately not reproduced. It
+programs the PMU's clock-gating map for modem sleep states, which Reflex does
+not use — and skipping it is safe for a stated reason rather than an assumed
+one: `esp_phy_enable` still calls `modem_clock_module_enable` for the PHY
+module, and that runs the ICG init anyway. When the PHY bring-up is taken, this
+comes with it.
+
+### A false alarm I should not have had
+
+Midway through, the peer stopped receiving and I spent four build-and-flash
+cycles concluding the clock change had broken RX. It had not. The peer board was
+simply not transmitting, and I had not checked — the exact control that made
+every earlier radio result in this ledger trustworthy, skipped because this time
+I already had a suspect.
+
+The register diff is what settled it: Reflex's clock and ESP-IDF's produced
+identical values, and the reference build showed the same `rx_done=0`. Both
+boards were fine.
+
+Cost: four build cycles and a nearly-published claim that a good change was a
+regression. The control is cheap and the diagnosis without it was worthless.
+
 ### Reflex owns the 802.15.4 MAC, transmit and receive (2026-09-10)
 
 `platform/esp32c6/reflex_802154_mac.c` — 229 lines — replaces ESP-IDF's

@@ -1983,6 +1983,9 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
                 (unsigned long)((r.coex_pti >> REFLEX_154_COEX_PTI_S) & REFLEX_154_COEX_PTI_MASK),
                 (unsigned long)((r.coex_pti >> REFLEX_154_COEX_ACK_PTI_S) &
                                 REFLEX_154_COEX_ACK_PTI_MASK));
+            printf("  modem: clk_conf=0x%08lx clk_conf1=0x%08lx lpcon=0x%08lx\n",
+                   (unsigned long)r.modem_clk_conf, (unsigned long)r.modem_clk_conf1,
+                   (unsigned long)r.modem_lpcon_conf);
             printf("  rx_status=0x%08lx tx_status=0x%08lx\n", (unsigned long)r.rx_status,
                    (unsigned long)r.tx_status);
             printf("  txdma=0x%08lx rxdma=0x%08lx\n", (unsigned long)r.txdma_addr,
