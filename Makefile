@@ -7,7 +7,7 @@ RELEASE_DIR := release/$(RELEASE_NAME)
 
 .PHONY: build flash release clean test tasm-test loomc-test tools-test hw-test doc-links \
         format format-check format-diff warn-check lock-check independence independence-check tick-measure ci-lint soc-header soc-bridge \
-        own-entry-build parity-base parity-other parity-diff \
+        own-entry-build parity-base parity-other parity-diff independence-own-entry \
         soc-check rom-check idf-build verify config-reset docs atlas
 
 build:
@@ -137,6 +137,22 @@ independence:
 
 independence-check:
 	@python3 tools/check_independence.py --check
+
+# The same measurement pointed at the configuration that actually makes the
+# claim.
+#
+# `independence` measures build_independence, which still delegates its
+# scheduling to FreeRTOS: it does not set CONFIG_REFLEX_TASK_BACKEND_REFLEX, so
+# it compiles reflex_task_kernel.c and carries that file's three freertos
+# includes. The own-entry build compiles reflex_task_reflex.c instead and starts
+# no FreeRTOS at all. Measured: 10 on-path dependencies against 7, Tier C 4
+# against 1. Reporting the first as the project's independence measures a
+# configuration that is not the one making the claim.
+#
+# Needs `make own-entry-build` first, since "compiled" is read from the build
+# directory.
+independence-own-entry:
+	@python3 tools/check_independence.py --build build_own_entry -v
 
 # Measure the Reflex scheduler tick across repeated cold starts. Delivery is
 # intermittent, so a single run proves nothing — this reports the distribution.

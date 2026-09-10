@@ -1150,6 +1150,45 @@ survive a restart. `sdkconfig.defaults.own_entry` and `make own-entry-build`
 close that, exactly as `sdkconfig.defaults.independence` closed it one layer
 down.
 
+### Bedrock: what the configuration that makes the claim actually borrows
+
+The ratchet measured `build_independence`, and that quietly became the wrong
+question. That build does not set `CONFIG_REFLEX_TASK_BACKEND_REFLEX`, so it
+compiles `reflex_task_kernel.c` — the backend whose every function delegates to
+FreeRTOS — and carries its three `freertos/` includes. The configuration that
+actually achieves independence is the own-entry build, which compiles
+`reflex_task_reflex.c` instead and starts no FreeRTOS at all.
+
+Measured, both, with `make independence` and `make independence-own-entry`:
+
+| tier | build_independence | build_own_entry |
+|---|---|---|
+| A  SoC constants, ROM | 0 | 0 |
+| B  deep sleep, heap | 2 | 2 |
+| C  FreeRTOS as the scheduler | **4** | **1** |
+| D  radio | 1 | 1 |
+| E  console RX, drivers | 0 | 0 |
+| F  build system, startup, storage | 3 | 3 |
+| **on-path total** | **10** | **7** |
+
+Seven, and each has a name: `esp_heap_caps.h` and `esp_sleep.h` (B),
+`freertos/portmacro.h` (C), `esp_ieee802154.h` (D), `esp_flash.h`,
+`esp_flash_internal.h` and `esp_system.h` (F).
+
+**The single remaining FreeRTOS dependency is in a file whose entry point never
+runs there.** `reflex_freertos_compat.c` includes `freertos/portmacro.h` to
+reach `configMAX_PRIORITIES`, and exists to wrap `xPortStartScheduler` and
+create the supervisor task on the FreeRTOS path. Under `REFLEX_OWN_ENTRY`
+FreeRTOS is never started, so that wrap never fires — the supervisor that runs
+there is the `goose-super` task `main.c` creates through `reflex_task_create`,
+visible in `kernel tasks`. Excluding that file from the own-entry build should
+take Tier C to zero, the first tier to clear besides A and E. One include wide.
+
+Same shape as the defect the parity work fixed: there the measure counted
+subtraction and missed capability, here it is pointed at a configuration that is
+not the one making the claim. Both times the number was honest about something
+nobody was asking.
+
 ### Bedrock: what each build can actually do
 
 The ratchet counts ESP-IDF includes removed and forbids that number from
@@ -1286,79 +1325,6 @@ every key it was given. The count was protecting a subsystem that did not work.
 Independence measured as subtraction rewarded that; independence measured as
 capability did not. Two of three Reflex-native replacements have now been found
 non-functional, and both were found by the capability measure, not the count.
-
-### Bedrock: what each build can actually do
-
-The ratchet counts ESP-IDF includes removed and forbids that number from
-growing. It measures subtraction, and it cannot see whether the Reflex code that
-replaced a dependency still does the job. Twice it has scored a replacement as
-progress while that replacement did nothing at all — `reflex_task_reflex.c`
-could not wake a task from a delay, and `reflex_kv_flash.c` persists nothing.
-Both lowered the count, both passed every gate. There are only three such swaps
-in the build, so that is two out of three.
-
-`tools/parity_check.py` measures the other half: the same battery of shell
-commands against two builds, diffed. Hardware only, deliberately — the host
-suite mocks flash as RAM, which is exactly what hid the persistence bug.
-
-Measured on one board, all three configurations in turn:
-
-| capability | default | independence | own_entry |
-|---|---|---|---|
-| boots, auth, shell | yes | yes | yes |
-| tick | 999 Hz | 998 Hz | **1000 Hz** |
-| Reflex task slots in use | 0 | 0 | **8** |
-| LED on/off | yes | yes | yes |
-| PWM attach/detach | yes | yes | yes |
-| temperature | yes | yes | yes |
-| LP heartbeat | yes | yes | yes |
-| mesh transmit | yes | yes | yes |
-| VM programs | 3 | 3 | 3 |
-| **persist across reboot** | **yes** | **no** | **no** |
-
-So with Reflex owning the entry point, the scheduler, the trap vector and the
-console — running the whole substrate on its own eight tasks — the system is at
-capability parity with the stock ESP-IDF build on every axis measured **except
-persistence**. The entire remaining functional gap of this work is one
-subsystem, and it is the one above.
-
-**The parity run also found a defect of its own**, which is the argument for
-having it. On the own-entry build every reading after `kernel tick` came back
-empty, and it reproduced exactly. Not transport: `kernel tick` calls
-`reflex_sched_tick_stop()`, and on a build where Reflex owns the scheduler that
-tick *is* the scheduler's clock. Stopping it left every task blocked forever
-with nothing to wake them — the machine died mid-command. A diagnostic that
-destroys the system it is diagnosing. It now stops only a tick it started
-itself.
-
-Red-teaming the tool then found three defects in it, all of the kind it exists
-to catch:
-
-- **A check that could not fail.** `pwm_attach` read `"orient=rising" in ask(s,
-  "bonsai exp4 status") or True`. `status` is not an exp4 subcommand, so the
-  match always failed and the `or True` reported success anyway. Every parity
-  run so far had reported PWM attach as working without testing it. It reads
-  the reply to `connect` now, and re-measured, it is genuinely true — the old
-  answer was right for no reason.
-- **Numeric regressions were invisible.** The verdict logic only compared
-  booleans and `None`, so `tick_hz` could fall from 999 to 100 and print "same".
-  Checks and observations are now declared separately: booleans and three
-  numeric rules (tick within 95% of baseline, no fewer VM programs, no
-  unreclaimed task slots) produce verdicts; temperature, heartbeat, mesh
-  counters and slot usage are reported as context and never given one, because
-  they legitimately differ between builds and moments. Mutation-checked against
-  a synthetic degraded run: all three numeric rules fire and the exit code
-  turns 1.
-- **It left state on the device.** The persistence probe writes a purpose and
-  never cleared it, so on a build where persistence works the board kept it —
-  observed later as a board still reading `purpose=photography`. It clears up
-  after itself now, and reports whether that worked.
-
-That near-miss is also why the tool distinguishes a silent command from an
-absent capability. It did not at first, and one dead connection reported as a
-dozen capability regressions; that very nearly went into the record as "Reflex
-ownership costs everything". A run with silent commands is now marked
-untrustworthy as a whole rather than reported selectively.
 
 ### Reflex's own key-value store keeps nothing, and that is why the mesh cannot pair
 

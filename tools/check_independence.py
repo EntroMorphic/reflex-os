@@ -219,13 +219,30 @@ def _active_lines(lines):
 # depends on whether someone happened to build first.
 INDEPENDENCE_BUILD = os.path.join(ROOT, "build_independence")
 
+# Which build directory defines "compiled", overridable with --build.
+#
+# This was pinned to build_independence, and that quietly became the wrong
+# question. The independence build still delegates its scheduling to FreeRTOS —
+# it does not set CONFIG_REFLEX_TASK_BACKEND_REFLEX, so it compiles
+# reflex_task_kernel.c and carries that file's three freertos includes. The
+# configuration that actually achieves independence is the own-entry build,
+# which compiles reflex_task_reflex.c instead and starts no FreeRTOS at all.
+# Reporting the first build's number as the project's independence measures a
+# configuration that is not the one making the claim.
+_build_dir = INDEPENDENCE_BUILD
+
+
+def set_build_dir(path):
+    global _build_dir
+    _build_dir = os.path.abspath(path)
+
 
 def compiled_sources():
     """Absolute paths of sources in the independence build, or None."""
-    if not os.path.isdir(INDEPENDENCE_BUILD):
+    if not os.path.isdir(_build_dir):
         return None
     srcs = set()
-    for dirpath, _dirs, files in os.walk(INDEPENDENCE_BUILD):
+    for dirpath, _dirs, files in os.walk(_build_dir):
         for f in files:
             if not f.endswith(".obj.d"):
                 continue
@@ -254,6 +271,15 @@ def main():
     check = "--check" in sys.argv
     update = "--update" in sys.argv
     verbose = "-v" in sys.argv or "--verbose" in sys.argv
+    # --build <dir>: measure a different configuration's compiled set. The
+    # default remains build_independence so existing invocations are unchanged.
+    if "--build" in sys.argv:
+        i = sys.argv.index("--build")
+        if i + 1 >= len(sys.argv):
+            print("--build needs a directory")
+            return 2
+        set_build_dir(sys.argv[i + 1])
+        print(f"measuring configuration: {os.path.relpath(_build_dir, ROOT)}")
 
     on, off, unknown = scan()
     cur = counts(on)

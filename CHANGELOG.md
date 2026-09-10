@@ -32,6 +32,16 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Added
 
+- **`make independence-own-entry` — the ratchet pointed at the configuration that makes the claim.** `make independence` measures `build_independence`, and that quietly became the wrong question: it does not set `CONFIG_REFLEX_TASK_BACKEND_REFLEX`, so it compiles `reflex_task_kernel.c` — the backend whose every function delegates to FreeRTOS — and carries its three `freertos/` includes. The own-entry build compiles `reflex_task_reflex.c` and starts no FreeRTOS at all.
+
+  Measured: **10 on-path dependencies against 7**, Tier C **4 against 1**. The seven each have a name — `esp_heap_caps.h`, `esp_sleep.h`, `freertos/portmacro.h`, `esp_ieee802154.h`, `esp_flash.h`, `esp_flash_internal.h`, `esp_system.h`.
+
+  And the one remaining FreeRTOS dependency is in a file whose entry point never runs there: `reflex_freertos_compat.c` includes `freertos/portmacro.h` for `configMAX_PRIORITIES` and exists to wrap `xPortStartScheduler`, which under `REFLEX_OWN_ENTRY` is never called. Excluding it from that build should take Tier C to zero. One include wide.
+
+  Same shape as the defect the parity work fixed — there the measure counted subtraction and missed capability; here it is aimed at a configuration that is not the one making the claim.
+
+
+
 - **The mtvec hand-off runs on hardware, and the Reflex scheduler executed tasks.** `kernel selftest` performs the whole sequence — route and arm the tick, tell the trap handler its CPU line, release ESP-IDF's stack-pointer watchpoint, quiesce every PLIC line but the tick, disable both timer-group watchdogs, take `mtvec`, start — and with FreeRTOS quiesced and Reflex's own vector installed, two tasks ran on the Reflex scheduler: `task A: tick 0 (sys=1)`, `task B: tick 0 (sys=1)`. C3's central question, answered on silicon.
 
 - **`reflex_hal_intr_quiesce_except` / `reflex_hal_intr_restore`**, and **`reflex_hal_wdt_disable_timg`**. Reflex's trap handler deliberately does not acknowledge a line it does not recognise, so any ESP-IDF interrupt left enabled asserts, is never cleared, and stops the core; and both timer-group watchdogs are fed by FreeRTOS, so quiescing it makes them fire (`rst:0x8 (TG1_WDT_HPSYS)`) a few seconds after an otherwise clean start. Constants through the bridge, 178 -> 183.
