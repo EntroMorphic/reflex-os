@@ -79,6 +79,46 @@ OFF_PATH = (
 )
 
 
+# Dependencies reached by a local `extern` declaration rather than an #include.
+#
+# The scan below reads include lines, so anything declared inline is invisible
+# to it — and declaring inline is a thing this codebase does deliberately, for
+# ROM entry points. That is defensible for ROM, which is silicon. It is not
+# defensible generally: intr_handler_set and its two siblings are ESP-IDF C in
+# components/riscv/interrupt.c, were declared locally to avoid growing the
+# count (the comment saying so is still in reflex_hal_esp32c6.c), and were
+# described in another comment as living in mask ROM, which they do not. Between
+# those two things a borrowed interrupt layer read as a hardware fact.
+#
+# So: symbols with a ROM prefix are hardware and stay uncounted; anything else
+# reached by extern must be named here with a tier, and a new one is an error in
+# the same way a new include is. Lowering the number by changing declaration
+# style is exactly the hiding place this tool exists to prevent.
+ROM_EXTERN_PREFIXES = ("esp_rom_", "Cache_", "ets_", "rom_")
+# Mask-ROM entry points that do not carry a rom-ish prefix.
+ROM_EXTERN_NAMES = ("software_reset",)
+# The project's own symbols, and the linker's wrap machinery. Declaring these
+# across translation units is ordinary C, not a borrowed dependency.
+PROJECT_EXTERN_PREFIXES = ("reflex_", "goose_", "__real_", "__wrap_", "app_main")
+
+EXTERN_TIERS = {
+    "intr_handler_set": ("C", "ESP-IDF interrupt dispatch table"),
+    "intr_handler_get": ("C", "ESP-IDF interrupt dispatch table"),
+    "intr_handler_get_arg": ("C", "ESP-IDF interrupt dispatch table"),
+}
+
+EXTERN_RE = re.compile(r"^\s*extern\s+[A-Za-z_][\w \*]*?\b(\w+)\s*\(")
+
+
+def classify_extern(sym):
+    """Tier for a symbol reached by a local extern, or None if it is ROM."""
+    if sym.startswith(ROM_EXTERN_PREFIXES) or sym in ROM_EXTERN_NAMES:
+        return None
+    if sym.startswith(PROJECT_EXTERN_PREFIXES):
+        return None
+    return EXTERN_TIERS.get(sym, ("?", "unclassified extern"))
+
+
 def classify(inc):
     for prefix, tier, what in TIERS:
         if inc.startswith(prefix) or prefix in inc:
@@ -114,13 +154,31 @@ def scan():
                     continue
                 for n, line in _active_lines(lines):
                     m = INCLUDE_RE.match(line)
-                    if not m:
+                    if m:
+                        inc = m.group(1)
+                        tier, what = classify(inc)
+                        rec = (rel, n, inc, tier, what)
+                        if tier is None:
+                            unknown.append(rec)
+                        elif not_built or rel.startswith(OFF_PATH):
+                            off.append(rec)
+                        else:
+                            on.append(rec)
                         continue
-                    inc = m.group(1)
-                    tier, what = classify(inc)
-                    rec = (rel, n, inc, tier, what)
-                    if tier is None:
-                        unknown.append(rec)
+                    # A locally declared extern is a dependency too, and used to
+                    # be invisible here. ROM entry points are silicon and stay
+                    # uncounted; anything else must be named in EXTERN_TIERS.
+                    em = EXTERN_RE.match(line)
+                    if not em:
+                        continue
+                    sym = em.group(1)
+                    cls = classify_extern(sym)
+                    if cls is None:
+                        continue
+                    tier, what = cls
+                    rec = (rel, n, f"extern {sym}()", tier, what)
+                    if tier == "?":
+                        unknown.append((rel, n, f"extern {sym}()", None, what))
                     elif not_built or rel.startswith(OFF_PATH):
                         off.append(rec)
                     else:
@@ -138,6 +196,9 @@ PATH_SYMBOLS = {
     # ESP-IDF peripheral driver kept only for the classic ESP32, say — is not a
     # dependency this path has, and the build's own header list agrees.
     "CONFIG_IDF_TARGET_ESP32C6": True,
+    # The device path never defines this. Declarations fenced off for the host
+    # suite are not dependencies of a board.
+    "REFLEX_HOST_BUILD": False,
 }
 
 COND_RE = re.compile(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b\s*(.*)$")

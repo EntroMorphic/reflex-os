@@ -32,7 +32,15 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Changed
 
-- **Tier C is clear: the configuration that achieves independence borrows nothing from FreeRTOS.** On-path total 6, down from 7, with three tiers now clear (A, C, E).
+- **Retracted: "Tier C is clear."** Removing the `freertos/portmacro.h` include removed an include; it did not remove the dependency. `check_independence.py` read `#include` lines only, so anything reached by a local `extern` was invisible — and `intr_handler_set`, `intr_handler_get` and `intr_handler_get_arg` are ESP-IDF C in `components/riscv/interrupt.c`, declared locally here. A comment in `reflex_hal_esp32c6.c` claimed they live in mask ROM; no linker script PROVIDEs them, and that false claim is what let a borrowed interrupt layer read as a hardware fact. Reflex's allocator registers into ESP-IDF's `s_intr_handlers` and `reflex_trap_handler` reads it to dispatch every interrupt Reflex does not own.
+
+  One of those declarations was added in this very work, with the reason in its own comment: *"which would add an ESP-IDF header to this file for two symbols and move the independence count in the wrong direction."* The metric was gamed and the gaming was documented.
+
+  The checker counts externs now — ROM prefixes uncounted because ROM is silicon, the project's own symbols and `__wrap_`/`__real_` machinery excluded, everything else required to be named in `EXTERN_TIERS` or rejected as unclassified. Honest numbers: Tier C **8** for `build_independence` and **4** for `build_own_entry`; on-path totals **14** and **10**. The baseline records it as a measurement correction, not a deliberate increase — nothing got worse, the tool started seeing what was already there.
+
+  Third structural hole found in this measure: it counted subtraction and missed capability, it was aimed at a configuration that was not the one making the claim, and it could be satisfied by moving a declaration.
+
+- **The supervisor became backend-agnostic, which stands.** On-path total 6, down from 7 by the old measure, with three tiers clear (A, C, E) — *by that measure*.
 
   The last dependency was one include in a file whose entry point never ran there — `reflex_freertos_compat.c` reached `freertos/portmacro.h` for `configMAX_PRIORITIES` and the TCB offsets, and existed to wrap `xPortStartScheduler`, which `REFLEX_OWN_ENTRY` never calls. **Dropping the file would have scored as progress and silently stopped the policy engine**: `reflex_kernel_set_policy` has a weak no-op fallback in `goose_supervisor.c`, so the link would have succeeded and task-priority modulation would simply have stopped on the one configuration this work is for.
 

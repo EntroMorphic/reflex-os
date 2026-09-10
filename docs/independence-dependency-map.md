@@ -1207,16 +1207,53 @@ What was done instead:
   the same lesson `reflex_app_entry.c` records for `esp_startup_start_app`, and
   it was walked into a second time anyway.
 
-| tier | before | after |
-|---|---|---|
-| C  FreeRTOS as the scheduler | 1 | **0 — clear** |
-| **on-path total** | 7 | **6** |
+The supervisor now runs where it did not: the banner,
+`policy=1000ms supervisor=active`, `policy=registered` after its delay, and
+`reflex-kern` visible in `kernel tasks` at priority 24. A capability gained —
+`make parity-diff` still reports zero regressions.
 
-Three tiers clear: A, C, E. And the policy supervisor now runs where it did not:
-the banner, `policy=1000ms supervisor=active`, `policy=registered` after its
-delay, and `reflex-kern` visible in `kernel tasks` at priority 24. A capability
-gained, not merely a count lowered — `make parity-diff` still reports zero
-regressions.
+**But "Tier C is clear" was wrong, and is retracted.** Removing the include
+removed an include. It did not remove the dependency, because the measure could
+not see the one that mattered.
+
+### The measure could be satisfied by changing declaration style
+
+`check_independence.py` read `#include` lines. Anything reached by a local
+`extern` was invisible to it — and declaring symbols that way is something this
+codebase does on purpose, for ROM entry points, which is why Tier A reads clear.
+
+Three of those declarations are not ROM. `intr_handler_set`,
+`intr_handler_get` and `intr_handler_get_arg` are ESP-IDF C in
+`components/riscv/interrupt.c`, with no linker script PROVIDEing them from mask
+ROM — and a comment in `reflex_hal_esp32c6.c` asserted that they *did* live in
+mask ROM, which made a borrowed interrupt layer read as a hardware fact. Reflex's
+allocator registers into ESP-IDF's `s_intr_handlers`, and `reflex_trap_handler`
+reads that table to dispatch every interrupt Reflex does not own. The dispatch
+path for every foreign device runs through it.
+
+One of those declarations was added in this work, with the reason written into
+its own comment: *"which would add an ESP-IDF header to this file for two
+symbols and move the independence count in the wrong direction."* The metric was
+gamed and the gaming was documented.
+
+The checker counts externs now. ROM prefixes stay uncounted, because ROM is
+silicon; the project's own symbols and the linker's `__wrap_`/`__real_`
+machinery are not dependencies; everything else must be named in `EXTERN_TIERS`
+with a tier, and an unnamed one is an error exactly as an unclassified include
+is.
+
+**Honest numbers, both configurations:**
+
+| tier | build_independence | build_own_entry |
+|---|---|---|
+| C  FreeRTOS as the scheduler | **8** | **4** |
+| **on-path total** | **14** | **10** |
+
+The baseline records this as a measurement correction rather than a deliberate
+increase, because nothing got worse — the tool started seeing what was already
+there. That is the third structural hole found in this measure: it counted
+subtraction and missed capability; it was aimed at a configuration that was not
+the one making the claim; and it could be satisfied by moving a declaration.
 
 Same shape as the defect the parity work fixed: there the measure counted
 subtraction and missed capability, here it is pointed at a configuration that is

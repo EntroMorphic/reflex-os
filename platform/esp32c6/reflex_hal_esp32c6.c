@@ -451,10 +451,21 @@ reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
  * CPU interrupts 0-31 are available. The interrupt matrix routes
  * peripheral sources (0-63) to CPU interrupt numbers.
  *
- * ROM dependency: intr_handler_set() lives in mask ROM and registers
- * the handler in the ROM's interrupt vector table. The ROM calls the
- * handler with (int cpu_int, void *arg) — our dispatch reads the
- * handler from s_intr_table[cpu_int]. */
+ * ESP-IDF dependency, not a ROM one. intr_handler_set, intr_handler_get and
+ * intr_handler_get_arg are defined in ESP-IDF's riscv component
+ * (components/riscv/interrupt.c) and keep their own table, s_intr_handlers.
+ * No linker script PROVIDEs them from mask ROM.
+ *
+ * This comment used to claim they live in mask ROM, and that claim mattered:
+ * declared locally rather than included, and believed to be ROM, they read as
+ * a hardware fact — Tier A, which the ledger reports as clear. They are a
+ * borrowed ESP-IDF interrupt layer. Reflex's allocator registers into that
+ * table and reflex_trap_handler reads it to dispatch interrupts Reflex does not
+ * own, so the dispatch path for every foreign device runs through it.
+ *
+ * tools/check_independence.py counts these now, under EXTERN_TIERS, because a
+ * dependency reached by a local extern is as real as one reached by an
+ * #include and was previously invisible to the measure. */
 
 #define INTMTX_BASE           0x60010000
 #define INTMTX_SOURCE_MAX     63

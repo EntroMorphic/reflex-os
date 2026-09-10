@@ -2,7 +2,7 @@
   "note": "Ratchet baseline. Lower is the only legal direction. Regenerate deliberately with tools/check_independence.py --update.",
   "on_path": {
     "B": 2,
-    "C": 4,
+    "C": 8,
     "D": 1,
     "F": 3
   },
@@ -15,6 +15,17 @@
       "why": "Reflex's own key-value store used raw esp_rom_spiflash_* to hold this tier at 1, and that is exactly why it persisted nothing: raw ROM flash access while the CPU executes XIP from the same flash never reaches the medium. The count was protecting a store that silently lost every key it was given \u2014 aura pairing impossible, purpose gone by the next boot. Independence measured as subtraction rewarded that; make parity-diff, which measures capability, did not.",
       "evidence": "With the dependency: parity-diff reports 0 capability regressions for both the independence build and the own-entry build against stock ESP-IDF. Without it: 1, persistence.",
       "decided": "2026-09-09"
+    }
+  ],
+  "measurement_corrections": [
+    {
+      "tier": "C",
+      "from": 4,
+      "to": 8,
+      "what": "intr_handler_set / intr_handler_get / intr_handler_get_arg, reached by local extern",
+      "why": "Not a regression \u2014 these dependencies were always there and the tool could not see them. It read #include lines only, so anything declared with a local extern was invisible, and this codebase declares symbols that way deliberately for ROM entry points. These three are not ROM: they are ESP-IDF C in components/riscv/interrupt.c, and a comment in reflex_hal_esp32c6.c claimed they lived in mask ROM, which is false. Reflex's allocator registers into ESP-IDF's handler table and reflex_trap_handler reads it to dispatch every interrupt Reflex does not own.",
+      "consequence": "The claim that Tier C was clear for the own-entry build was wrong and is retracted. Measured honestly it is 4 there, 8 here. check_independence.py counts externs now, so lowering the number by changing declaration style is no longer possible.",
+      "corrected": "2026-09-09"
     }
   ]
 }
