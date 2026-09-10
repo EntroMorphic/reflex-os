@@ -29,6 +29,7 @@
 
 #include "reflex_sched.h"
 #include "reflex_hal.h"
+#include "reflex_kernel.h"
 #include "reflex_soc_esp32c6.h" /* REFLEX_INTR_SRC_SYSTIMER_TARGET1 */
 
 #define TAG "reflex.entry"
@@ -256,6 +257,16 @@ void __wrap_esp_startup_start_app(void) {
         goto handback;
     }
     REFLEX_LOGI(TAG, "tick survives mtvec: %u ticks in 50ms", (unsigned)(t2 - t1));
+
+    /* Start the kernel policy supervisor here, because the thing that normally
+     * starts it never runs on this path.
+     *
+     * It is created by __wrap_xPortStartScheduler, and under REFLEX_OWN_ENTRY
+     * FreeRTOS is never started, so that wrap is never called. Nothing failed
+     * visibly: reflex_kernel_set_policy has a weak no-op fallback in
+     * goose_supervisor.c, so the policy engine simply stopped modulating task
+     * priorities on the one configuration this work exists for, silently. */
+    reflex_kernel_start_supervisor();
 
     rc = reflex_sched_create_task(reflex_main_task, "main", 8192, NULL, 10, NULL);
     if (rc != REFLEX_OK) {

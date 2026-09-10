@@ -37,6 +37,10 @@ if(CONFIG_REFLEX_KERNEL_SCHEDULER)
         list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_task_reflex.c")
     else()
         list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_task_kernel.c")
+        # The TCB-offset asserts, which are the only remaining user of a
+        # FreeRTOS header. They validate reflex_portasm.S's context-switch
+        # wrap, which is never called where Reflex owns scheduling.
+        list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_freertos_tcb_assert.c")
     endif()
     list(APPEND REFLEX_PLATFORM_SRCS "../../kernel/reflex_sched.c"
                                      "../../kernel/reflex_freertos_compat.c"

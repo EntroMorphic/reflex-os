@@ -23,7 +23,7 @@
 #include "reflex_kernel.h"
 #include "reflex_hal.h"
 #include "reflex_rom_esp32c6.h"
-#include "freertos/portmacro.h"
+#include "reflex_task.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -42,20 +42,28 @@ typedef void (*TaskFunction_t)(void *);
 #define configMAX_PRIORITIES 25
 #endif
 
-/* Validate FreeRTOS TCB layout for reflex_portasm.S stack guard offsets.
- * These become obsolete when the Reflex scheduler is the production default. */
-_Static_assert(PORT_OFFSET_PX_STACK == 0x30,
-    "TCB pxStack offset changed — update TCB_PX_STACK in reflex_portasm.S");
-_Static_assert(PORT_OFFSET_PX_END_OF_STACK == 0x44,
-    "TCB pxEndOfStack offset changed — update TCB_PX_END_OF_STACK in reflex_portasm.S");
+/* The TCB-offset asserts and the freertos header they needed live in
+ * reflex_freertos_tcb_assert.c now, compiled only where FreeRTOS is the task
+ * backend. A guard around the include would not have removed the dependency:
+ * check_independence.py reads include lines from the source of every compiled
+ * file rather than running the preprocessor, and it is right not to — a guarded
+ * include is still a file the build must be able to find. Splitting removes it.
+ */
 
-#define MS_TO_TICKS(ms) ((ms) / (1000 / 100))
 #define KERNEL_POLICY_PERIOD_MS 1000
+/* Was configMAX_PRIORITIES - 1 (24). Stated directly so the value does not
+ * depend on a FreeRTOS header the independence path does not include. */
+#define REFLEX_KERNEL_SUPERVISOR_PRIO 24
 
+/* Declared and defined unconditionally, even where FreeRTOS is never started.
+ *
+ * --wrap=xPortStartScheduler is on the link line for every build, so it
+ * rewrites FreeRTOS's own call whether or not this configuration wants it, and
+ * a wrapper that exists only behind the flag fails the link with an undefined
+ * reference. reflex_app_entry.c carries the same note about
+ * esp_startup_start_app for the same reason — and this was still walked into a
+ * second time. Under REFLEX_OWN_ENTRY nothing ever calls it. */
 extern BaseType_t __real_xPortStartScheduler(void);
-extern BaseType_t xTaskCreatePinnedToCore(TaskFunction_t fn, const char *name,
-    uint32_t stack, void *arg, UBaseType_t prio, TaskHandle_t *handle, int core);
-extern void vTaskDelay(uint32_t ticks);
 
 static volatile uint32_t s_kernel_tick = 0;
 static reflex_kernel_policy_fn s_policy_fn = NULL;
@@ -87,32 +95,45 @@ void reflex_kernel_set_policy(reflex_kernel_policy_fn fn) {
  * is wanted later, take the alarm index and the bit positions from
  * soc/systimer_reg.h rather than literals, and pick an alarm IDF is not using. */
 
+/* Delays through reflex_task.h, not vTaskDelay.
+ *
+ * That one substitution is what lets this supervisor run on either backend, and
+ * it is why taking Tier C to zero did not mean deleting the policy engine.
+ * reflex_kernel_set_policy has a weak no-op fallback in goose_supervisor.c, so
+ * dropping this file would have linked cleanly and quietly stopped modulating
+ * task priorities on the one configuration the work is aimed at. */
 static void reflex_kernel_supervisor(void *arg) {
     (void)arg;
-    vTaskDelay(MS_TO_TICKS(3000));
+    reflex_task_delay_ms(3000);
     printf("[reflex.kernel] supervisor: policy=%s\n",
            s_policy_fn ? "registered" : "none");
     while (1) {
         s_kernel_tick++;
         if (s_policy_fn) s_policy_fn(s_kernel_tick);
-        vTaskDelay(MS_TO_TICKS(KERNEL_POLICY_PERIOD_MS));
+        reflex_task_delay_ms(KERNEL_POLICY_PERIOD_MS);
     }
 }
 
-BaseType_t __wrap_xPortStartScheduler(void) {
+void reflex_kernel_start_supervisor(void) {
     esp_rom_printf("\n");
     esp_rom_printf("  ╔══════════════════════════════════════╗\n");
     esp_rom_printf("  ║       Reflex OS Kernel Active        ║\n");
     esp_rom_printf("  ╚══════════════════════════════════════╝\n");
     esp_rom_printf("\n");
 
-    xTaskCreatePinnedToCore(reflex_kernel_supervisor, "reflex-kern",
-                            4096, NULL, configMAX_PRIORITIES - 1, NULL, 0);
+    /* One below the ceiling, expressed in the interface's own terms rather than
+     * configMAX_PRIORITIES, which came from a FreeRTOS header this file no
+     * longer includes on every path. */
+    reflex_task_create(reflex_kernel_supervisor, "reflex-kern", 4096, NULL,
+                       REFLEX_KERNEL_SUPERVISOR_PRIO, NULL);
 
     /* Was "tick=1000Hz", which was never true: the alarm wrote to I2C0 and
      * fired at 0Hz. The policy cadence is what this line should report. */
     esp_rom_printf("[reflex.kernel] policy=%dms supervisor=active\n",
                    KERNEL_POLICY_PERIOD_MS);
+}
 
+BaseType_t __wrap_xPortStartScheduler(void) {
+    reflex_kernel_start_supervisor();
     return __real_xPortStartScheduler();
 }

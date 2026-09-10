@@ -60,9 +60,23 @@
  */
 
 #include "reflex_kv.h"
+#ifdef REFLEX_HOST_BUILD
+/* The host suite compiles this file against a RAM-backed mock in
+ * tests/host/test_kv.c, so it cannot see ESP-IDF's headers. Declaring the three
+ * entry points it uses keeps the store itself — the ring, the compaction, the
+ * entry walk — testable on the host, which is where its logic bugs are cheap to
+ * find. What the host cannot model is the medium, and that is exactly the class
+ * of bug that hid here for so long. */
+typedef int esp_err_t;
+#define ESP_OK 0
+extern esp_err_t esp_flash_read(void *chip, void *buf, uint32_t addr, uint32_t len);
+extern esp_err_t esp_flash_write(void *chip, const void *buf, uint32_t addr, uint32_t len);
+extern esp_err_t esp_flash_erase_region(void *chip, uint32_t start, uint32_t size);
+#else
 #include "esp_flash.h"
 #ifdef REFLEX_OWN_ENTRY
 #include "esp_flash_internal.h"
+#endif
 #endif
 #include <stdbool.h>
 #include <string.h>

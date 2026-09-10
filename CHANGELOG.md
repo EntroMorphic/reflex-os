@@ -30,6 +30,16 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 - **The RC_SLOW figure is measured, not asserted.** An earlier comment claimed it was "calibrated by measurement" when nothing had calibrated it. Asked for 5000 ms the watchdog fires at about 5300 ms, three consecutive trials agreeing, so the oscillator is nearer 128 kHz than the nominal 136 kHz and timeouts run ~6% long. The constant is deliberately left nominal: firing late still recovers a board that never woke, firing early resets one that was working.
 
+### Changed
+
+- **Tier C is clear: the configuration that achieves independence borrows nothing from FreeRTOS.** On-path total 6, down from 7, with three tiers now clear (A, C, E).
+
+  The last dependency was one include in a file whose entry point never ran there — `reflex_freertos_compat.c` reached `freertos/portmacro.h` for `configMAX_PRIORITIES` and the TCB offsets, and existed to wrap `xPortStartScheduler`, which `REFLEX_OWN_ENTRY` never calls. **Dropping the file would have scored as progress and silently stopped the policy engine**: `reflex_kernel_set_policy` has a weak no-op fallback in `goose_supervisor.c`, so the link would have succeeded and task-priority modulation would simply have stopped on the one configuration this work is for.
+
+  Instead the supervisor delays through `reflex_task.h` rather than `vTaskDelay` — the one substitution that makes it backend-agnostic — and starting it is split into `reflex_kernel_start_supervisor()`, called by the FreeRTOS wrap where FreeRTOS starts and by `reflex_app_entry.c` where Reflex owns the machine. The TCB asserts and their header moved to `reflex_freertos_tcb_assert.c`, compiled only where FreeRTOS is the backend; a `#ifndef` around the include would not have removed the dependency, because `check_independence.py` reads include lines from source rather than running the preprocessor — correctly, since a guarded include is still a file the build must find.
+
+  **A capability gained, not a count lowered.** The policy supervisor now runs under `REFLEX_OWN_ENTRY` where it previously did not: banner, `policy=1000ms supervisor=active`, `policy=registered`, and `reflex-kern` at priority 24 in `kernel tasks`. `make parity-diff` still reports zero regressions.
+
 ### Added
 
 - **`make independence-own-entry` — the ratchet pointed at the configuration that makes the claim.** `make independence` measures `build_independence`, and that quietly became the wrong question: it does not set `CONFIG_REFLEX_TASK_BACKEND_REFLEX`, so it compiles `reflex_task_kernel.c` — the backend whose every function delegates to FreeRTOS — and carries its three `freertos/` includes. The own-entry build compiles `reflex_task_reflex.c` and starts no FreeRTOS at all.

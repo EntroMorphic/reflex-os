@@ -1175,14 +1175,48 @@ Seven, and each has a name: `esp_heap_caps.h` and `esp_sleep.h` (B),
 `freertos/portmacro.h` (C), `esp_ieee802154.h` (D), `esp_flash.h`,
 `esp_flash_internal.h` and `esp_system.h` (F).
 
-**The single remaining FreeRTOS dependency is in a file whose entry point never
-runs there.** `reflex_freertos_compat.c` includes `freertos/portmacro.h` to
-reach `configMAX_PRIORITIES`, and exists to wrap `xPortStartScheduler` and
-create the supervisor task on the FreeRTOS path. Under `REFLEX_OWN_ENTRY`
-FreeRTOS is never started, so that wrap never fires — the supervisor that runs
-there is the `goose-super` task `main.c` creates through `reflex_task_create`,
-visible in `kernel tasks`. Excluding that file from the own-entry build should
-take Tier C to zero, the first tier to clear besides A and E. One include wide.
+### Tier C is clear
+
+The last FreeRTOS dependency was one include in a file whose entry point never
+ran there. `reflex_freertos_compat.c` included `freertos/portmacro.h` to reach
+`configMAX_PRIORITIES` and the TCB offsets, and existed to wrap
+`xPortStartScheduler` — which under `REFLEX_OWN_ENTRY` is never called.
+
+Removing it was not a matter of dropping the file, and that is the part worth
+recording. `reflex_kernel_set_policy` has a `__attribute__((weak))` no-op
+fallback in `goose_supervisor.c`, so excluding the translation unit would have
+linked cleanly and quietly stopped the policy engine from modulating task
+priorities — on precisely the configuration this work is aimed at. It would have
+scored as progress.
+
+What was done instead:
+
+- The supervisor now delays through `reflex_task.h` rather than `vTaskDelay`,
+  which is the one substitution that lets it run on either backend.
+- Starting it is split out as `reflex_kernel_start_supervisor()`. The FreeRTOS
+  wrap calls it where FreeRTOS is started; `reflex_app_entry.c` calls it where
+  Reflex owns the machine.
+- The TCB-offset asserts and the header they need moved to
+  `reflex_freertos_tcb_assert.c`, compiled only where FreeRTOS is the task
+  backend. A `#ifndef` around the include would not have done it:
+  `check_independence.py` reads include lines from the source of every compiled
+  file rather than running the preprocessor — correctly, since a guarded include
+  is still a file the build must find. Splitting removes it.
+- `__wrap_xPortStartScheduler` stays defined unconditionally. `--wrap` rewrites
+  the reference for every build, so a wrapper behind the flag fails the link —
+  the same lesson `reflex_app_entry.c` records for `esp_startup_start_app`, and
+  it was walked into a second time anyway.
+
+| tier | before | after |
+|---|---|---|
+| C  FreeRTOS as the scheduler | 1 | **0 — clear** |
+| **on-path total** | 7 | **6** |
+
+Three tiers clear: A, C, E. And the policy supervisor now runs where it did not:
+the banner, `policy=1000ms supervisor=active`, `policy=registered` after its
+delay, and `reflex-kern` visible in `kernel tasks` at priority 24. A capability
+gained, not merely a count lowered — `make parity-diff` still reports zero
+regressions.
 
 Same shape as the defect the parity work fixed: there the measure counted
 subtraction and missed capability, here it is pointed at a configuration that is

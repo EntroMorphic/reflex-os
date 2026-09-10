@@ -17,6 +17,36 @@
 #define MOCK_FLASH_BASE 0x10000
 static uint8_t s_mock_flash[MOCK_FLASH_SIZE];
 
+/* The store talks to ESP-IDF's flash API now, because raw ROM access never
+ * reached the medium. The mock follows it, and keeps refusing unaligned writes
+ * the way the chip does. */
+int esp_flash_read(void *chip, void *buf, uint32_t addr, uint32_t len) {
+    (void)chip;
+    uint32_t offset = addr - MOCK_FLASH_BASE;
+    if (offset + len > MOCK_FLASH_SIZE) return -1;
+    memcpy(buf, s_mock_flash + offset, len);
+    return 0;
+}
+
+int esp_flash_write(void *chip, const void *buf, uint32_t addr, uint32_t len) {
+    (void)chip;
+    uint32_t offset = addr - MOCK_FLASH_BASE;
+    if (offset + len > MOCK_FLASH_SIZE) return -1;
+    if ((addr & 3u) != 0) return -1;
+    for (uint32_t i = 0; i < len; i++) {
+        s_mock_flash[offset + i] &= ((const uint8_t *)buf)[i];
+    }
+    return 0;
+}
+
+int esp_flash_erase_region(void *chip, uint32_t start, uint32_t size) {
+    (void)chip;
+    uint32_t offset = start - MOCK_FLASH_BASE;
+    if (offset + size > MOCK_FLASH_SIZE) return -1;
+    memset(s_mock_flash + offset, 0xFF, size);
+    return 0;
+}
+
 int esp_rom_spiflash_read(uint32_t addr, uint32_t *dest, int len) {
     uint32_t offset = addr - MOCK_FLASH_BASE;
     if (offset + len > MOCK_FLASH_SIZE) return -1;
