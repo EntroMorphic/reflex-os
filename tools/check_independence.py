@@ -199,7 +199,54 @@ PATH_SYMBOLS = {
     # The device path never defines this. Declarations fenced off for the host
     # suite are not dependencies of a board.
     "REFLEX_HOST_BUILD": False,
+    # Filled in from the build being measured — see BUILD_DEFINED_SYMBOLS.
+    # Deliberately absent here rather than guessed: with no value the tool
+    # counts both branches, which is the conservative answer.
 }
+
+# Symbols whose value is a property of the configuration, not of the project.
+#
+# REFLEX_OWN_ENTRY is not a Kconfig option; it arrives as a bare -D on the
+# compiler command line, so no sdkconfig in the tree records it and a table here
+# would be an assertion rather than a measurement. Reading it back from
+# compile_commands.json asks the build what the compiler was actually told.
+#
+# The distinction matters because it is exactly the hole this tool exists to
+# close. Fencing a dependency behind #ifndef REFLEX_OWN_ENTRY removes it from
+# one configuration and leaves it in another; a tool that cannot tell the two
+# apart either counts a dependency the build does not have, or — far worse —
+# takes the fence on faith and counts a dependency away that is still there.
+# Only symbols named here are read this way. A stray -D on some unrelated
+# symbol changes nothing, because an unknown symbol still counts both branches.
+BUILD_DEFINED_SYMBOLS = ("REFLEX_OWN_ENTRY",)
+
+
+def apply_build_defines():
+    """Set PATH_SYMBOLS for BUILD_DEFINED_SYMBOLS from the build's own flags.
+
+    Returns a dict of what was resolved, for reporting. A build with no
+    compile_commands.json resolves nothing and leaves those symbols unknown,
+    so the count stays conservative rather than silently assuming "off".
+    """
+    cc = os.path.join(_build_dir, "compile_commands.json")
+    if not os.path.isfile(cc):
+        return {}
+    try:
+        with open(cc, errors="replace") as fh:
+            entries = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    defined = set()
+    for e in entries:
+        cmd = e.get("command") or " ".join(e.get("arguments", []))
+        for tok in cmd.split():
+            if tok.startswith("-D"):
+                defined.add(tok[2:].split("=", 1)[0])
+    resolved = {}
+    for sym in BUILD_DEFINED_SYMBOLS:
+        PATH_SYMBOLS[sym] = sym in defined
+        resolved[sym] = sym in defined
+    return resolved
 
 COND_RE = re.compile(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b\s*(.*)$")
 
@@ -341,6 +388,16 @@ def main():
             return 2
         set_build_dir(sys.argv[i + 1])
         print(f"measuring configuration: {os.path.relpath(_build_dir, ROOT)}")
+
+    # After the build directory is settled and before anything is scanned: the
+    # configuration decides what "compiled" means, and it also decides the value
+    # of the symbols the sources are fenced with.
+    resolved = apply_build_defines()
+    for sym, val in sorted(resolved.items()):
+        print(f"  {sym} = {'defined' if val else 'not defined'} (from compile_commands.json)")
+    missing = [s for s in BUILD_DEFINED_SYMBOLS if s not in resolved]
+    if missing:
+        print(f"  no compile_commands.json: {', '.join(missing)} unknown, both branches counted")
 
     on, off, unknown = scan()
     cur = counts(on)

@@ -467,28 +467,43 @@ reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
  * dependency reached by a local extern is as real as one reached by an
  * #include and was previously invisible to the measure.
  *
- * Why they cannot simply be removed, which is worth stating because the
- * tempting fixes all rename the dependency rather than end it. Wrapping
- * intr_handler_set with --wrap, or calling _global_interrupt_handler instead,
- * leaves ESP-IDF's table exactly where it is and only changes which symbol
- * names it. The four uses split two ways:
+ * There were four uses. Two are gone; the two that remain are the radio's.
  *
- *   - intr_handler_set, in alloc and free. Registers Reflex's dispatch with
- *     ESP-IDF's vector so Reflex's own interrupts are delivered *before* Reflex
- *     takes mtvec. The entry path depends on that: it proves the tick under
- *     ESP-IDF's vector first and hands the machine back if it is dead, which is
- *     the check that stops a bad hand-off stranding a board. Structural to the
- *     design, not to the radio.
+ * The tempting fixes all rename the dependency rather than end it, and that is
+ * still true: wrapping intr_handler_set with --wrap, or calling
+ * _global_interrupt_handler instead, leaves ESP-IDF's table exactly where it is
+ * and only changes which symbol names it. Neither was used.
+ *
+ *   - intr_handler_set, in alloc and free — removed from the own-entry build,
+ *     by changing when the vector is taken rather than by hiding the call.
+ *     It existed because the entry path allocated the tick, proved it under
+ *     ESP-IDF's vector, and only then installed Reflex's: during that window
+ *     ESP-IDF's table was the only thing that could deliver a Reflex interrupt.
+ *     The entry path now quiesces, takes mtvec, and *then* starts the tick, so
+ *     every line Reflex allocates is dispatched through s_intr_table from the
+ *     first interrupt onward. Verified where it counts — this file's object in
+ *     build_own_entry has no undefined reference to intr_handler_set, while the
+ *     default build still does, because there ESP-IDF really does own mtvec.
+ *
+ *     The safety property that ordering bought was not traded away for the
+ *     count. It is stronger: the tick is now proved under the vector that will
+ *     actually service it, and a dead tick still hands the machine back rather
+ *     than stranding a board, because reflex_trap_snapshot made taking mtvec a
+ *     reversible step. The old check proved the interrupt-matrix routing and
+ *     the PLIC programming; it never proved Reflex's vector table, trap entry
+ *     or acknowledgement — which are the parts that had actually been broken.
+ *
  *   - intr_handler_get and intr_handler_get_arg, in dispatch_foreign. Reads
  *     ESP-IDF's table to service drivers Reflex does not own. Measured on the
  *     own-entry build, that is exactly one driver: the PLIC has three live
  *     lines, 10 is the tick and 11 the console — both Reflex's — and 8 is the
  *     802.15.4 MAC, the only ESP-IDF component allocating an interrupt here.
  *
- * So half of Tier C's remainder is Tier D wearing a different hat: it ends when
- * Reflex owns the radio, and not before. The other half ends only if the
- * pre-install tick check is given up, which trades a measurable dependency for
- * the ability to strand a board. */
+ * So what is left of Tier C is Tier D wearing a different hat, and it is not
+ * reclassified here to say so — it stays counted as C until the code makes the
+ * claim true. It ends when the radio's interrupt is allocated through Reflex's
+ * own allocator instead of ESP-IDF's, which is a change to esp_intr_alloc's
+ * side of the boundary, not to this table's. */
 
 #define INTMTX_BASE           0x60010000
 #define INTMTX_SOURCE_MAX     63
@@ -677,6 +692,11 @@ bool __attribute__((section(".iram1"))) reflex_hal_intr_dispatch_line(int cpu_in
     return true;
 }
 
+#ifndef REFLEX_OWN_ENTRY
+/* ESP-IDF's table calls handlers with no argument, so the line has to be
+ * recovered from mcause. Reflex's own trap handler passes the line in, which is
+ * why reflex_hal_intr_dispatch_line above needs none of this — and why this
+ * function has no caller once Reflex owns the vector. */
 static void __attribute__((section(".iram1")))
 reflex_intr_dispatch(void) {
     uint32_t mcause;
@@ -687,6 +707,7 @@ reflex_intr_dispatch(void) {
         if (e->handler) e->handler(e->arg);
     }
 }
+#endif /* !REFLEX_OWN_ENTRY */
 
 reflex_err_t reflex_hal_intr_alloc(int source, int flags,
                                    reflex_intr_handler_t handler, void *arg,
@@ -765,8 +786,31 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
      * one: nothing clears the source, so it re-asserts immediately and the
      * core makes no further progress. Everything that can be set up while the
      * line is still masked now is. */
+#ifndef REFLEX_OWN_ENTRY
+    /* Only where ESP-IDF's vector is still the one on mtvec.
+     *
+     * This registers Reflex's dispatcher in ESP-IDF's per-line table so that
+     * ESP-IDF's `_global_interrupt_handler` delivers Reflex's own interrupts.
+     * In the default build that is the only way they arrive at all, and it is
+     * load-bearing: `kernel selftest` allocates the tick with ESP-IDF holding
+     * mtvec throughout.
+     *
+     * Under REFLEX_OWN_ENTRY it is dead weight, and the reason is an ordering
+     * change rather than a trick. The entry path now installs Reflex's vector
+     * *before* the first allocation, so every line Reflex allocates is
+     * dispatched through s_intr_table by reflex_trap_handler and ESP-IDF's
+     * table is never consulted. It used to be the other way round — allocate,
+     * prove the tick under ESP-IDF's vector, then install — and that ordering
+     * was the sole reason this call had to exist.
+     *
+     * The safety property that ordering bought is not given up. It is stronger
+     * now: the tick is proved under the vector that will actually service it,
+     * and a failure still hands the machine back, because reflex_trap_snapshot
+     * makes taking mtvec a reversible step. Proving it under ESP-IDF's vector
+     * only ever proved the routing, not the dispatcher. */
     extern void intr_handler_set(int n, void (*fn)(void), void *arg);
     intr_handler_set(cpu_int, (void (*)(void))reflex_intr_dispatch, NULL);
+#endif
 
     /* Disable interrupts for atomic RMW of shared registers */
     __asm__ volatile ("csrci mstatus, 0x8");
@@ -1023,8 +1067,12 @@ reflex_err_t reflex_hal_intr_free(reflex_intr_handle_t handle) {
         mie_now &= ~(1U << cpu_int);
         mie_now |= (s_intr_table[cpu_int].prev_mie_bit << cpu_int);
         __asm__ volatile("csrw mie, %0" : : "r"(mie_now));
+#ifndef REFLEX_OWN_ENTRY
+        /* Paired with the registration in alloc, and fenced for the same
+         * reason: under REFLEX_OWN_ENTRY nothing was ever written there. */
         extern void intr_handler_set(int n, void (*fn)(void), void *arg);
         intr_handler_set(cpu_int, NULL, NULL);
+#endif
         s_intr_table[cpu_int].taken = false;
     }
 

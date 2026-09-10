@@ -9,6 +9,20 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Changed
 
+- **Half of Tier C's "floor" was not a floor: `intr_handler_set` is gone from the own-entry build.** Tier C on the own-entry path drops **4 → 2**, and the on-path total **10 → 8**. The previous entry claimed this dependency could end "only by giving up the safety check on the hand-off." That was wrong. It was structural to one *ordering*, not to the design.
+
+  The entry path used to start the tick, prove it under ESP-IDF's vector, take `mtvec`, then prove it again — and during that first window ESP-IDF's interrupt table was the only thing that could deliver a Reflex interrupt, so `reflex_hal_intr_alloc` had to register there. It now quiesces, takes `mtvec`, and *then* starts the tick and proves it once. Every line Reflex allocates dispatches through Reflex's own table from its first interrupt onward.
+
+  **The safety check was not given up; it got stricter.** The old first check ran with ESP-IDF's dispatcher delivering, so it proved the interrupt-matrix routing and PLIC programming — never Reflex's vector table, trap entry or acknowledgement, which are the parts that had actually been broken. The check now runs under the vector that services the tick in production, and a dead tick still hands the machine back rather than stranding a board, because `reflex_trap_snapshot`/`reflex_trap_restore` made taking `mtvec` reversible.
+
+  Verified at the object file rather than in the source, because a fence is exactly the kind of change that can look like a removal and not be one: `reflex_hal_esp32c6.c.obj` in `build_own_entry` has no undefined reference to `intr_handler_set`; in the default build it still does, and should — there ESP-IDF genuinely owns `mtvec`.
+
+  On hardware: `quiesced PLIC 0x0a000024 -> 0x00000000`, `tick runs under Reflex's vector: 50 ticks in 50ms`, 1000 Hz held across a 20-second soak, shell responsive, storage resumed, radio initialised, same three live PLIC lines (`0x00000d00`).
+
+- **`check_independence.py` could not see a configuration flag, and would have counted a fence as a removal on faith.** `REFLEX_OWN_ENTRY` is not a Kconfig option — it arrives as a bare `-D` — so no `sdkconfig` records it and `PATH_SYMBOLS` had no entry. Adding one by hand would have been an assertion dressed as a measurement. The tool now reads the symbol back from the build's own `compile_commands.json` and prints what it found (`REFLEX_OWN_ENTRY = defined (from compile_commands.json)`). Only symbols in `BUILD_DEFINED_SYMBOLS` resolve this way; a build without `compile_commands.json` leaves them unknown and counts both branches. Fourth hole of this shape closed.
+
+- **`intr_handler_get`/`intr_handler_get_arg` are deliberately *not* reclassified to Tier D.** The evidence says they belong to the radio — the only foreign line on this build is 8, the 802.15.4 MAC. But moving them in the ledger would take Tier C to zero without changing a line of behaviour. They stay counted as C until the code makes the claim true.
+
 - **Tier C's plan said two blockers; one has been closed for some time.** `reflex_task_reflex.c` and the Kconfig help both stated the scheduler has no working tick — that nothing routes SYSTIMER through the interrupt matrix, gives it a PLIC priority or sets the `mie` bit. `reflex_sched_tick_start` does all three, and `make tick-measure` reports **5/5 verified cold starts at exactly 1000 Hz** on the independence build. Both documents now say so, because they gate the C3 cutover and were overstating the distance.
 
 - **A comment in `reflex_sched.c` claimed the tick was measured "on both the default and the 802.15.4 builds".** Re-measured: 5/5 at 1000 Hz on the independence build, **0/5 on the default**, where the routing reads back entirely correct — matrix entry, PLIC enabled, priority above threshold, `mie` set, SYSTIMER asserting and latched — and nothing is delivered. The console's interrupt was ruled out as the cause: console on CPU line 10, tick on 11. The Wi-Fi stack is the obvious next suspect and has not been investigated. Corrected to what was measured.

@@ -1249,6 +1249,111 @@ on the hand-off.
 **Tier C's honest floor is 4, and 2 of those are Tier D's.** That is the useful
 statement, and it is more useful than a zero would have been.
 
+### Half that floor was not a floor (2026-09-10)
+
+Two of the four are gone. Tier C on the own-entry path is **2**, and the
+on-path total is **8**.
+
+The claim above — that `intr_handler_set` "ends only by giving up the safety
+check" — was wrong, and it was wrong in a specific and instructive way: it
+treated the *ordering* of the hand-off as fixed and asked what could be removed
+around it. The dependency was never structural to the design. It was structural
+to one ordering.
+
+The entry path used to be: start the tick, prove it under ESP-IDF's vector,
+take `mtvec`, prove it again. During the window between the first two steps,
+ESP-IDF's table was the only thing that could deliver a Reflex interrupt, so
+`reflex_hal_intr_alloc` had to register there. It is now: quiesce, take
+`mtvec`, *then* start the tick and prove it once. Every line Reflex allocates is
+dispatched through `s_intr_table` from its first interrupt onward, and ESP-IDF's
+table is never written.
+
+The safety property was not traded for the number. It is stronger. The old first
+check ran with ESP-IDF's dispatcher doing the delivering, so what it proved was
+the interrupt-matrix routing and the PLIC programming — never Reflex's vector
+table, its trap entry, or its acknowledgement, which are the parts that had
+actually been broken in this work. The check now runs under the vector that will
+service the tick in production. A dead tick still hands the machine back rather
+than stranding a board, because `reflex_trap_snapshot`/`reflex_trap_restore`
+made taking `mtvec` a reversible step; the second check that used to need
+`handback` is simply the only check now.
+
+Two checks collapsed into one that is strictly more informative, and a
+dependency disappeared as a consequence rather than as the goal.
+
+**Verified at the object file, not in the source.** A fence is exactly the kind
+of change that can look like a removal and not be one:
+
+```
+$ riscv32-esp-elf-nm -u build/.../reflex_hal_esp32c6.c.obj | grep intr_handler
+U intr_handler_get
+U intr_handler_get_arg
+U intr_handler_set
+$ riscv32-esp-elf-nm -u build_own_entry/.../reflex_hal_esp32c6.c.obj | grep intr_handler
+U intr_handler_get
+U intr_handler_get_arg
+```
+
+The default build still references it, and should: there ESP-IDF genuinely owns
+`mtvec`, `kernel selftest` allocates the tick under it, and registering in that
+table is the only way the interrupt arrives at all. The fence is not a hiding
+place; it is the difference between two configurations, one of which makes the
+independence claim and one of which does not.
+
+Hardware, on the own-entry build: `quiesced PLIC 0x0a000024 -> 0x00000000`,
+`tick runs under Reflex's vector: 50 ticks in 50ms`, 1000 Hz held across a
+20-second soak, shell responsive, storage resumed, radio initialised, and the
+same three live PLIC lines as before (`0x00000d00`).
+
+### The measure could not see a configuration flag
+
+Fencing the call raised a question the tool could not answer. `REFLEX_OWN_ENTRY`
+is not a Kconfig option — it arrives as a bare `-D` on the compiler command
+line — so no `sdkconfig` in the tree records it, and `PATH_SYMBOLS` had no entry
+for it. The tool went on counting all four.
+
+Adding `"REFLEX_OWN_ENTRY": True` to that table would have been an assertion
+dressed as a measurement, and the fourth time this ledger records the measure
+improving while the system did not. Instead the tool now reads the symbol back
+from the build's own `compile_commands.json` and prints what it found:
+
+```
+measuring configuration: build_own_entry
+  REFLEX_OWN_ENTRY = defined (from compile_commands.json)
+```
+
+Only symbols named in `BUILD_DEFINED_SYMBOLS` are resolved this way, and a build
+with no `compile_commands.json` resolves nothing and leaves them unknown — which
+counts both branches, the conservative answer. A stray `-D` on an unrelated
+symbol changes nothing.
+
+This closes a fourth hole of the same shape as the first three. A tool that
+cannot tell two configurations apart either counts a dependency the build does
+not have, or — far worse — takes a fence on faith and counts away one that is
+still there.
+
+### What is left of Tier C is Tier D wearing a different hat
+
+`intr_handler_get` / `intr_handler_get_arg` remain, and they are **not**
+reclassified to D here. The evidence says they belong to the radio: the only
+foreign line on this build is 8, the 802.15.4 MAC, and ESP-IDF's driver
+allocates it from a single call site with `flags = 0`. But moving them to D in
+the ledger would lower Tier C to zero without changing a line of behaviour,
+which is the exact move this document exists to refuse. They stay counted as C
+until the code makes the claim true.
+
+The route that would make it true is visible and is not a rename:
+`esp_ieee802154_dev.c:826` calls `esp_intr_alloc(irq_id, 0, isr, NULL, &handle)`
+— one site, no flags. Wrapping *that* puts the radio's handler in **Reflex's**
+table rather than reading it out of ESP-IDF's, which moves ownership instead of
+moving a name. It is distinct from `--wrap=intr_handler_set`, refused above,
+precisely because that one left ESP-IDF's table as the store. The hazard is
+ordering again: ESP-IDF allocates interrupts during its own startup, before the
+hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
+forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
+this entry.
+
+
 ### The measure could be satisfied by changing declaration style
 
 `check_independence.py` read `#include` lines. Anything reached by a local

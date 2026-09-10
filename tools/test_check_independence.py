@@ -135,6 +135,73 @@ else:
         check(f"{gone} is absent from both", gone not in text and gone not in claimed,
               "present in build" if gone in text else "still claimed")
 
+print("\n--- build-defined symbols come from the build, not from a table ---")
+# The value of REFLEX_OWN_ENTRY decides whether two Tier C dependencies are
+# counted. Getting it from a hand-written table would be an assertion; these
+# check that it is read back from the build the tool was pointed at, and that
+# an absent build stays conservative rather than assuming "off".
+import json as _json
+import tempfile as _tempfile
+
+check("REFLEX_OWN_ENTRY is not hardcoded in PATH_SYMBOLS",
+      "REFLEX_OWN_ENTRY" not in ci.PATH_SYMBOLS,
+      sorted(ci.PATH_SYMBOLS))
+
+with _tempfile.TemporaryDirectory() as td:
+    # A build that defines it.
+    with open(os.path.join(td, "compile_commands.json"), "w") as fh:
+        _json.dump([{"command": "cc -DREFLEX_OWN_ENTRY=1 -DOTHER -c x.c", "file": "x.c"}], fh)
+    ci.set_build_dir(td)
+    got = ci.apply_build_defines()
+    check("defined in the build reads as defined", got.get("REFLEX_OWN_ENTRY") is True, got)
+    check("and reaches PATH_SYMBOLS", ci.PATH_SYMBOLS.get("REFLEX_OWN_ENTRY") is True, got)
+    check("#ifndef on it is inactive there",
+          ci._eval_cond("ifndef", "REFLEX_OWN_ENTRY") is False, got)
+    # An unrelated -D must not become a path symbol of its own.
+    check("a stray -D does not become a path symbol",
+          "OTHER" not in ci.PATH_SYMBOLS, sorted(ci.PATH_SYMBOLS))
+
+with _tempfile.TemporaryDirectory() as td:
+    # A build that does not define it.
+    with open(os.path.join(td, "compile_commands.json"), "w") as fh:
+        _json.dump([{"command": "cc -c x.c", "file": "x.c"}], fh)
+    ci.set_build_dir(td)
+    got = ci.apply_build_defines()
+    check("absent from the build reads as not defined",
+          got.get("REFLEX_OWN_ENTRY") is False, got)
+    check("#ifndef on it is active there",
+          ci._eval_cond("ifndef", "REFLEX_OWN_ENTRY") is True, got)
+
+with _tempfile.TemporaryDirectory() as td:
+    # No compile_commands.json at all: the conservative answer is "unknown",
+    # which counts both branches. Assuming "off" here would silently count a
+    # fenced dependency that the build may not have.
+    ci.PATH_SYMBOLS.pop("REFLEX_OWN_ENTRY", None)
+    ci.set_build_dir(td)
+    got = ci.apply_build_defines()
+    check("no compile_commands.json resolves nothing", got == {}, got)
+    check("and leaves the symbol unknown",
+          ci._eval_cond("ifndef", "REFLEX_OWN_ENTRY") is None,
+          ci.PATH_SYMBOLS.get("REFLEX_OWN_ENTRY"))
+
+print("\n--- the own-entry build really has dropped intr_handler_set ---")
+# The claim that Tier C fell from 4 to 2 rests on the compiler, not the scan.
+# If the build is present, ask the object file directly.
+oe = os.path.join(root, "build_own_entry")
+obj = None
+for dirpath, _dirs, files in os.walk(oe):
+    if "reflex_hal_esp32c6.c.obj" in files:
+        obj = os.path.join(dirpath, "reflex_hal_esp32c6.c.obj")
+        break
+if obj is None:
+    print("  SKIP  no own-entry build present (run `make own-entry-build`)")
+else:
+    blob = open(obj, "rb").read()
+    check("intr_handler_set is not referenced by the own-entry HAL object",
+          b"intr_handler_set" not in blob, obj)
+    check("intr_handler_get still is, and is still counted",
+          b"intr_handler_get" in blob, obj)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} failed")

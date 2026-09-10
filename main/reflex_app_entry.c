@@ -136,89 +136,45 @@ void __wrap_esp_startup_start_app(void) {
         goto fallback;
     }
 
-    /* Prove the tick before committing the machine to a scheduler that needs
-     * it, and hand back to FreeRTOS if it is dead.
-     *
-     * The tick is 5/5 at 1000 Hz on the independence build and 0/5 on the
-     * default one, where the routing reads back perfect and nothing arrives.
-     * Taking the entry point there would hand the board to a scheduler that can
-     * never unblock a task — and unlike `kernel selftest`, there is no shell to
-     * abort back to, because the shell has not been started yet. Falling back
-     * costs a boot that is not independent and keeps a board that works. */
-    rc = reflex_sched_tick_start();
-    if (rc != REFLEX_OK) {
-        REFLEX_LOGE(TAG, "tick start failed rc=0x%x", rc);
-        goto fallback;
-    }
-    uint32_t t0 = reflex_sched_get_tick();
-    reflex_hal_delay_us(50000);
-    if (reflex_sched_get_tick() == t0) {
-        /* Say why, not just that.
-         *
-         * "tick is not running" is a verdict with no evidence attached, and
-         * this is the one place where the evidence cannot be gathered
-         * afterwards: there is no shell here to ask from, and the fallback
-         * hands the machine back to FreeRTOS, which changes every register that
-         * would have answered the question. Read them here or not at all. */
-        reflex_intr_route_t r;
-        reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &r);
-        uint32_t ena, raw, st;
-        reflex_sched_tick_debug(&ena, &raw, &st);
-        /* Both halves, because "routed but not firing" and "firing but not
-         * routed" look identical from either side alone. */
-        REFLEX_LOGE(TAG, "tick source: systimer int_ena=0x%08x int_raw=0x%08x int_st=0x%08x",
-                    (unsigned)ena, (unsigned)raw, (unsigned)st);
-        REFLEX_LOGE(TAG,
-                    "tick is not running: cpu_int=%u plic_en=%u pri=%u thresh=%u "
-                    "level=%u mie=%u mip=%u global_ie=%u live=0x%08x",
-                    (unsigned)r.cpu_int, (unsigned)r.plic_enabled, (unsigned)r.plic_priority,
-                    (unsigned)r.plic_threshold, (unsigned)r.level_triggered,
-                    (unsigned)r.mie_enabled, (unsigned)r.mip_pending, (unsigned)r.global_ie,
-                    (unsigned)r.live_line_mask);
-        goto fallback;
-    }
-
     /* --- the hand-off ---------------------------------------------------
      *
-     * Four steps that reflex_kernel_test performs and this did not. Each one is
-     * load-bearing, and the dead tick above was the only reason their absence
-     * had never cost anything: the fallback was taken every time, so the code
-     * below had never run on hardware.
+     * Order matters here, and it changed. It used to be: start the tick, prove
+     * it under ESP-IDF's trap vector, then take mtvec and prove it again. The
+     * first of those two checks was the only reason reflex_hal_intr_alloc had
+     * to register Reflex's dispatcher in ESP-IDF's interrupt table — the last
+     * structural use of ESP-IDF's scheduler-side machinery on this path.
      *
-     * The first tick check runs before any of this, so `fallback` has nothing
-     * to undo. That was once the whole story and is not any more: there is a
-     * second tick check below, after the vector is taken, and its failure path
-     * does have to undo all of it. That is `handback`. */
-    reflex_intr_route_t tick;
-    reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &tick);
-
-    /* Tell the handler which line is the tick.
+     * It is now: quiesce, take the vector, then start the tick and prove it
+     * once, under the vector that will actually service it. That removes the
+     * ESP-IDF table from the picture entirely and makes the check stricter
+     * rather than weaker. The old first check ran with ESP-IDF's dispatcher
+     * doing the delivering, so it proved the interrupt-matrix routing and the
+     * PLIC programming — never Reflex's vector table, its trap entry, or its
+     * acknowledgement, which are the parts that had actually been broken.
      *
-     * This was described here as the single most consequential omission of the
-     * hand-off, on the grounds that without it the handler recognises nothing,
-     * acknowledges nothing, and the core stops on the first interrupt it takes.
-     * That was true when the handler serviced the tick and nothing else. It is
-     * no longer: the handler now falls through to the HAL's own dispatch table,
-     * where the tick's ISR is registered like any other, so the tick is
-     * serviced whether or not this line is right.
-     *
-     * Measured, not reasoned: setting this to a line the tick never arrives on
-     * still gives "tick survives mtvec: 50 ticks in 50ms". Kept as a fast path
-     * that skips the table lookup for the one interrupt that runs at 1 kHz, and
-     * described as what it now is rather than what it used to be. */
-    reflex_trap_set_tick_line((int)tick.cpu_int);
+     * The safety property is unchanged, and it is the one that matters: a board
+     * whose tick is dead must not be handed to a scheduler that needs it. That
+     * is still true, because taking mtvec is reversible. reflex_trap_snapshot
+     * writes down the vector being replaced before it is replaced, so every
+     * failure below reaches `handback` and gives the machine back to FreeRTOS
+     * rather than stalling on it. Nothing here needs a working tick to unwind:
+     * reflex_hal_delay_us is a ROM busy-wait and the log path is a direct FIFO
+     * write. */
 
     /* Take back the stack watchpoint, which ESP-IDF armed with the bounds of
      * the FreeRTOS stack this is running on. The first switch to a Reflex
      * stack panics without this. */
     reflex_hal_stack_guard_disable();
 
-    /* Silence every line but the tick. Reflex's handler deliberately does not
-     * acknowledge a line it does not recognise, so any ESP-IDF interrupt left
-     * enabled asserts, is never cleared, and the machine stops. */
-    saved_mask = reflex_hal_intr_quiesce_except(1u << tick.cpu_int);
-    REFLEX_LOGI(TAG, "quiesced PLIC 0x%08x -> 0x%08x, tick on cpu_int=%u", (unsigned)saved_mask,
-                (unsigned)(1u << tick.cpu_int), (unsigned)tick.cpu_int);
+    /* Silence everything ESP-IDF left enabled, before Reflex's handler can be
+     * asked about any of it.
+     *
+     * Nothing is kept: the tick has not been allocated yet at this point in the
+     * new ordering, so there is no line worth preserving. Reflex's own
+     * allocator re-enables each line it takes, one at a time, with a handler
+     * already installed for it. */
+    saved_mask = reflex_hal_intr_quiesce_except(0u);
+    REFLEX_LOGI(TAG, "quiesced PLIC 0x%08x -> 0x00000000", (unsigned)saved_mask);
 
     /* Stand down the timer-group watchdogs FreeRTOS was feeding. Without this
      * the chip resets a few seconds in with TG1_WDT_HPSYS, after the scheduler
@@ -231,32 +187,60 @@ void __wrap_esp_startup_start_app(void) {
     reflex_trap_snapshot(&prior_mtvec, &prior_mscratch);
     reflex_trap_install();
 
-    /* Verify the tick a second time, now that Reflex's handler is the one
-     * servicing it.
+    /* Now start the tick. Its line is allocated, routed and enabled with
+     * Reflex's vector already on mtvec, so it is dispatched through Reflex's
+     * own table from the very first interrupt it delivers. */
+    rc = reflex_sched_tick_start();
+    if (rc != REFLEX_OK) {
+        REFLEX_LOGE(TAG, "tick start failed rc=0x%x", rc);
+        goto handback;
+    }
+
+    reflex_intr_route_t tick;
+    reflex_hal_intr_describe(REFLEX_INTR_SRC_SYSTIMER_TARGET1, &tick);
+
+    /* Tell the handler which line is the tick.
      *
-     * The check above proves the tick under ESP-IDF's trap vector. It says
-     * nothing about the tick under Reflex's, and installing mtvec is exactly
-     * the step that could break it: a wrong tick line, a vector table that does
-     * not dispatch, an acknowledgement that does not clear. Everything after
-     * this point — every delay, every timed queue wait — depends on
-     * s_tick_count advancing, and a scheduler whose clock has stopped does not
-     * crash, it parks on wfi and goes quiet. That is indistinguishable from a
-     * hang, and it is the failure this pair of checks exists to tell apart.
+     * Measured, not reasoned: setting this to a line the tick never arrives on
+     * still ticks, because the handler falls through to the HAL's own dispatch
+     * table where the tick's ISR is registered like any other. Kept as a fast
+     * path that skips the table lookup for the one interrupt that runs at
+     * 1 kHz, and described as what it is rather than what it used to be. */
+    reflex_trap_set_tick_line((int)tick.cpu_int);
+
+    /* Prove the tick, once, under the vector that services it.
      *
-     * Measured with reflex_hal_delay_us, which is a ROM busy-wait and does not
-     * itself need the scheduler or the tick. */
+     * Everything after this point — every delay, every timed queue wait —
+     * depends on s_tick_count advancing, and a scheduler whose clock has
+     * stopped does not crash: it parks on wfi and goes quiet, which is
+     * indistinguishable from a hang. This check exists to tell those apart
+     * before there is a shell to ask from.
+     *
+     * On failure, read the registers here or not at all. The hand-back changes
+     * every register that would have answered the question. */
     uint32_t t1 = reflex_sched_get_tick();
     reflex_hal_delay_us(50000);
     uint32_t t2 = reflex_sched_get_tick();
     if (t2 == t1) {
+        uint32_t ena, raw, st;
+        reflex_sched_tick_debug(&ena, &raw, &st);
+        /* Both halves, because "routed but not firing" and "firing but not
+         * routed" look identical from either side alone. */
+        REFLEX_LOGE(TAG, "tick source: systimer int_ena=0x%08x int_raw=0x%08x int_st=0x%08x",
+                    (unsigned)ena, (unsigned)raw, (unsigned)st);
         REFLEX_LOGE(TAG,
-                    "tick stopped when Reflex took mtvec (%u over 50ms): tick_line=%d "
+                    "tick is not running under Reflex's vector: cpu_int=%u plic_en=%u pri=%u "
+                    "thresh=%u level=%u mie=%u mip=%u global_ie=%u live=0x%08x tick_line=%d "
                     "unclaimed=0x%08x",
-                    (unsigned)(t2 - t1), reflex_trap_get_tick_line(),
+                    (unsigned)tick.cpu_int, (unsigned)tick.plic_enabled,
+                    (unsigned)tick.plic_priority, (unsigned)tick.plic_threshold,
+                    (unsigned)tick.level_triggered, (unsigned)tick.mie_enabled,
+                    (unsigned)tick.mip_pending, (unsigned)tick.global_ie,
+                    (unsigned)tick.live_line_mask, reflex_trap_get_tick_line(),
                     (unsigned)reflex_hal_intr_unclaimed_lines());
         goto handback;
     }
-    REFLEX_LOGI(TAG, "tick survives mtvec: %u ticks in 50ms", (unsigned)(t2 - t1));
+    REFLEX_LOGI(TAG, "tick runs under Reflex's vector: %u ticks in 50ms", (unsigned)(t2 - t1));
 
     /* Start the kernel policy supervisor here, because the thing that normally
      * starts it never runs on this path.
@@ -279,21 +263,18 @@ void __wrap_esp_startup_start_app(void) {
     goto stall;
 
 fallback:
-    /* Give the tick back before handing back.
+    /* The only failure that can still reach here is scheduler init, which
+     * happens before anything has been taken from ESP-IDF.
      *
-     * mtvec has not been taken at this point — the install is deliberately
-     * after the tick check — so ESP-IDF's world is still intact and this is a
-     * genuine hand-back rather than a wish. But reflex_sched_tick_start has
-     * already run in the case that matters: routed SYSTIMER TARGET1 to a CPU
-     * line, installed Reflex's handler, armed the comparator. Handing back
-     * without undoing that leaves Reflex's ISR firing a thousand times a second
-     * into a counter nobody reads, on an interrupt line ESP-IDF's allocator can
-     * no longer hand out — under a FreeRTOS that has no idea any of it happened.
+     * That is a consequence of the reordering above: the tick now starts after
+     * mtvec is taken, so every failure from that point on is a hand-back, not a
+     * fallback. This block used to call reflex_sched_tick_stop() first, because
+     * the tick could be running by the time it was reached; it cannot be now,
+     * and calling it would disarm a comparator that was never armed while
+     * implying otherwise to anyone reading the path.
      *
-     * Safe to call unconditionally: it disarms the comparator and clears the
-     * peripheral enable whether or not they were ever set, and frees the
-     * handle only if there is one. */
-    reflex_sched_tick_stop();
+     * ESP-IDF's world is entirely intact here — its vector, its interrupt mask,
+     * its watchdogs — so this is a genuine hand-back rather than a wish. */
     REFLEX_LOGW(TAG, "falling back to the FreeRTOS entry path");
     __real_esp_startup_start_app();
     return;
