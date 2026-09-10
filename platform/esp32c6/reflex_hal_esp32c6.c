@@ -451,59 +451,53 @@ reflex_err_t reflex_hal_temp_read(reflex_temp_handle_t h, float *celsius) {
  * CPU interrupts 0-31 are available. The interrupt matrix routes
  * peripheral sources (0-63) to CPU interrupt numbers.
  *
- * ESP-IDF dependency, not a ROM one. intr_handler_set, intr_handler_get and
- * intr_handler_get_arg are defined in ESP-IDF's riscv component
- * (components/riscv/interrupt.c) and keep their own table, s_intr_handlers.
- * No linker script PROVIDEs them from mask ROM.
+ * Reflex's interrupt table is now the only one on this path.
  *
- * This comment used to claim they live in mask ROM, and that claim mattered:
- * declared locally rather than included, and believed to be ROM, they read as
- * a hardware fact — Tier A, which the ledger reports as clear. They are a
- * borrowed ESP-IDF interrupt layer. Reflex's allocator registers into that
- * table and reflex_trap_handler reads it to dispatch interrupts Reflex does not
- * own, so the dispatch path for every foreign device runs through it.
+ * This block used to document a borrowed ESP-IDF interrupt layer:
+ * intr_handler_set, intr_handler_get and intr_handler_get_arg, defined in
+ * ESP-IDF's riscv component (components/riscv/interrupt.c) and keeping their
+ * own table, s_intr_handlers. An earlier version of this comment claimed they
+ * lived in mask ROM, and that claim mattered — declared locally rather than
+ * included, and believed to be ROM, they read as a hardware fact rather than as
+ * the four Tier C dependencies they were.
  *
- * tools/check_independence.py counts these now, under EXTERN_TIERS, because a
- * dependency reached by a local extern is as real as one reached by an
- * #include and was previously invisible to the measure.
+ * All four are gone from the own-entry build, in two steps, and neither step
+ * was a rename. Both tempting shortcuts were refused: wrapping intr_handler_set
+ * with --wrap, or calling _global_interrupt_handler directly, leave ESP-IDF's
+ * table exactly where it is and only change which symbol names it.
  *
- * There were four uses. Two are gone; the two that remain are the radio's.
- *
- * The tempting fixes all rename the dependency rather than end it, and that is
- * still true: wrapping intr_handler_set with --wrap, or calling
- * _global_interrupt_handler instead, leaves ESP-IDF's table exactly where it is
- * and only changes which symbol names it. Neither was used.
- *
- *   - intr_handler_set, in alloc and free — removed from the own-entry build,
- *     by changing when the vector is taken rather than by hiding the call.
- *     It existed because the entry path allocated the tick, proved it under
- *     ESP-IDF's vector, and only then installed Reflex's: during that window
+ *   - intr_handler_set, in alloc and free, went by changing *when* the vector
+ *     is taken. The entry path used to allocate the tick, prove it under
+ *     ESP-IDF's vector, and only then install Reflex's; during that window
  *     ESP-IDF's table was the only thing that could deliver a Reflex interrupt.
- *     The entry path now quiesces, takes mtvec, and *then* starts the tick, so
- *     every line Reflex allocates is dispatched through s_intr_table from the
- *     first interrupt onward. Verified where it counts — this file's object in
- *     build_own_entry has no undefined reference to intr_handler_set, while the
- *     default build still does, because there ESP-IDF really does own mtvec.
+ *     It now quiesces, takes mtvec, and then starts the tick, so every line
+ *     Reflex allocates is dispatched through s_intr_table from its first
+ *     interrupt onward. The safety property was not traded for the count — the
+ *     tick is now proved under the vector that will actually service it, and a
+ *     dead tick still hands the machine back, because reflex_trap_snapshot made
+ *     taking mtvec a reversible step.
  *
- *     The safety property that ordering bought was not traded away for the
- *     count. It is stronger: the tick is now proved under the vector that will
- *     actually service it, and a dead tick still hands the machine back rather
- *     than stranding a board, because reflex_trap_snapshot made taking mtvec a
- *     reversible step. The old check proved the interrupt-matrix routing and
- *     the PLIC programming; it never proved Reflex's vector table, trap entry
- *     or acknowledgement — which are the parts that had actually been broken.
+ *   - intr_handler_get and intr_handler_get_arg, in dispatch_foreign, went by
+ *     moving *who owns the registration*. --wrap=esp_intr_alloc sends a
+ *     driver's allocation into reflex_hal_intr_alloc, so its ISR is filed here
+ *     and dispatched by reflex_hal_intr_dispatch_line like any other. That is
+ *     the opposite of wrapping intr_handler_set: the store moves, rather than
+ *     the name of the thing that writes to it. With no reader of ESP-IDF's
+ *     table left, dispatch_foreign was deleted rather than fenced. See
+ *     reflex_intr_espidf_shim.c.
  *
- *   - intr_handler_get and intr_handler_get_arg, in dispatch_foreign. Reads
- *     ESP-IDF's table to service drivers Reflex does not own. Measured on the
- *     own-entry build, that is exactly one driver: the PLIC has three live
- *     lines, 10 is the tick and 11 the console — both Reflex's — and 8 is the
- *     802.15.4 MAC, the only ESP-IDF component allocating an interrupt here.
+ * ESP-IDF's own intr_handler_set and intr_handler_get are still *defined* in
+ * the image, because __real_esp_intr_alloc is still linked and still used for
+ * every allocation made before Reflex takes mtvec. Nothing in Reflex references
+ * them. That is the honest statement, and it is the one the object files
+ * support: no reflex_*.c.obj in build_own_entry carries an undefined reference
+ * to any of the three.
  *
- * So what is left of Tier C is Tier D wearing a different hat, and it is not
- * reclassified here to say so — it stays counted as C until the code makes the
- * claim true. It ends when the radio's interrupt is allocated through Reflex's
- * own allocator instead of ESP-IDF's, which is a change to esp_intr_alloc's
- * side of the boundary, not to this table's. */
+ * tools/check_independence.py counts local externs under EXTERN_TIERS, because
+ * a dependency reached by a local extern is as real as one reached by an
+ * #include and was invisible to the measure until it did. The three names are
+ * kept in that table deliberately: if one ever comes back, it is classified
+ * rather than reported as an unrecognised symbol. */
 
 #define INTMTX_BASE           0x60010000
 #define INTMTX_SOURCE_MAX     63
@@ -622,34 +616,6 @@ static volatile uint32_t s_unclaimed_lines;
  *
  * Returns false when ESP-IDF has nothing registered either, which is the only
  * case where masking is the honest answer. */
-bool __attribute__((section(".iram1"))) reflex_hal_intr_dispatch_foreign(int cpu_int) {
-    if (cpu_int < 0 || cpu_int >= 32) return false;
-    /* Declared locally rather than by including riscv/interrupt.h, which would
-     * add an ESP-IDF header to this file for two symbols and move the
-     * independence count in the wrong direction. The same reason
-     * intr_handler_set is declared inline above.
-     *
-     * The raw line number is the right index here only because the C6 is a PLIC
-     * target. ESP-IDF's own dispatcher looks up `mcause - RV_EXTERNAL_INT_OFFSET`,
-     * and that offset is 0 for PLIC (soc_caps.h: SOC_INT_PLIC_SUPPORTED) and 16
-     * for CLIC. On a CLIC part this would read the wrong slot and call the wrong
-     * driver's handler, silently. This file is C6-only, so it is correct — but
-     * it is correct for a reason worth stating before anyone copies it.
-     *
-     * What this does not promise: that the handler it calls is happy to run.
-     * These are ESP-IDF drivers, and some of them use FreeRTOS primitives from
-     * ISR context. Under REFLEX_OWN_ENTRY that scheduler was never started.
-     * The 802.15.4 MAC survives it — three minutes of continuous receive with a
-     * flat heap — but that is one driver measured, not a guarantee about the
-     * rest. */
-    typedef void (*reflex_foreign_isr_t)(void *);
-    extern reflex_foreign_isr_t intr_handler_get(int rv_int_num);
-    extern void *intr_handler_get_arg(int rv_int_num);
-    reflex_foreign_isr_t fn = intr_handler_get(cpu_int);
-    if (!fn) return false;
-    fn(intr_handler_get_arg(cpu_int));
-    return true;
-}
 
 /* Lines that fired with nobody registered for them, and were masked.
  *
@@ -709,6 +675,24 @@ reflex_intr_dispatch(void) {
 }
 #endif /* !REFLEX_OWN_ENTRY */
 
+/* Is Reflex's vector the one the hardware will actually use?
+ *
+ * Read from the CSR rather than tracked in a flag, because the question is not
+ * "did we call reflex_trap_install" but "where will the next interrupt go".
+ * mtvec's low two bits are the mode field and the base is masked to 256 bytes
+ * by the hardware, so both sides are masked before comparing.
+ *
+ * Two callers, and they want the same fact for opposite reasons: the allocator
+ * below refuses to hand out a line before this is true, and the esp_intr_alloc
+ * shim uses it to decide whose interrupt table a foreign driver should land in.
+ */
+bool reflex_hal_intr_vector_is_reflex(void) {
+    extern uint32_t reflex_vector_table[];
+    uint32_t mtvec;
+    __asm__ volatile("csrr %0, mtvec" : "=r"(mtvec));
+    return (mtvec & ~0xFFu) == ((uint32_t)(uintptr_t)reflex_vector_table & ~0xFFu);
+}
+
 reflex_err_t reflex_hal_intr_alloc(int source, int flags,
                                    reflex_intr_handler_t handler, void *arg,
                                    reflex_intr_handle_t *out_handle) {
@@ -740,15 +724,15 @@ reflex_err_t reflex_hal_intr_alloc(int source, int flags,
      * bits are the mode field and the base is 256-byte aligned, so both sides
      * are masked before comparing. */
     {
-        extern uint32_t reflex_vector_table[];
         uint32_t mtvec;
         __asm__ volatile("csrr %0, mtvec" : "=r"(mtvec));
-        if ((mtvec & ~0xFFu) != ((uint32_t)(uintptr_t)reflex_vector_table & ~0xFFu)) {
+        if (!reflex_hal_intr_vector_is_reflex()) {
             /* esp_rom_printf, not REFLEX_LOGE. This file is where REFLEX_LOG*
              * is implemented, and the log path takes a lock and writes through
              * the console — neither of which is a good idea from inside the
              * interrupt allocator. The ROM routine is the same escape hatch
              * reflex_trap_handler uses, for the same reason. */
+            extern uint32_t reflex_vector_table[];
             esp_rom_printf("[reflex.hal] intr_alloc(source=%d) before Reflex took mtvec "
                            "(mtvec=0x%x, expected base 0x%x): it would never be delivered\n",
                            source, (unsigned)mtvec,

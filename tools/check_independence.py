@@ -525,7 +525,14 @@ def main():
 
     if update:
         doc = load_baseline_doc()
-        doc.setdefault("configurations", {})[config] = cur
+        # Every tier, including the ones at zero. An absent key and a zero mean
+        # the same thing to the ratchet, but they do not read the same: a tier
+        # that has been driven to zero is the strongest claim this file makes,
+        # and omitting it makes that claim look like an oversight. Written out
+        # so the baseline states its floors rather than implying them.
+        doc.setdefault("configurations", {})[config] = {
+            t: cur.get(t, 0) for t in ("A", "B", "C", "D", "E", "F")
+        }
         doc["note"] = ("Ratchet baseline, per build configuration. Lower is the only "
                        "legal direction. Regenerate deliberately with "
                        "tools/check_independence.py --update [--build <dir>].")

@@ -1353,6 +1353,97 @@ hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
 forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
 this entry.
 
+### Tier C is 0 (2026-09-10)
+
+Not by reclassifying anything. The last two entries, `intr_handler_get` and
+`intr_handler_get_arg`, are gone from the code, and `reflex_hal_intr_dispatch_foreign`
+was deleted rather than fenced, because after this change nothing reads
+ESP-IDF's interrupt table at all.
+
+```
+Tier A  0  SoC constants and ROM entry points   clear
+Tier B  2  Deep-sleep entry, heap reporting
+Tier C  0  FreeRTOS as the scheduler            clear
+Tier D  1  Radio
+Tier E  0  Console RX, peripheral drivers       clear
+Tier F  3  Build system, startup, heap, image
+        ON-PATH TOTAL: 6   (was 10 at the start of the day)
+```
+
+**What made it not a rename.** The previous entry named the route and the
+distinction it turns on, and that distinction is the whole of it.
+`--wrap=intr_handler_set` was refused three times because it leaves ESP-IDF's
+`s_intr_handlers` exactly where it is and changes only which symbol writes to
+it. `--wrap=esp_intr_alloc` intercepts the *registration* instead: a driver's
+ISR is filed in **Reflex's** table and dispatched by
+`reflex_hal_intr_dispatch_line` like the tick and the console. The store moves.
+That is why the getters could be deleted rather than hidden — there is no second
+table left to read.
+
+**It is a smaller change than it looks.** The radio's ISR was already being
+called from inside Reflex's trap handler, in this exact context, with interrupts
+already disabled by trap entry — `dispatch_foreign` did that. The only thing
+that changes is where the function pointer came from.
+
+**The ordering hazard, and how it is answered.** ESP-IDF allocates interrupts
+during its own startup, long before Reflex takes `mtvec`. Those must keep going
+to ESP-IDF's table, because ESP-IDF's vector is what will dispatch them —
+routing them to Reflex's early would file a handler nothing consults, and the
+interrupt would never arrive. The wrapper therefore asks the hardware, per call,
+whose vector is installed (`reflex_hal_intr_vector_is_reflex`, reading `mtvec`)
+and forwards to `__real_esp_intr_alloc` until Reflex's is. Both kinds of handle
+are live in a single boot, so `esp_intr_free` routes per call too, by whether
+the handle points into the shim's own record pool.
+
+Measured on the bench — exactly one allocation crosses the boundary:
+
+```
+[reflex.intr] esp_intr_alloc(source=12) -> Reflex's table
+```
+
+One driver, `flags = 0`, matching `esp_ieee802154_dev.c:826`. Nothing was
+refused, and `unclaimed_masked=0x00000000`: no line fell through to masking, so
+the shim caught everything that arrived. The PLIC live mask moved from
+`0x00000d00` (radio on line 8, allocated by ESP-IDF) to `0x00001c00` (line 12,
+allocated by Reflex) — the radio physically changed which line it is on, which
+is what "the allocator changed" looks like from the register side.
+
+**Flags are refused, not ignored.** Reflex's allocator implements none of
+ESP-IDF's flag semantics — shared lines, explicit priority levels, edge
+triggering, IRAM placement. Accepting a flag and not honouring it is how a
+driver ends up with an interrupt subtly other than what it asked for, with the
+symptom appearing far from here. Non-zero flags return `ESP_ERR_NOT_SUPPORTED`
+and print the value.
+
+**Functional proof, not just a count.** Board B on the own-entry build, board A
+transmitting untouched, 50 s:
+
+| | `tx_discover` | `rx_aura_fail` |
+|---|---|---|
+| radio via ESP-IDF's table (before) | 9 | 9 |
+| radio via Reflex's table (after) | 10 | **10** |
+| peer silenced | 9 | 0 |
+
+Real 802.15.4 frames, arriving from the air, through Reflex's trap handler,
+through Reflex's own dispatch table, into ESP-IDF's 802.15.4 ISR. Tick held at
+1000 Hz, storage resumed, shell responsive.
+
+`make parity-diff` against stock ESP-IDF: **0 capability regressions**. That
+measure exists because independence-as-subtraction once rewarded a key-value
+store that silently persisted nothing; a Tier reaching zero means nothing
+without it.
+
+**What did not change.** ESP-IDF's `intr_handler_set` and `intr_handler_get` are
+still *defined* in the image — `__real_esp_intr_alloc` is still linked and still
+used for every allocation made before the hand-off. Nothing in Reflex references
+them, and that is the precise claim: no `reflex_*.c.obj` in `build_own_entry`
+carries an undefined reference to any of the three. The three names stay in
+`EXTERN_TIERS` so that if one ever returns it is classified rather than reported
+as an unrecognised symbol.
+
+The remaining floor is Tier D's radio, whose own floor is a 178 KB PHY blob, and
+Tiers B and F.
+
 ### Red-teaming that change found four things (2026-09-10)
 
 **1. The number I had just lowered was not held by anything.**

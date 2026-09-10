@@ -3,7 +3,17 @@ if(NOT "${IDF_TARGET}" STREQUAL "esp32c6")
     return()
 endif()
 
-set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "../reflex_crypto.c" "../reflex_log_format.c")
+set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "../reflex_crypto.c" "../reflex_log_format.c"
+    "reflex_intr_espidf_shim.c")
+
+# The shim is compiled unconditionally, and that is deliberate.
+#
+# --wrap=esp_intr_alloc is applied to every C6 link, so the wrapper has to
+# exist in every C6 build or the reference the linker rewrites has nothing to
+# resolve to. A wrapper compiled only behind REFLEX_OWN_ENTRY breaks the
+# ordinary build with an undefined reference; that has happened twice in this
+# work, for esp_startup_start_app and for xPortStartScheduler. Without the
+# flag the wrapper is a straight pass-through to __real_.
 
 # KV backend selection: raw flash (802.15.4 mode) or NVS (WiFi mode)
 if(CONFIG_REFLEX_RADIO_802154)

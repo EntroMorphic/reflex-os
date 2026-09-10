@@ -188,6 +188,11 @@ void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out) {
 
 void reflex_hal_pwm_release(void) {}
 
+bool reflex_hal_intr_dispatch_line(int cpu_int) {
+    (void)cpu_int;
+    return false; /* ESP-IDF owns the trap vector on this target. */
+}
+
 /* The interrupt- and console-introspection surface, stubbed for this target.
  *
  * These landed on the C6 for the entry-point work and were declared in the
@@ -199,20 +204,22 @@ void reflex_hal_pwm_release(void) {}
  * reflex_hal_pwm_release for exactly this reason; these were the omission.
  *
  * Values chosen so a caller reads "this platform cannot report that" rather
- * than a plausible-looking zero state: no lines are dispatched, none are
- * masked, and no source is found on any line. */
-bool reflex_hal_intr_dispatch_foreign(int cpu_int) {
-    (void)cpu_int;
-    return false; /* ESP-IDF owns the trap vector on this target. */
-}
-
-bool reflex_hal_intr_dispatch_line(int cpu_int) {
-    (void)cpu_int;
-    return false; /* ESP-IDF owns the trap vector on this target. */
-}
-
+ * than a plausible-looking zero state: no lines are masked, and no source is
+ * found on any line.
+ *
+ * reflex_hal_intr_dispatch_foreign used to be one of these. It is gone from the
+ * contract entirely: with ESP-IDF's allocator wrapped into Reflex's own table,
+ * there is no second table left to consult. */
 void reflex_hal_intr_mask_unclaimed(int cpu_int) {
     (void)cpu_int;
+}
+
+/* Always false here, and not as a placeholder: on this target ESP-IDF owns the
+ * trap vector for the whole life of the machine. REFLEX_OWN_ENTRY is refused at
+ * compile time for anything but the C6, so there is no configuration in which
+ * Reflex's vector table is installed on an ESP32. */
+bool reflex_hal_intr_vector_is_reflex(void) {
+    return false;
 }
 
 uint32_t reflex_hal_intr_unclaimed_lines(void) {

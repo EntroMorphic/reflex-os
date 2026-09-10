@@ -244,7 +244,7 @@ _doc = ci.load_baseline_doc()
 _cfgs = _doc.get("configurations", {})
 check("baseline records build_independence", "build_independence" in _cfgs, sorted(_cfgs))
 check("baseline records build_own_entry", "build_own_entry" in _cfgs, sorted(_cfgs))
-check("own-entry Tier C floor is at most 2", _cfgs.get("build_own_entry", {}).get("C", 99) <= 2,
+check("own-entry Tier C floor is 0", _cfgs.get("build_own_entry", {}).get("C", 99) == 0,
       _cfgs.get("build_own_entry"))
 check("the two configurations are not assumed equal",
       _cfgs.get("build_independence") != _cfgs.get("build_own_entry"), _cfgs)
@@ -269,10 +269,31 @@ if obj is None:
     print("  SKIP  no own-entry build present (run `make own-entry-build`)")
 else:
     blob = open(obj, "rb").read()
-    check("intr_handler_set is not referenced by the own-entry HAL object",
-          b"intr_handler_set" not in blob, obj)
-    check("intr_handler_get still is, and is still counted",
-          b"intr_handler_get" in blob, obj)
+    # All three, now. intr_handler_set went when the hand-off was reordered;
+    # the two getters went when --wrap=esp_intr_alloc removed the last reader of
+    # ESP-IDF's interrupt table. Checked against the object rather than the
+    # source, because a fence and a deletion look identical in a diff.
+    for sym in (b"intr_handler_set", b"intr_handler_get", b"intr_handler_get_arg"):
+        check(f"{sym.decode()} is not referenced by the own-entry HAL object",
+              sym not in blob, obj)
+
+    shim = None
+    for dirpath, _dirs, files in os.walk(oe):
+        if "reflex_intr_espidf_shim.c.obj" in files:
+            shim = os.path.join(dirpath, "reflex_intr_espidf_shim.c.obj")
+            break
+    check("the shim that replaced them is in the own-entry build", shim is not None, oe)
+    if shim:
+        # The wrapper must reach ESP-IDF's real allocator, or every pre-hand-off
+        # allocation would be silently redirected into a table nothing consults
+        # yet. That forwarding is the whole ordering guarantee.
+        sblob = open(shim, "rb").read()
+        check("the shim can still reach ESP-IDF's real allocator",
+              b"__real_esp_intr_alloc" in sblob, shim)
+        check("and Reflex's own", b"reflex_hal_intr_alloc" in sblob, shim)
+
+_cfg_now = ci.load_baseline_doc().get("configurations", {}).get("build_own_entry", {})
+check("the own-entry Tier C floor is now 0", _cfg_now.get("C", 0) == 0, _cfg_now)
 
 print()
 if FAILURES:

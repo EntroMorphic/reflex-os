@@ -143,9 +143,12 @@ uint32_t reflex_hal_console_isr_entries(void);
  * does not own rather than acknowledging it blindly. */
 bool reflex_hal_intr_dispatch_line(int cpu_int);
 
-/** @brief Run ESP-IDF's registered handler for @p cpu_int, if it has one.
- *  For lines Reflex did not allocate but a driver still owns. */
-bool reflex_hal_intr_dispatch_foreign(int cpu_int);
+/** @brief True when Reflex's vector table is the one installed in mtvec.
+ *
+ * Target-only. Answers "where will the next interrupt actually go", read from
+ * the CSR rather than from a flag someone remembered to set.
+ */
+bool reflex_hal_intr_vector_is_reflex(void);
 
 /** @brief Mask a CPU line that fired with no handler registered, and record it.
  *  Turns an unacknowledged level-triggered interrupt — which locks the core —

@@ -216,18 +216,23 @@ uint32_t *reflex_trap_handler(uint32_t *frame) {
          * was never "leave it alone", it was "stop the machine". Masking keeps
          * the machine and loses one device, and reflex_hal_intr_unclaimed_lines
          * says which. */
-        /* Before masking, ask whether anyone else owns it.
+        /* Nobody's, and now that really means nobody's.
          *
-         * ESP-IDF keeps its own per-line handler table and exposes a getter,
-         * so a line that is nobody's as far as Reflex's table is concerned may
-         * still have a driver waiting on it. Masking without asking is how
-         * independence came to mean "the peripherals are switched off": under
-         * this vector only the tick and the console were live, and the
-         * blob-free radio could transmit but never receive. */
-        if (reflex_hal_intr_dispatch_foreign(line)) {
-            return frame;
-        }
-
+         * This used to ask ESP-IDF's interrupt table before masking, because a
+         * driver allocated through its allocator was invisible to Reflex's
+         * table and masking it blind was how independence came to mean "the
+         * peripherals are switched off" — the blob-free radio could transmit
+         * but never receive.
+         *
+         * There is nothing left to ask. --wrap=esp_intr_alloc redirects that
+         * allocator into Reflex's own table, so a driver registering after
+         * Reflex takes mtvec lands in s_intr_table and is dispatched above like
+         * any other. A line reaching this point is genuinely unclaimed.
+         *
+         * Masking keeps the machine and loses one device, and
+         * reflex_hal_intr_unclaimed_lines says which. Left asserted, a
+         * level-triggered line re-enters immediately and forever, so the choice
+         * was never "leave it alone", it was "stop the machine". */
         reflex_hal_intr_mask_unclaimed(line);
         return frame;
     }

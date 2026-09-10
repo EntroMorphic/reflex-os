@@ -21,4 +21,13 @@ idf_component_register(SRCS "main.c" "reflex_app_entry.c"
 if(CONFIG_IDF_TARGET_ESP32C6)
     target_link_options(${COMPONENT_LIB} INTERFACE
                         "-Wl,--wrap=esp_startup_start_app")
+    # And ESP-IDF's interrupt allocator, so that a driver allocating an
+    # interrupt after Reflex has taken mtvec files its ISR in Reflex's table
+    # rather than in one nothing consults any more. See
+    # platform/esp32c6/reflex_intr_espidf_shim.c — this is the pair of options
+    # that makes __real_esp_intr_alloc/__real_esp_intr_free exist, so the
+    # wrapper must be compiled into every C6 build, flag or no flag.
+    target_link_options(${COMPONENT_LIB} INTERFACE
+                        "-Wl,--wrap=esp_intr_alloc"
+                        "-Wl,--wrap=esp_intr_free")
 endif()
