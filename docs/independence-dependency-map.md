@@ -1353,6 +1353,77 @@ hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
 forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
 this entry.
 
+### Reflex-driven TX: two attempts, one real fact, one wedged board (2026-09-10)
+
+The step after the groundwork was to transmit one frame with Reflex's own
+register writes, using a peer running ESP-IDF's driver as the oracle. The frame
+was built by the same builder `reflex_radio_send` uses, so the only variable
+would be who writes `TXDMA_ADDR` and `COMMAND`.
+
+It did not work, twice, and the second attempt cost a board.
+
+**Attempt 1 — mask `EVENT_EN`, poll `EVENT_STATUS`.** ESP-IDF's ISR is
+registered (through Reflex's own table since `--wrap=esp_intr_alloc`) and its
+state machine believes the radio is receiving, so the plan was to disable events
+for the duration. Result: `tx_done=0 tx_abort=0 events=0x00000000`, timing out
+at the full 10 ms, three times, with the radio perfectly healthy afterwards.
+
+That is a fact worth having: **`EVENT_STATUS` is a gated status register, not a
+raw one.** It reports enabled events only — the same `INT_RAW`/`INT_ST` split
+the rest of this chip uses, even though this peripheral exposes just the one
+register. Disabling the events disables the evidence. Nothing in ESP-IDF's LL
+says so; it was measured.
+
+**Attempt 2 — keep the events, mask the interrupt line instead.** Reflex owns
+the interrupt controller now, so `quiesce_except` can hold down exactly the
+radio's line and `intr_restore` put it back. This wedged the board: the USB
+device disappeared mid-command, and afterwards esptool reported *"Download mode
+successfully detected, but getting no sync reply: The serial TX path seems to be
+down"* to every reset mode. It needed a physical power cycle. A `panic_abort`
+had been seen once at boot earlier the same session and not reproduced in six
+cold boots; it is probably the same mechanism.
+
+The likely cause is straightforward once stated: masking the line does not stop
+the event, it defers it. On restore, ESP-IDF's ISR is handed a `TX_DONE` for a
+transmit its state machine never started, in a driver whose recorded state is
+`IEEE802154_STATE_RX`, and aborts.
+
+**The conclusion is not to try a third variation.** Both attempts failed at the
+same boundary, for reasons that are different in mechanism and identical in
+kind: *ESP-IDF's driver owns this peripheral's state machine, and there is no
+careful way to reach around a running owner.* Every remaining variation is
+another way of asking the same unsafe question.
+
+So the `reflex_radio_raw_send` entry point and its `mesh rawtx` command are
+removed rather than fixed, and `reflex_radio.h` records why in place of the API.
+What is kept is the part that was never in doubt: the command and event codes
+(`CMD_TX_START`, `CMD_RX_START`, `CMD_STOP`, `EVENT_TX_DONE`, `EVENT_RX_DONE`,
+`EVENT_TX_ABORT`) are now among the **216 constants `make soc-bridge` proves
+identical to ESP-IDF's**, asserted against its HAL enums because a wrong command
+code does not fail to build — it tells the radio to do something else.
+
+**The next step is therefore larger than a shell command**: a Reflex-owned MAC
+must bring the peripheral up itself — modem clock, PHY blob, `mac_init`'s
+register writes, its own interrupt — in a configuration where ESP-IDF's driver
+was never started. That is a build-level change, not a borrowed moment, and it
+is the only version of this that can be made safe.
+
+### A real bug found by reading the register path
+
+`reflex_radio_send` built its 127-byte frame **on the stack** and handed that
+pointer to `esp_ieee802154_transmit`. That function does not copy: `tx_init`
+stores the pointer, programs it into `TXDMA_ADDR` and returns, and the radio
+DMAs out of the buffer over the following millisecond or so. Every frame this
+mesh has ever transmitted was read by DMA out of a stack frame that had already
+been released, and it worked only because nothing happened to reuse those bytes
+in time.
+
+Found by reading the transmit path for the Tier D work rather than from a
+symptom, which is the good way to find it — the failure mode is an occasional
+corrupted frame, indistinguishable from interference. The buffer is now a static
+aligned one, with a `s_tx_busy` flag that is not a lock but an assertion that
+sending is still serialised.
+
 ### The blob symbol count was inflated, and I published it everywhere (2026-09-10)
 
 Red-teaming the entry below found that `check_blobs.py` counted symbols

@@ -426,6 +426,18 @@
 #define REFLEX_TIMG_WDT_WKEY 0x50D83AA1u
 /* literal — hal/lpwdt_ll.h, not the SVD. Unlocks the watchdog registers */
 #define REFLEX_LP_WDT_WKEY 0x50D83AA1u
+/* literal — hal enum, not the SVD */
+#define REFLEX_154_CMD_TX_START 0x00000041u
+/* literal — hal enum, not the SVD */
+#define REFLEX_154_CMD_RX_START 0x00000042u
+/* literal — hal enum, not the SVD */
+#define REFLEX_154_CMD_STOP 0x00000045u
+/* literal — EVENT_STATUS bit 0 */
+#define REFLEX_154_EVENT_TX_DONE 0x00000001u
+/* literal — EVENT_STATUS bit 1 */
+#define REFLEX_154_EVENT_RX_DONE 0x00000002u
+/* literal — EVENT_STATUS bit 5 */
+#define REFLEX_154_EVENT_TX_ABORT 0x00000020u
 /* literal — GPIO matrix signal index; gpio_sig_map, not the SVD. Routing this back onto a pin is
  * how a peripheral output is detached, and it was a bare 128 in shell.c */
 #define REFLEX_SIG_GPIO_OUT_IDX 0x00000080u

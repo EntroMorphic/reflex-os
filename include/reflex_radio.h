@@ -121,6 +121,38 @@ void reflex_radio_reg_dump(uint32_t *out, int words);
  */
 reflex_err_t reflex_radio_set_coex_pti(uint32_t value);
 
+/* There is deliberately no "transmit with Reflex's own registers" entry point
+ * here, and the reason is a measurement rather than a scruple.
+ *
+ * One was written and tried. The frame was built by the same builder
+ * reflex_radio_send uses and handed to the radio by Reflex's own writes to
+ * TXDMA_ADDR and COMMAND, so that a peer receiving it would say something about
+ * Reflex driving this MAC and nothing else. Two versions, two results:
+ *
+ *   - Masking EVENT_EN to keep ESP-IDF's ISR out of the sequence produced no
+ *     event at all: TX_DONE never latched and every attempt timed out with
+ *     EVENT_STATUS reading zero. EVENT_STATUS is a *gated* status — enabled
+ *     events, not raw ones — so disabling the events disables the evidence.
+ *     That is a real fact about this peripheral and it is recorded in the
+ *     ledger.
+ *
+ *   - Leaving the events enabled and masking the interrupt line instead wedged
+ *     a board hard enough to need a physical power cycle: esptool could see
+ *     download mode and got no sync reply. The likely mechanism is that on
+ *     restoring the line, ESP-IDF's ISR is handed a TX completion for a
+ *     transmit its state machine never started, and aborts.
+ *
+ * The conclusion is not "try a third variation". It is that borrowing a
+ * peripheral from a driver that is running and owns its state machine is not a
+ * safe way to test a replacement, and no amount of care at this boundary makes
+ * it one. A Reflex-owned MAC has to bring the peripheral up itself, in a build
+ * where ESP-IDF's driver was never started — which is the next step and a
+ * larger one than a shell command.
+ *
+ * See docs/independence-dependency-map.md. The register constants the attempt
+ * established are kept and proved by `make soc-bridge`; they are the part worth
+ * keeping. */
+
 #ifdef __cplusplus
 }
 #endif

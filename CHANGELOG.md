@@ -9,6 +9,20 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Changed
 
+- **Every frame this mesh has transmitted was DMA'd out of a released stack frame.** `reflex_radio_send` built its 127-byte frame in a local array and passed the pointer to `esp_ieee802154_transmit`, which does not copy — `tx_init` stores the pointer, programs `TXDMA_ADDR` and returns, and the radio reads that buffer over the following millisecond. The buffer is dead the moment the call returns. It worked only because nothing happened to reuse those bytes in time; the failure mode is an occasional corrupted frame, indistinguishable from interference. Now a static aligned buffer, with a `s_tx_busy` flag that is not a lock but an assertion that sending is still serialised. Found by reading the transmit path for the Tier D work, not from a symptom.
+
+### Removed
+
+- **`mesh rawtx` and `reflex_radio_raw_send`, after two attempts and a wedged board.** The plan was to transmit one frame with Reflex's own writes to `TXDMA_ADDR` and `COMMAND`, with a peer as oracle. Masking `EVENT_EN` to keep ESP-IDF's ISR out produced no event at all — three timeouts with `EVENT_STATUS` reading zero. Keeping the events and masking the interrupt line instead wedged a board hard enough to need a physical power cycle (*"Download mode successfully detected, but getting no sync reply"* to every reset mode); the likely mechanism is that on restore, ESP-IDF's ISR is handed a `TX_DONE` for a transmit its state machine never started, and aborts.
+
+  Both failures are the same in kind: **ESP-IDF's driver owns this peripheral's state machine, and there is no careful way to reach around a running owner.** Removed rather than fixed, with the reasoning kept in `reflex_radio.h` in place of the API. The next step is a Reflex-owned MAC that brings the peripheral up itself in a build where ESP-IDF's driver was never started — a build-level change, not a borrowed moment.
+
+### Verified
+
+- **`EVENT_STATUS` on the 802.15.4 MAC is a gated status register, not a raw one.** It reports enabled events only — the same `INT_RAW`/`INT_ST` split the rest of the chip uses, though this peripheral exposes only the one register. Nothing in ESP-IDF's LL says so; it came out of the first failed attempt, and it is the kind of fact that would otherwise cost a day when the real MAC is written.
+
+- **216 constants now pass `make soc-bridge`**, including the MAC's command and event codes (`CMD_TX_START`, `CMD_RX_START`, `CMD_STOP`, `EVENT_TX_DONE`, `EVENT_RX_DONE`, `EVENT_TX_ABORT`), asserted against ESP-IDF's HAL enums. They are not in the SVD — the `COMMAND` register carries no field enumeration — and a wrong command code does not fail to build, it tells the radio to do something else.
+
 - **Retraction: every blob *symbol* count published in the previous entry was inflated.** `check_blobs.py` walked all 1,016 `.obj` files in the build directory when the linker keeps only 312; the other 704 are compiled and discarded, and their undefined symbols couple nothing that ships. Corrected: 802.15.4 with coex **58,696 bytes / 19 symbols** (published 42), without coex **48,566 / 14** (published 15), ESP-NOW **804,754 / 139** (published 151), and what removing coexistence saves is **5 symbols**, not 27. The byte figures come from the link map and were always right; the headline "42 blob symbols → 15" should have read **19 → 14**. The reduction itself is unchanged in substance — `libcoexist.a` is gone, 10,130 bytes with it, 0 capability regressions — but the surrounding numbers were wrong, and same-commit doc sync had faithfully propagated them to nine files. Corrected in all nine.
 
 - **`check_blobs.py` treated a sibling directory as this project.** `realpath(ROOT) in realpath(p)` is substring containment, so a vendor archive under `/x/reflex-os-vendor/` would match `/x/reflex-os` and be dropped from the count — a blob ratchet that under-counts. Now a path prefix, with a test.

@@ -35,6 +35,7 @@
 #include "soc/wdt_periph.h"
 #include "soc/interrupts.h"
 #include "soc/ieee802154_reg.h"
+#include "hal/ieee802154_common_ll.h"
 
 _Static_assert(REFLEX_LP_WDT_CONFIG0_REG == (uint32_t)(LP_WDT_CONFIG0_REG),
                "REFLEX_LP_WDT_CONFIG0_REG diverges from LP_WDT_CONFIG0_REG");
@@ -453,6 +454,18 @@ _Static_assert(REFLEX_TIMG_WDT_WKEY == (uint32_t)(TIMG_WDT_WKEY_VALUE),
                "REFLEX_TIMG_WDT_WKEY diverges from TIMG_WDT_WKEY_VALUE");
 _Static_assert(REFLEX_LP_WDT_WKEY == (uint32_t)(LP_WDT_WKEY_VALUE),
                "REFLEX_LP_WDT_WKEY diverges from LP_WDT_WKEY_VALUE");
+_Static_assert(REFLEX_154_CMD_TX_START == (uint32_t)(IEEE802154_CMD_TX_START),
+               "REFLEX_154_CMD_TX_START diverges from IEEE802154_CMD_TX_START");
+_Static_assert(REFLEX_154_CMD_RX_START == (uint32_t)(IEEE802154_CMD_RX_START),
+               "REFLEX_154_CMD_RX_START diverges from IEEE802154_CMD_RX_START");
+_Static_assert(REFLEX_154_CMD_STOP == (uint32_t)(IEEE802154_CMD_STOP),
+               "REFLEX_154_CMD_STOP diverges from IEEE802154_CMD_STOP");
+_Static_assert(REFLEX_154_EVENT_TX_DONE == (uint32_t)(IEEE802154_EVENT_TX_DONE),
+               "REFLEX_154_EVENT_TX_DONE diverges from IEEE802154_EVENT_TX_DONE");
+_Static_assert(REFLEX_154_EVENT_RX_DONE == (uint32_t)(IEEE802154_EVENT_RX_DONE),
+               "REFLEX_154_EVENT_RX_DONE diverges from IEEE802154_EVENT_RX_DONE");
+_Static_assert(REFLEX_154_EVENT_TX_ABORT == (uint32_t)(IEEE802154_EVENT_TX_ABORT),
+               "REFLEX_154_EVENT_TX_ABORT diverges from IEEE802154_EVENT_TX_ABORT");
 _Static_assert(REFLEX_SIG_GPIO_OUT_IDX == (uint32_t)(SIG_GPIO_OUT_IDX),
                "REFLEX_SIG_GPIO_OUT_IDX diverges from SIG_GPIO_OUT_IDX");
 _Static_assert(REFLEX_RMT_SIG_OUT0_IDX == (uint32_t)(RMT_SIG_OUT0_IDX),

@@ -19,7 +19,9 @@
 #include "reflex_radio.h"
 #include "reflex_hal.h"
 #include "reflex_soc_esp32c6.h"
+#include "reflex_rom_esp32c6.h"
 #include "reflex_regops.h"
+#include "reflex_soc_esp32c6.h"
 #include "esp_ieee802154.h"
 #include <string.h>
 
@@ -49,6 +51,12 @@
 static reflex_radio_recv_cb_t s_user_cb = NULL;
 static uint8_t s_seq_num = 0;
 static uint16_t s_local_addr = 0;
+
+/* The transmit buffer the radio DMAs out of. Must outlive the call that starts
+ * the transmission — see reflex_radio_send. 4-byte aligned because TXDMA_ADDR
+ * takes a word address. */
+static uint8_t s_tx_frame[REFLEX_154_MAX_FRAME] __attribute__((aligned(4)));
+static volatile bool s_tx_busy;
 
 static void build_broadcast_frame(uint8_t *frame, const uint8_t *payload, size_t payload_len) {
     /* Length byte = MAC header + payload + FCS (hardware appends FCS
@@ -217,12 +225,36 @@ reflex_err_t reflex_radio_send(const uint8_t *dest_mac, const uint8_t *data, siz
     if (1 + FRAME_HDR_LEN + len + REFLEX_154_FCS_LEN > REFLEX_154_MAX_FRAME)
         return REFLEX_ERR_INVALID_SIZE;
 
-    uint8_t frame[REFLEX_154_MAX_FRAME];
-    build_broadcast_frame(frame, data, len);
+    /* Static, not a stack array, and this was a real bug.
+     *
+     * esp_ieee802154_transmit does not copy the frame. tx_init stores the
+     * pointer (`s_tx_frame = frame`), programs it into TXDMA_ADDR and returns
+     * immediately; the radio then DMAs out of that buffer over the following
+     * millisecond or so. This function used to hand it a 127-byte array on its
+     * own stack, which is dead the moment the call returns. Every frame this
+     * mesh has ever sent was DMA'd out of a stack frame that had already been
+     * released, and the only reason it worked is that nothing happened to reuse
+     * those bytes before the radio finished reading them.
+     *
+     * Found while reading the same register path for the Tier D work rather
+     * than from a symptom, which is the good way to find it: the failure mode
+     * is an occasional corrupted frame, indistinguishable from interference.
+     *
+     * Single buffer, and that is sound here only because sending is serialised:
+     * the mesh emits from one task on a cooperative scheduler and this function
+     * does not block. s_tx_busy is not a lock, it is an assertion that the
+     * assumption still holds — if a second sender ever appears it will say so
+     * instead of silently interleaving two frames into one buffer. */
+    if (s_tx_busy) {
+        return REFLEX_ERR_INVALID_STATE;
+    }
+    s_tx_busy = true;
+    build_broadcast_frame(s_tx_frame, data, len);
     /* CCA=false: transmit without channel-busy check. Acceptable for
      * our low-rate mesh (~5 Hz). Receive mode re-entered via
      * transmit_done/transmit_failed callbacks. */
-    esp_ieee802154_transmit(frame, false);
+    esp_ieee802154_transmit(s_tx_frame, false);
+    s_tx_busy = false;
     return REFLEX_OK;
 }
 

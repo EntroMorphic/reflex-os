@@ -368,6 +368,19 @@ LITERALS = [
     ("REFLEX_GPIO_MATRIX_CONST_ZERO_INPUT", "GPIO_MATRIX_CONST_ZERO_INPUT", 0x3C, "gpio_pins.h, not the SVD. Routing this into a signal index is how the matrix disconnects an input"),
     ("REFLEX_TIMG_WDT_WKEY", "TIMG_WDT_WKEY_VALUE", 0x50D83AA1, "hal/mwdt_ll.h, not the SVD. Unlocks a timer-group watchdog"),
     ("REFLEX_LP_WDT_WKEY", "LP_WDT_WKEY_VALUE", 0x50D83AA1, "hal/lpwdt_ll.h, not the SVD. Unlocks the watchdog registers"),
+    # The 802.15.4 MAC's command and event codes.
+    #
+    # Not in the SVD: its COMMAND register carries no field enumeration and
+    # EVENT_STATUS is one undivided field, so these live only in ESP-IDF's
+    # hal/ieee802154_common_ll.h enums. Asserted against those names rather than
+    # copied as bare numbers, because a wrong command code does not fail to
+    # build — it tells the radio to do something else.
+    ("REFLEX_154_CMD_TX_START",     "IEEE802154_CMD_TX_START",     0x41, "hal enum, not the SVD"),
+    ("REFLEX_154_CMD_RX_START",     "IEEE802154_CMD_RX_START",     0x42, "hal enum, not the SVD"),
+    ("REFLEX_154_CMD_STOP",         "IEEE802154_CMD_STOP",         0x45, "hal enum, not the SVD"),
+    ("REFLEX_154_EVENT_TX_DONE",    "IEEE802154_EVENT_TX_DONE",    0x01, "EVENT_STATUS bit 0"),
+    ("REFLEX_154_EVENT_RX_DONE",    "IEEE802154_EVENT_RX_DONE",    0x02, "EVENT_STATUS bit 1"),
+    ("REFLEX_154_EVENT_TX_ABORT",   "IEEE802154_EVENT_TX_ABORT",   0x20, "EVENT_STATUS bit 5"),
     ("REFLEX_SIG_GPIO_OUT_IDX", "SIG_GPIO_OUT_IDX", 128, "GPIO matrix signal index; gpio_sig_map, not the SVD. Routing this back onto a pin is how a peripheral output is detached, and it was a bare 128 in shell.c"),
     ("REFLEX_RMT_SIG_OUT0_IDX", "RMT_SIG_OUT0_IDX", 71, "GPIO matrix signal index; gpio_sig_map, not the SVD. Guessed as 51 first and the bridge rejected it, which is the entire point of the bridge"),
     ("REFLEX_IO_MUX_MCU_SEL_V",    "MCU_SEL",              0x7,        "IO_MUX function-select field mask (3 bits)"),
@@ -528,6 +541,8 @@ def render_bridge(bridge):
         # macros are what the struct is generated from and are the right thing
         # to assert an address against.
         "#include \"soc/ieee802154_reg.h\"",
+        # The command and event codes are enums in the HAL, not registers.
+        "#include \"hal/ieee802154_common_ll.h\"",
         "",
     ]
     for name, idf in bridge:
