@@ -49,3 +49,14 @@ void reflex_radio_reg_snapshot(reflex_radio_reg_snapshot_t *out) {
     memset(out, 0, sizeof(*out));
     out->valid = false;
 }
+
+/* No 802.15.4 peripheral on this backend: zeros, and the caller is expected to
+ * have checked reflex_radio_reg_snapshot()->valid first. */
+void reflex_radio_reg_dump(uint32_t *out, int words) {
+    if (!out) return;
+    memset(out, 0, (size_t)words * sizeof(uint32_t));
+}
+
+void reflex_radio_set_coex_pti(uint32_t value) {
+    (void)value; /* no 802.15.4 MAC on this backend */
+}

@@ -92,6 +92,27 @@ idf_component_register(SRCS ${REFLEX_PLATFORM_SRCS}
                        REQUIRES ${REFLEX_PLATFORM_REQUIRES}
                        PRIV_REQUIRES ${REFLEX_PLATFORM_PRIV_REQUIRES})
 
+# Coexistence may only be compiled out when nothing else uses the radio.
+#
+# The blob it removes is 27 of the image's 42 blob symbols and 10,130 bytes, and
+# reflex_radio_802154.c replaces its whole contribution to the receive path with
+# one COEX_PTI register write. That substitution is a fixed priority, and a fixed
+# priority is only correct when there is nothing to arbitrate against.
+#
+# Reflex runs Wi-Fi exactly when the ESP-NOW backend is selected: net/CMakeLists.txt
+# compiles wifi.c only when CONFIG_REFLEX_RADIO_802154 is off. So the condition is
+# the radio backend, not CONFIG_ESP_WIFI_ENABLED — which is set on every C6 build
+# because the silicon has Wi-Fi, and which an earlier version of this guard tested,
+# consequently refusing every 802.15.4 build.
+#
+# Placed after idf_component_register on purpose. At the top of this file it runs
+# during ESP-IDF's early requirements-expansion pass, where a message(FATAL_ERROR)
+# surfaces as a CMake syntax error from a generated temp file and names neither
+# this check nor this component.
+if(NOT CONFIG_ESP_COEX_SW_COEXIST_ENABLE AND NOT CONFIG_REFLEX_RADIO_802154)
+    message(FATAL_ERROR "CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n is only valid with the 802.15.4 radio backend: the ESP-NOW backend runs Wi-Fi on the same radio and needs the coexistence arbiter. Enable coexistence, or select CONFIG_REFLEX_RADIO_802154.")
+endif()
+
 target_compile_definitions(${COMPONENT_LIB} PUBLIC "REFLEX_RTC_DATA_ATTR=__attribute__((section(\".rtc.data\")))")
 
 if(CONFIG_REFLEX_KERNEL_SCHEDULER)

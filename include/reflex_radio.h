@@ -35,7 +35,7 @@ reflex_err_t reflex_radio_init(void);
  * (`mesh stat`) rather than trusting send counts.
  *
  * **`dest_mac` is advisory, and one backend ignores it.** ESP-NOW honours it.
- * The IEEE 802.15.4 backend — the blob-free mode — discards it and always
+ * The IEEE 802.15.4 backend discards it and always
  * emits a broadcast frame (`reflex_radio_802154.c`, `build_broadcast_frame`),
  * because nothing in this mesh has needed a directed frame yet and the shim
  * does not implement short-address unicast. A caller that passes a specific
@@ -91,6 +91,26 @@ typedef struct {
 } reflex_radio_reg_snapshot_t;
 
 void reflex_radio_reg_snapshot(reflex_radio_reg_snapshot_t *out);
+
+/** @brief Read @p words consecutive words from the 802.15.4 peripheral base.
+ *
+ * Ground truth for a Reflex-owned MAC. Reads only; zero-filled on backends
+ * that have no such peripheral.
+ */
+void reflex_radio_reg_dump(uint32_t *out, int words);
+
+/** @brief Write the 802.15.4 coexistence PTI register. Diagnostic.
+ *
+ * The one register this file will write, and it exists because of a
+ * measurement: building with CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n removes 27
+ * blob symbols and 10 KB, and stops the radio receiving entirely — twice, with
+ * transmission unaffected. The only configuration register that differs between
+ * the two builds is this one (0x83 with coex, 0x11 without). This exists to
+ * find out whether that value is the whole difference.
+ *
+ * No-op on backends with no 802.15.4 MAC.
+ */
+void reflex_radio_set_coex_pti(uint32_t value);
 
 #ifdef __cplusplus
 }

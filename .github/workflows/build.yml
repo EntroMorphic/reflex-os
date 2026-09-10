@@ -211,6 +211,15 @@ jobs:
           echo "own-entry build carries the flag and has dropped intr_handler_set."
       - name: Ratchet the own-entry independence floor
         run: make independence-own-entry
+      - name: Ratchet the vendor blobs
+        # check_independence.py counts ESP-IDF *source* dependencies and cannot
+        # see a linked binary at all. Disabling coexistence removed 27 blob
+        # symbols and 10,130 bytes without touching a single include, and the
+        # independence ratchet reported no movement for it. This is the measure
+        # that would have.
+        run: |
+          . $IDF_PATH/export.sh
+          make blob-check
 
   build-esp32:
     runs-on: ubuntu-latest

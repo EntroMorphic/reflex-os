@@ -1872,6 +1872,45 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         uint8_t weight = (uint8_t)weight_in;
         reflex_err_t rc = goose_atmosphere_emit_posture(state, weight);
         printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc); outcome_rc(rc);
+    } else if (argc >= 3 && strcmp(argv[1], "pti") == 0) {
+        /* Diagnostic, and it exists because of a measurement rather than a
+         * hunch. Building with CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n removes 27
+         * blob symbols and 10 KB and stops the radio receiving — measured
+         * twice, with transmission unaffected — and COEX_PTI is the only
+         * configuration register that differs between the two builds. This
+         * writes it, to find out whether that value is the whole difference. */
+        reflex_radio_reg_snapshot_t chk;
+        reflex_radio_reg_snapshot(&chk);
+        if (!chk.valid) {
+            printf("radio pti: this backend has no 802.15.4 MAC\n");
+            outcome_rc(REFLEX_ERR_NOT_SUPPORTED);
+        } else {
+            unsigned long v = strtoul(argv[2], NULL, 0);
+            reflex_radio_set_coex_pti((uint32_t)v);
+            reflex_radio_reg_snapshot(&chk);
+            printf("coex_pti <- 0x%08lx\n", v);
+            outcome_rc(REFLEX_OK);
+        }
+    } else if (argc >= 3 && strcmp(argv[1], "regs") == 0 && strcmp(argv[2], "all") == 0) {
+        /* The whole peripheral. Ground truth for a Reflex-owned MAC: the state
+         * ESP-IDF's driver produces for the configuration Reflex asks for. */
+        reflex_radio_reg_snapshot_t chk;
+        reflex_radio_reg_snapshot(&chk);
+        if (!chk.valid) {
+            printf("radio regs: this backend has no 802.15.4 MAC\n");
+            outcome_rc(REFLEX_ERR_NOT_SUPPORTED);
+        } else {
+            static uint32_t w[98]; /* 0x000..0x184 inclusive */
+            reflex_radio_reg_dump(w, 98);
+            printf("802.15.4 MAC @ 0x%08lx, 0x000..0x184\n", (unsigned long)chk.base);
+            for (int i = 0; i < 98; i += 4) {
+                printf("  %03x:", (unsigned)(i * 4));
+                for (int j = i; j < i + 4 && j < 98; j++)
+                    printf(" %08lx", (unsigned long)w[j]);
+                printf("\n");
+            }
+            outcome_rc(REFLEX_OK);
+        }
     } else if (argc >= 2 && strcmp(argv[1], "regs") == 0) {
         /* The 802.15.4 MAC's registers, read through Reflex's own SoC map.
          *

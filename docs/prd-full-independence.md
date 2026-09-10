@@ -122,7 +122,7 @@
 | `reflex_crypto_esp32c6.c` | ~~`mbedtls_md_hmac_*`~~ | **DONE** — standalone FIPS 180-4 SHA-256 + RFC 2104 HMAC, validated on 9,634 mesh packets |
 | `reflex_task_esp32c6.c` | `xTaskCreate`, `vTaskDelay`, etc. | **DONE** — standalone backend in `kernel/reflex_task_kernel.c` (all 13 functions) |
 
-**Status:** Crypto and task backends are complete. HAL uses direct register access for GPIO, SYSTIMER, CPU cycles, RNG, MAC, reboot. KV store still uses NVS. Radio backend depends on Wi-Fi blob (802.15.4 blob-free alternative available).
+**Status:** Crypto and task backends are complete. HAL uses direct register access for GPIO, SYSTIMER, CPU cycles, RNG, MAC, reboot. KV store still uses NVS. Radio backend depends on the Wi-Fi blob; the 802.15.4 alternative avoids it but is not blob-free — 48,566 bytes of libphy/libbtbb remain against 804,754 for ESP-NOW (`make blob-check`).
 
 ---
 

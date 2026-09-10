@@ -33,3 +33,17 @@ CONFIG_REFLEX_RADIO_802154=y
 # its tasks on a FreeRTOS that was never started: not a link error, not a
 # crash, just a boot that stops partway with no explanation.
 CONFIG_REFLEX_TASK_BACKEND_REFLEX=y
+
+# Coexistence off: this configuration runs 802.15.4 alone.
+#
+# libcoexist.a is a binary blob, and it is 27 of the image's 42 blob symbols and
+# 10,130 bytes of it. Measured: with coex compiled out the radio initialises,
+# reports the right channel and PAN ID, and transmits — but receives nothing,
+# twice, against a live peer. The entire difference is the COEX_PTI register:
+# ieee802154_ll_disable_coex() writes pti=1/hw_ack=1, the blob writes pti=3/
+# hw_ack=8, and writing the latter by hand brought reception straight back.
+# reflex_radio_802154.c now programs it, so the blob is not needed here.
+#
+# Only valid because nothing else uses the radio; the same file refuses this
+# combination at compile time if Wi-Fi is also enabled.
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n

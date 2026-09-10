@@ -234,7 +234,10 @@ void app_main(void)
     // 8.5 Atmospheric arcing
 #if CONFIG_REFLEX_RADIO_802154
     if (goose_atmosphere_init() == REFLEX_OK) {
-        REFLEX_LOGI(REFLEX_BOOT_TAG, "atmospheric mesh: 802.15.4 (blob-free)");
+        /* "no Wi-Fi blob", not "blob-free": measured with make blob-check,
+         * this image still links 48,566 bytes of libphy.a and libbtbb.a across
+         * 15 symbols. What it avoids is the 804,754-byte Wi-Fi blob. */
+        REFLEX_LOGI(REFLEX_BOOT_TAG, "atmospheric mesh: 802.15.4 (no Wi-Fi blob)");
     }
 #else
     manifest_demo_arc();

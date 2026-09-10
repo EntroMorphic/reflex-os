@@ -8,6 +8,7 @@ RELEASE_DIR := release/$(RELEASE_NAME)
 .PHONY: build flash release clean test tasm-test loomc-test tools-test hw-test doc-links \
         format format-check format-diff warn-check lock-check independence independence-check tick-measure ci-lint soc-header soc-bridge \
         own-entry-build parity-base parity-other parity-diff independence-own-entry \
+        blob-check blob-check-all \
         soc-check rom-check idf-build verify config-reset docs atlas
 
 build:
@@ -57,7 +58,7 @@ tools-test: tasm-test loomc-test independence-test
 image-check:
 	@python3 tools/check_image.py $(BUILD)
 
-# The independence configuration: the C6 with the blob-free radio, which is what
+# The independence configuration: the C6 with the no-Wi-Fi-blob radio, which is what
 # the dependency map and the checker both measure. It is not the default radio
 # backend, so until this target existed the configuration every independence
 # claim referred to had no build recipe — and check_independence.py counts files
@@ -151,6 +152,23 @@ independence-check:
 #
 # Needs `make own-entry-build` first, since "compiled" is read from the build
 # directory.
+# The measure check_independence.py cannot make.
+#
+# It counts ESP-IDF source dependencies — includes and local externs — and is
+# blind to a linked binary. Disabling coexistence removed 27 blob symbols and
+# 10,130 bytes without touching a single include, and the independence ratchet
+# reported no movement at all for it. This ratchets the vendor blobs instead.
+#
+# Needs a build and the ESP-IDF environment; without either it says so and
+# declines to judge rather than passing silently.
+blob-check:
+	@python3 tools/check_blobs.py --check --build build_own_entry
+
+blob-check-all:
+	@for b in build build_independence build_own_entry; do \
+	    python3 tools/check_blobs.py --check --build $$b || exit 1; \
+	done
+
 independence-own-entry:
 	@python3 tools/check_independence.py --check --build build_own_entry -v
 

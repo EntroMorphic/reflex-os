@@ -244,6 +244,9 @@ tapestry: refusing to signal 'sys.kernel.disposition' — sys.* belongs to the s
 |---------|-------------|
 | `mesh status` | Show mesh state (peers, packets sent/received) |
 | `mesh stat` | Detailed mesh stats (rx/tx totals, sync counts, per-peer info) |
+| `mesh regs` | 802.15.4 MAC registers read through Reflex's own SoC map (802.15.4 backend only) |
+| `mesh regs all` | Full peripheral dump, `0x000..0x184`, reads only |
+| `mesh pti <value>` | Write the `COEX_PTI` register — diagnostic, see the coexistence note in the independence ledger |
 | `mesh ping` | Broadcast a ping arc to all peers |
 | `mesh mac` | Show this board's MAC address |
 | `mesh emit [state]` | Broadcast an arc with the given state (-1, 0, or 1) |
@@ -654,7 +657,7 @@ Set in build configuration:
 
 ```
 idf.py menuconfig → Reflex OS → Radio backend
-  [*] IEEE 802.15.4 (blob-free)
+  [*] IEEE 802.15.4 (no Wi-Fi blob)
   [ ] ESP-NOW (Wi-Fi)
 ```
 

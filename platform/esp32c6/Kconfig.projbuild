@@ -4,14 +4,20 @@ menu "Reflex OS"
         default REFLEX_RADIO_ESPNOW
         help
             Select the radio backend for the GOOSE atmospheric mesh.
-            ESP-NOW requires the Wi-Fi binary blob.
-            802.15.4 is blob-free but uses a different radio.
+
+            Neither is blob-free; the difference is how much vendor binary
+            ships. Measured by make blob-check: ESP-NOW links 804,754 bytes
+            across 151 symbols, 802.15.4 links 48,566 across 15. The 802.15.4
+            path avoids the Wi-Fi blob entirely (libpp.a is 188,257 bytes on
+            its own) and keeps libphy.a and libbtbb.a for RF calibration and
+            analog bring-up, which no register documentation would let Reflex
+            replace.
 
         config REFLEX_RADIO_ESPNOW
             bool "ESP-NOW (Wi-Fi)"
 
         config REFLEX_RADIO_802154
-            bool "IEEE 802.15.4 (blob-free)"
+            bool "IEEE 802.15.4 (no Wi-Fi blob)"
     endchoice
     config REFLEX_KERNEL_SCHEDULER
         bool "Enable Reflex kernel supervisor and port assembly"

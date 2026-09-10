@@ -73,9 +73,17 @@ SDKCONFIG_DEFAULTS="sdkconfig.defaults.esp32" idf.py -B build_esp32 build
 
 ```
 idf.py menuconfig → Reflex OS → Radio backend
-  [*] IEEE 802.15.4 (blob-free)    ← fully independent of ESP-IDF
-  [ ] ESP-NOW (Wi-Fi)              ← requires WiFi binary blob
+  [*] IEEE 802.15.4 (no Wi-Fi blob)  ← 48,566 bytes of vendor binary
+  [ ] ESP-NOW (Wi-Fi)                ← 804,754 bytes of vendor binary
 ```
+
+Neither is blob-free, and this table used to say the 802.15.4 backend was —
+"fully independent of ESP-IDF". It is not. Measured with `make blob-check`, the
+802.15.4 image still links `libphy.a` (42,385 bytes) and `libbtbb.a` (6,181) for
+RF calibration and analog bring-up, across 15 symbols. What it avoids is the
+Wi-Fi blob: `libpp.a` alone is 188,257 bytes, and the ESP-NOW image carries
+804,754 bytes across 151 symbols. Sixteen times less unreadable code is the
+honest claim, and it is a good one; "blob-free" was not true.
 
 ## Shell
 
@@ -122,6 +130,9 @@ idf.py menuconfig → Reflex OS → Radio backend
 | `mesh posture <state> <weight>` | Broadcast an `ARC_OP_POSTURE` with weight clamped to `SWARM_WEIGHT_MAX=4` |
 | `mesh stat` | Dump the mesh counters. RX: sync/query/advertise/posture/mmio_sync/discover, plus version_mismatch, aura_fail, replay_drop, self_drop, malformed. TX: sync/query/advertise/posture/mmio_sync/discover — every op this board emits is counted. `malformed` counts authenticated arcs dropped for carrying a state outside `-1\|0\|+1` — non-zero means a peer holding the Aura key is emitting bad arcs. |
 | `mesh status` | Mesh summary (peer count, total RX/TX across every op including DISCOVER, per-peer status) |
+| `mesh regs` | Read the 802.15.4 MAC's key registers through Reflex's own SoC map (channel, PAN ID, short address, DMA pointers, event/status). Groundwork for Tier D and a test rather than a dump: ESP-IDF's driver set those fields at Reflex's request, so the values must match what was asked for. `CHANNEL` holds a frequency index, not a channel number — it is decoded for you. |
+| `mesh regs all` | The whole peripheral, `0x000..0x184`. Ground truth for a Reflex-owned MAC. Reads only. |
+| `mesh pti <value>` | Write the 802.15.4 `COEX_PTI` register. Diagnostic, and it exists because of a measurement: with coexistence compiled out the radio transmits but receives nothing, and this one register is the entire difference. |
 | `mesh ping` | Broadcast a sync arc to all peers |
 | `mesh peer add <name> <mac>` | Register a named peer for MMIO sync (e.g., `mesh peer add bravo B4:3A:45:8A:C8:24`). Names are capped at 11 characters and a longer one is **refused**, not truncated. Re-adding a known MAC renames it, and the rename is persisted. |
 | `mesh peer ls` | List registered peers with active/stale status and last-seen time |

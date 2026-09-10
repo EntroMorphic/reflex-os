@@ -46,7 +46,7 @@ owns interrupt context switching and scheduling policy via
 
 ## Stage 6 -- Mesh
 
-- **802.15.4 build**: `goose_atmosphere_init()` -- blob-free mesh over Thread radio.
+- **802.15.4 build**: `goose_atmosphere_init()` -- mesh over the Thread radio, with no Wi-Fi blob (48,566 bytes of vendor binary remain; `make blob-check`).
 - **WiFi build**: `manifest_demo_arc()` -- self-arc loopback demo (ghost cell, atmosphere field, distributed rhythm).
 
 ## Stage 7 -- Stability Window

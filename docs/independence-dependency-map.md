@@ -1353,6 +1353,127 @@ hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
 forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
 this entry.
 
+### Tier D: measuring the landscape found a blob that was not needed (2026-09-10)
+
+Tier D is still 1 — `esp_ieee802154.h` — and no MAC code exists. But the
+measurement pass turned up something better than an increment of that counter,
+and it started from an instruction to stop estimating.
+
+**The floor was quoted wrong, by this document.** "A 178 KB PHY blob" is the
+size of the *archive*. Measured from the link map, `libphy.a` contributes
+**42,385 bytes** to the image and `libbtbb.a` **6,181**. The archive size was
+never the floor.
+
+**The blob boundary, measured symbol by symbol.** Taking every source object in
+`build_own_entry`, listing its undefined symbols, and intersecting with what the
+vendor archives define:
+
+| archive | bytes linked | symbols referenced |
+|---|---|---|
+| `libphy.a` | 42,385 | 13 |
+| `libbtbb.a` | 6,181 | 2 |
+| `libcoexist.a` | 10,130 | **27** |
+| | **58,696** | **42** |
+
+That third row was the surprise. `libcoexist.a` is a binary blob, it was 27 of
+42 symbols, and it is there because of a Kconfig option.
+
+**The experiment, and the hypothesis it falsified.** Coexistence arbitrates one
+shared radio between 802.15.4, Wi-Fi and Bluetooth. This configuration runs
+802.15.4 alone, so the obvious guess is that coex has nothing to arbitrate and
+can go. Built with `CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n`: 27 symbols and
+10,130 bytes gone, image 4,880 bytes smaller, radio initialises, reports the
+right channel and PAN ID, transmits — and **receives nothing at all.**
+
+Measured against a live peer, twice, with the control run in the same physical
+setup by reflashing only the receiving board:
+
+| board B build | `tx_discover` | `rx_aura_fail` |
+|---|---|---|
+| coex on | 10 | 10 |
+| coex on (control, after) | 10 | 12 |
+| coex off | 10 | **0** |
+| coex off (repeat) | 12 | **0** |
+
+Transmission was unaffected in every run, so the board was alive and the peer
+was transmitting. The hypothesis was wrong: coex is in the receive path.
+
+**Then the register dump said why.** Diffing the full peripheral between the two
+builds, exactly one *configuration* register differs: `COEX_PTI` at `0x070`
+reads `0x83` with the blob and `0x11` without — and `0x11` is precisely what
+`ieee802154_ll_disable_coex()` writes (`pti = 1, hw_ack_pti = 1`). Writing
+`0x83` by hand on the coex-free build, from the shell, brought reception
+straight back: **11 frames in the next 45 seconds.**
+
+So coexistence's entire contribution to this receive path is one register value.
+`reflex_radio_802154.c` now programs it when coex is compiled out, built from
+the two field constants rather than the magic number, and two cold boots receive
+12 frames each with `libcoexist.a` absent from the image.
+
+**Result: 42 blob symbols → 15, 58,696 bytes → 48,566, no capability lost.**
+`make parity-diff` reports 0 regressions. This is a real reduction in borrowed
+vendor code, and Tier D's include count did not move by one.
+
+The two values are not derivable from any public header — ESP-IDF hands the blob
+an *event* (`IEEE802154_MIDDLE` and friends) and the blob picks the number. 3 and
+8 are what it picked, read back out of the register. And the substitution is only
+correct because a fixed priority needs nothing to arbitrate against: a build that
+runs Wi-Fi must keep coex, which `platform/esp32c6/CMakeLists.txt` now refuses at
+configure time. That guard's first version tested `CONFIG_ESP_WIFI_ENABLED` and
+rejected every 802.15.4 build — that symbol is set on every C6 because the
+silicon has Wi-Fi. What actually decides it is `net/CMakeLists.txt`, which
+compiles `wifi.c` only when the ESP-NOW backend is selected: measured 0 times in
+both 802.15.4 builds, once in the default.
+
+### The independence ratchet cannot see a binary
+
+Removing 27 blob symbols and 10 KB changed no include, so
+`check_independence.py` reported no movement at all. It counts ESP-IDF *source*
+coupling and is blind to linked vendor binaries — the inverse of this ledger's
+recurring failure: three times the measure improved while the system did not,
+and here the system improved while no measure could see it.
+
+`tools/check_blobs.py` and `make blob-check` close it, ratcheted per
+configuration in CI alongside the independence check:
+
+| configuration | blob bytes | blob symbols |
+|---|---|---|
+| `build` (ESP-NOW / Wi-Fi) | 804,754 | 151 |
+| `build_independence` | 48,566 | 15 |
+| `build_own_entry` | 48,566 | 15 |
+
+A blob is defined structurally rather than by a list: an archive the link pulls
+from the ESP-IDF tree rather than one the build produced. A new vendor binary in
+a future ESP-IDF is therefore caught automatically. Verified by making it fail:
+lowering a floor exits non-zero with the reason; a missing build declines to
+judge rather than passing.
+
+### "Blob-free" was not true, and the README said it loudest
+
+That table read `IEEE 802.15.4 (blob-free) ← fully independent of ESP-IDF`. The
+802.15.4 image links 48,566 bytes of `libphy.a` and `libbtbb.a` across 15
+symbols, for RF calibration and analog bring-up that no register documentation
+would let Reflex replace. It is not blob-free and never was.
+
+What is true is better than what was claimed was true: the Wi-Fi path carries
+804,754 bytes across 151 symbols, `libpp.a` alone being 188,257. **Sixteen times
+less unreadable code** is the honest claim. Corrected in the README, the Kconfig
+help, `reflex_radio.h`, `reflex_radio_802154.c`, the boot log, the user manual,
+`boot.md` and the independence PRD.
+
+### Registers, measured rather than estimated
+
+The previous entry estimated "roughly fourteen" registers for a minimal MAC.
+Measured — tracing ESP-IDF's driver from the nine API calls
+`reflex_radio_802154.c` makes, plus `ieee802154_isr` and `ieee802154_mac_init`,
+through the LL inlines to the register struct — it is **18**, plus the
+`multipan` bank. The list is in `tools/soc_scraper.py`; 209 constants now pass
+`make soc-bridge`.
+
+One of the fourteen I had added was wrong: **`RX_LENGTH` is touched by nothing**
+in ESP-IDF's driver or LL. I added it on the assumption that a receiver needs a
+length register; the frame length is the first byte of the DMA buffer. Removed.
+
 ### Tier C is 0 (2026-09-10)
 
 Not by reclassifying anything. The last two entries, `intr_handler_get` and

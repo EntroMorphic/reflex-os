@@ -1,9 +1,16 @@
 /**
  * @file reflex_radio_802154.c
- * @brief Reflex Radio — IEEE 802.15.4 backend (blob-free).
+ * @brief Reflex Radio — IEEE 802.15.4 backend (no Wi-Fi blob).
  *
  * Uses the ESP32-C6's dedicated 802.15.4 MAC hardware through the
- * open-source ieee802154 driver. No Wi-Fi binary blob required.
+ * open-source ieee802154 driver.
+ *
+ * This file was headed "blob-free", and that was wrong. Measured with
+ * make blob-check, this backend still links libphy.a (42,385 bytes) and
+ * libbtbb.a (6,181) across 15 symbols, for RF calibration and analog bring-up.
+ * What it avoids is the Wi-Fi blob: the ESP-NOW image carries 804,754 bytes
+ * across 151 symbols, of which libpp.a is 188,257 on its own. Sixteen times
+ * less unreadable code is the true claim and a better one than the false.
  *
  * Build with CONFIG_REFLEX_RADIO_802154=1 to use this instead of
  * the ESP-NOW backend. Both implement the same reflex_radio.h API.
@@ -15,6 +22,17 @@
 #include "reflex_regops.h"
 #include "esp_ieee802154.h"
 #include <string.h>
+
+/* Coexistence may only be compiled out when nothing else uses the radio, and
+ * that condition is checked in platform/esp32c6/CMakeLists.txt rather than here.
+ *
+ * The first version of this guard was `#if !COEX && defined(CONFIG_ESP_WIFI_ENABLED)`
+ * and it refused every 802.15.4 build. Measured: CONFIG_ESP_WIFI_ENABLED=y is
+ * ESP-IDF's default for any chip whose silicon has Wi-Fi, and says nothing about
+ * whether Wi-Fi runs. What decides that here is net/CMakeLists.txt, which
+ * excludes wifi.c when CONFIG_REFLEX_RADIO_802154 is set — compiled 0 times in
+ * both 802.15.4 builds and once in the default one. The real invariant is a
+ * build-system fact and is enforced where it lives. */
 
 #define TAG "reflex.radio.154"
 #define REFLEX_154_CHANNEL   15
@@ -145,6 +163,39 @@ reflex_err_t reflex_radio_init(void) {
     s_local_addr = ((uint16_t)mac[4] << 8) | mac[5];
 
     esp_ieee802154_enable();
+
+#if !CONFIG_ESP_COEX_SW_COEXIST_ENABLE
+    /* Restore the coexistence priorities the coex blob would have programmed.
+     *
+     * Without this the radio transmits and receives nothing, and it took a
+     * bisection to find out why. Building with
+     * CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n drops libcoexist.a entirely — 27 of
+     * the image's 42 blob symbols and 10,130 bytes — and the radio still
+     * initialises, still reports the right channel and PAN ID, and still
+     * transmits. It simply never receives a frame. Measured twice against a
+     * peer board: 0 frames with coex off, 10 and 12 with it on, transmission
+     * unaffected in every run.
+     *
+     * The whole difference is this register. `ieee802154_ll_disable_coex()`
+     * writes pti=1, hw_ack_pti=1 (0x11); with the blob it holds pti=3,
+     * hw_ack_pti=8 (0x83). Writing 0x83 by hand on the coex-free build brought
+     * reception straight back — 11 frames in the next 45 seconds — which is
+     * what turned "coex is required" into "one register value is required".
+     *
+     * The two values are not derivable from any public header. ESP-IDF passes
+     * the blob an *event* (IEEE802154_MIDDLE and friends) and the blob decides
+     * the number; 3 and 8 are what it decided here, read back out of the
+     * register. They are measurements, and they are written as fields rather
+     * than as 0x83 so that the layout is the bridge's business and only the
+     * two numbers are ours.
+     *
+     * The caveat that makes this safe: coexistence arbitrates the shared radio
+     * between 802.15.4, Wi-Fi and Bluetooth, and this configuration runs none
+     * of the other two. A static priority is right precisely because there is
+     * nothing to arbitrate against. A build that adds Wi-Fi must keep coex. */
+    REFLEX_REG_WRITE(REFLEX_154_COEX_PTI_REG,
+                     (3u << REFLEX_154_COEX_PTI_S) | (8u << REFLEX_154_COEX_ACK_PTI_S));
+#endif
     esp_ieee802154_set_panid(REFLEX_154_PANID);
     esp_ieee802154_set_short_address(s_local_addr);
     esp_ieee802154_set_channel(REFLEX_154_CHANNEL);
@@ -215,4 +266,28 @@ void reflex_radio_reg_snapshot(reflex_radio_reg_snapshot_t *out) {
     out->tx_status = REFLEX_REG_READ(REFLEX_154_TX_STATUS_REG);
     out->txdma_addr = REFLEX_REG_READ(REFLEX_154_TXDMA_ADDR_REG);
     out->rxdma_addr = REFLEX_REG_READ(REFLEX_154_RXDMA_ADDR_REG);
+}
+
+/* The whole peripheral, 0x000..0x184, read through Reflex's own base.
+ *
+ * Ground truth for a Reflex-owned MAC: this is the register state ESP-IDF's
+ * driver produces for the configuration Reflex asks for, and it is what a
+ * replacement has to reproduce. Measured rather than derived — the
+ * initialisation sequence in ieee802154_mac_init() is readable, but what the
+ * registers actually end up holding after PHY bring-up, PIB defaults and the
+ * first RX command is not something to infer from source.
+ *
+ * Reads only. Every register in this range is read-write in the SVD with none
+ * marked write-only, and the driver's own event register is write-1-to-clear
+ * rather than clear-on-read, so a read does not disturb it.
+ */
+void reflex_radio_reg_dump(uint32_t *out, int words) {
+    if (!out) return;
+    for (int i = 0; i < words; i++) {
+        out[i] = REFLEX_REG_READ(REFLEX_DR_REG_IEEE802154_BASE + (uint32_t)(i * 4));
+    }
+}
+
+void reflex_radio_set_coex_pti(uint32_t value) {
+    REFLEX_REG_WRITE(REFLEX_154_COEX_PTI_REG, value);
 }

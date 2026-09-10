@@ -182,7 +182,22 @@ REGS = [
     ("REFLEX_154_RXDMA_ADDR_REG",       "IEEE802154_RXDMA_ADDR_REG",        "IEEE802154", "RXDMA_ADDR",       None, "pointer to the receive buffer"),
     ("REFLEX_154_RX_STATUS_REG",        "IEEE802154_RX_STATUS_REG",         "IEEE802154", "RX_STATUS",        None, ""),
     ("REFLEX_154_TX_STATUS_REG",        "IEEE802154_TX_STATUS_REG",         "IEEE802154", "TX_STATUS",        None, ""),
-    ("REFLEX_154_RX_LENGTH_REG",        "IEEE802154_RX_LENGTH_REG",         "IEEE802154", "RX_LENGTH",        None, ""),
+    # Measured, not guessed. Tracing ESP-IDF's driver from the nine API calls
+    # reflex_radio_802154.c makes, plus ieee802154_isr and ieee802154_mac_init,
+    # through the LL inlines to the register struct gives exactly these
+    # registers. RX_LENGTH was in an earlier version of this list on the
+    # assumption a receiver needs it; nothing in ESP-IDF's driver or LL touches
+    # it, because the frame length is the first byte of the DMA buffer. Removed.
+    ("REFLEX_154_ED_SCAN_DURATION_REG",  "IEEE802154_ED_SCAN_DURATION_REG",  "IEEE802154", "ED_SCAN_DURATION",  None, "written by mac_init"),
+    ("REFLEX_154_ED_SCAN_CFG_REG",       "IEEE802154_ED_SCAN_CFG_REG",       "IEEE802154", "ED_SCAN_CFG",       None, "ED sample mode, set by mac_init"),
+    ("REFLEX_154_RX_ABORT_INTR_CTRL_REG","IEEE802154_RX_ABORT_INTR_CTRL_REG","IEEE802154", "RX_ABORT_INTR_CTRL",None, "which rx aborts raise an event"),
+    ("REFLEX_154_ACK_FRAME_PENDING_EN_REG","IEEE802154_ACK_FRAME_PENDING_EN_REG","IEEE802154","ACK_FRAME_PENDING_EN",None,""),
+    # Not optional, and that is the measurement that cost the most to get:
+    # a build with CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n receives nothing at all.
+    ("REFLEX_154_COEX_PTI_REG",          "IEEE802154_COEX_PTI_REG",          "IEEE802154", "COEX_PTI",          None, "coexistence traffic priority; RX dies without it"),
+    ("REFLEX_154_TX_ABORT_INTR_CTRL_REG","IEEE802154_TX_ABORT_INTERRUPT_CONTROL_REG","IEEE802154","TX_ABORT_INTERRUPT_CONTROL",None,""),
+    ("REFLEX_154_ENHANCE_ACK_CFG_REG",   "IEEE802154_ENHANCE_ACK_CFG_REG",   "IEEE802154", "ENHANCE_ACK_CFG",   None, ""),
+    ("REFLEX_154_SEC_CTRL_REG",          "IEEE802154_SEC_CTRL_REG",          "IEEE802154", "SEC_CTRL",          None, "touched by the transmit path even unused"),
 
     # --- USB-serial-JTAG console (Tier E: owning console RX) ---
     # The SVD calls this peripheral USB_DEVICE; IDF calls it USB_SERIAL_JTAG.
@@ -283,6 +298,10 @@ WIDTH_MASKS = [
     ("REFLEX_LEDC_DUTY_MASK",        "LEDC_DUTY_CH0_V",         "LEDC", "CH%s_DUTY",    "DUTY",        ""),
     ("REFLEX_LEDC_DUTY_RES_MASK",    "LEDC_TIMER0_DUTY_RES_V",  "LEDC", "TIMER%s_CONF", "DUTY_RES",    ""),
     ("REFLEX_LEDC_CLK_DIV_MASK",     "LEDC_CLK_DIV_TIMER0_V",   "LEDC", "TIMER%s_CONF", "CLK_DIV",     "Q10.8 divider"),
+    # The two fields of COEX_PTI, so the value Reflex writes is built from
+    # bridge-verified fields instead of the magic 0x83 the measurement produced.
+    ("REFLEX_154_COEX_PTI_MASK",     "IEEE802154_COEX_PTI",     "IEEE802154", "COEX_PTI", "COEX_PTI",     "traffic priority, 4 bits"),
+    ("REFLEX_154_COEX_ACK_PTI_MASK", "IEEE802154_COEX_ACK_PTI", "IEEE802154", "COEX_PTI", "COEX_ACK_PTI", "hardware-ACK priority, 4 bits"),
     ("REFLEX_PCR_LEDC_SCLK_SEL_MASK","PCR_LEDC_SCLK_SEL_V",     "PCR",  "LEDC_SCLK_CONF", "LEDC_SCLK_SEL", "3 selects XTAL"),
     ("REFLEX_PCNT_MODE_MASK",        "PCNT_CH0_POS_MODE_U0_V",  "PCNT", "U%s_CONF0", "CH0_POS_MODE", "all four mode fields are 2 bits"),
     ("REFLEX_PCNT_LIM_MASK",         "PCNT_CNT_H_LIM_U0_V",     "PCNT", "U%s_CONF2", "CNT_H_LIM",    ""),
@@ -309,6 +328,8 @@ SHIFTS = [
     ("REFLEX_LP_WDT_CPU_RESET_LEN_S",  "LP_WDT_WDT_CPU_RESET_LENGTH_S", "LP_WDT", "WDTCONFIG0", "WDT_CPU_RESET_LENGTH", ""),
     ("REFLEX_LEDC_TIMER_SEL_S",   "LEDC_TIMER_SEL_CH0_S",   "LEDC", "CH%s_CONF0",   "TIMER_SEL",   ""),
     ("REFLEX_LEDC_DUTY_S",        "LEDC_DUTY_CH0_S",        "LEDC", "CH%s_DUTY",    "DUTY",        ""),
+    ("REFLEX_154_COEX_PTI_S",     "IEEE802154_COEX_PTI_S",     "IEEE802154", "COEX_PTI", "COEX_PTI",     ""),
+    ("REFLEX_154_COEX_ACK_PTI_S", "IEEE802154_COEX_ACK_PTI_S", "IEEE802154", "COEX_PTI", "COEX_ACK_PTI", ""),
     ("REFLEX_LEDC_DUTY_RES_S",    "LEDC_TIMER0_DUTY_RES_S", "LEDC", "TIMER%s_CONF", "DUTY_RES",    ""),
     ("REFLEX_LEDC_CLK_DIV_S",     "LEDC_CLK_DIV_TIMER0_S",  "LEDC", "TIMER%s_CONF", "CLK_DIV",     ""),
     ("REFLEX_PCR_LEDC_SCLK_SEL_S","PCR_LEDC_SCLK_SEL_S",    "PCR",  "LEDC_SCLK_CONF", "LEDC_SCLK_SEL", ""),

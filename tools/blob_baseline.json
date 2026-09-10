@@ -1,0 +1,17 @@
+{
+  "configurations": {
+    "build": {
+      "bytes": 804754,
+      "symbols": 151
+    },
+    "build_independence": {
+      "bytes": 48566,
+      "symbols": 15
+    },
+    "build_own_entry": {
+      "bytes": 48566,
+      "symbols": 15
+    }
+  },
+  "note": "Vendor blob ratchet. Lower is the only legal direction. Regenerate deliberately with tools/check_blobs.py --update."
+}
