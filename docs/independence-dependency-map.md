@@ -1269,12 +1269,28 @@ and verified to boot again after the revert. Persistence for the ordinary builds
 bought with a dead board for the one where Reflex owns the machine is not a
 trade worth making, and shipping a hang is worse than shipping the gap.
 
-The fix is therefore neither obvious option: bracket the ROM calls with an
-interrupt and cache disable that does not depend on FreeRTOS — the ROM `Cache_*`
-entry points — with every instruction executed while the cache is off resident
-in IRAM, which is why ESP-IDF marks that whole path `IRAM_ATTR`. Contained work,
-with a clear test on both configurations: `make parity-diff` must reach zero on
-the independence build *and* the own-entry build must still reach a prompt.
+Two further fixes were then built and measured, and both failed. Recorded so
+they are not rebuilt:
+
+- **The ROM cache pair.** Bracketing the ROM flash calls with
+  `Cache_Suspend_ICache` / `Cache_Resume_ICache`, interrupts masked, the window
+  resident in IRAM and containing nothing but one ROM call. Builds, boots, and
+  the store still reports `initialised fresh` every boot. Suspending the
+  instruction cache is therefore *not* the whole of what ESP-IDF's flash path
+  does, which is worth knowing — it was the obvious reading of the evidence and
+  it is wrong.
+- **`esp_flash_*` with `spi_flash_guard_set(&g_flash_guard_no_os_ops)`**, which
+  ESP-IDF documents as "to be used when no OS is present". Still hangs under
+  `REFLEX_OWN_ENTRY`: those guards serve the legacy `spi_flash_*` API, while
+  `esp_flash_*` goes through its own `os_func` layer on the chip driver, which
+  the guards never touch.
+
+So the target is narrower and now named: give `esp_flash_*` an `os_func` layer
+that needs no scheduler, rather than trying to reach it through the legacy guard
+API. The acceptance test is unchanged and unambiguous — `make parity-diff` must
+reach zero on the independence build **and** the own-entry build must still
+reach a prompt. Every attempt so far has achieved exactly one of the two, which
+is why the tree ships neither.
 
 **Neither of the two defects above was the whole cause, and the rest is recorded
 rather than guessed.** With a dedicated partition, alignment fixed, checked writes and

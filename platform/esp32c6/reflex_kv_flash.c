@@ -35,12 +35,26 @@
  * bought with a dead board for the one where Reflex owns the machine is not a
  * trade worth making, and shipping a hang is worse than shipping this.
  *
- * So the fix is neither of the two obvious ones. It is to bracket the ROM calls
- * with an interrupt and cache disable that does not depend on FreeRTOS — the
- * ROM Cache_* entry points — with every instruction executed while the cache is
- * off resident in IRAM, which is why ESP-IDF marks that whole path
- * IRAM_ATTR. That is a contained piece of work with a clear test on both
- * configurations, and it is the next thing to do here.
+ * Two further fixes were built and measured, and both failed for reasons worth
+ * recording so they are not rebuilt:
+ *
+ *   - Bracketing the ROM calls with the ROM Cache_Suspend_ICache /
+ *     Cache_Resume_ICache pair, interrupts masked, the whole window resident in
+ *     IRAM and containing nothing but one ROM call. It builds and boots and the
+ *     store still reports "initialised fresh" on every boot, so suspending the
+ *     instruction cache is not the whole of what ESP-IDF's flash path does.
+ *   - esp_flash_* with spi_flash_guard_set(&g_flash_guard_no_os_ops), which
+ *     ESP-IDF documents as "to be used when no OS is present". Still hangs
+ *     under REFLEX_OWN_ENTRY: those guards serve the legacy spi_flash_* API,
+ *     while esp_flash_* goes through its own os_func layer on the chip driver,
+ *     which the guards do not touch.
+ *
+ * So the target is now narrow and named: give esp_flash_* an os_func layer that
+ * does not require a scheduler, rather than trying to reach it through the
+ * legacy guard API. The acceptance test is unchanged and unambiguous —
+ * `make parity-diff` must reach zero on the independence build *and* the
+ * own-entry build must still reach a prompt. Every attempt so far has achieved
+ * exactly one of those two.
  *
  * What this costs today, measured: `aura setkey` reports success and two boards
  * cannot share a key, so the mesh cannot pair; `purpose set` is gone by the next
