@@ -3,8 +3,8 @@
  * @brief Reflex KV — raw flash backend using ROM SPI flash functions.
  *
  * Simple page-based key-value store on a dedicated flash partition.
- * Uses esp_rom_spiflash_* (mask ROM, zero ESP-IDF component deps) — see the
- * KNOWN DEFECT below, which that choice is the direct cause of.
+ * Uses ESP-IDF's esp_flash_* API. It used raw esp_rom_spiflash_* for zero
+ * component dependencies; see below for why that had to change.
  *
  * Layout (one 4KB sector):
  *   [4B magic][4B sequence][entries...][0xFF fill]
@@ -16,53 +16,54 @@
  * compact live entries to next page, erase old page.
  */
 
-/* KNOWN DEFECT: nothing written here survives a reboot.
+/* Why this file talks to ESP-IDF's flash API and not the ROM directly.
  *
- * The cause is no longer a hypothesis. It is raw ROM flash access issued while
- * the CPU executes XIP out of the same flash with the cache enabled: write and
- * read agree inside one boot because both go through that path, and the medium
- * never receives the data. Proved by making it work — swapping these three
- * primitives for esp_flash_read/esp_flash_write/esp_flash_erase_region, which
- * disable the cache around the operation, and watching the store report
- * "resumed" instead of "initialised fresh", the write offset grow across boots,
- * the aura key load, and `make parity-diff` fall from one capability regression
- * to zero.
+ * It used esp_rom_spiflash_* to keep zero ESP-IDF component dependencies, and
+ * that choice was the direct cause of it persisting nothing. Raw ROM flash
+ * access while the CPU executes XIP out of the same flash does not reach the
+ * medium: a write and a read-back agree inside one boot because both go through
+ * the cache, and the data is gone after a reset. The store reported
+ * "initialised fresh" on every boot, `aura setkey` could not pair two boards,
+ * and `purpose set` was gone by the next boot — all silently.
  *
- * That change is reverted, and the reason is the constraint on any real fix:
- * esp_flash_* takes ESP-IDF's flash lock, which is built on FreeRTOS. Under
- * REFLEX_OWN_ENTRY the scheduler was never started, and the board hangs in
- * reflex_kv_init before it reaches a shell. Persistence for the ordinary builds
- * bought with a dead board for the one where Reflex owns the machine is not a
- * trade worth making, and shipping a hang is worse than shipping this.
+ * Getting from there to here took four attempts, and the three that failed are
+ * worth keeping because each looked correct:
  *
- * Two further fixes were built and measured, and both failed for reasons worth
- * recording so they are not rebuilt:
+ *   1. A dedicated `reflexkv` partition. The store had been writing at 0x9000,
+ *      the same six sectors `nvs` occupies, so phy_init's radio calibration
+ *      overwrote it. A real bug, fixed — and not the cause.
+ *   2. Word-aligned single-write entries with checked results. Also real, also
+ *      not the cause.
+ *   3. Cache_Suspend_ICache/Cache_Resume_ICache around the ROM calls, masked
+ *      and IRAM-resident. Still "initialised fresh": suspending the instruction
+ *      cache is not the whole of what ESP-IDF's flash path does.
+ *   4. esp_flash_* with spi_flash_guard_set(&g_flash_guard_no_os_ops). Hangs
+ *      under REFLEX_OWN_ENTRY — those guards serve the legacy spi_flash_* API,
+ *      which esp_flash_* never consults.
  *
- *   - Bracketing the ROM calls with the ROM Cache_Suspend_ICache /
- *     Cache_Resume_ICache pair, interrupts masked, the whole window resident in
- *     IRAM and containing nothing but one ROM call. It builds and boots and the
- *     store still reports "initialised fresh" on every boot, so suspending the
- *     instruction cache is not the whole of what ESP-IDF's flash path does.
- *   - esp_flash_* with spi_flash_guard_set(&g_flash_guard_no_os_ops), which
- *     ESP-IDF documents as "to be used when no OS is present". Still hangs
- *     under REFLEX_OWN_ENTRY: those guards serve the legacy spi_flash_* API,
- *     while esp_flash_* goes through its own os_func layer on the chip driver,
- *     which the guards do not touch.
+ * What works is esp_flash_*, plus two things for the case where Reflex owns the
+ * machine and no scheduler exists: esp_flash_app_disable_os_functions swaps the
+ * chip's own os_func for esp_flash_noos_functions, and the flash calls are made
+ * with interrupts masked, because that no-OS layer suspends the cache without
+ * disabling interrupts — it assumes none are running, and under Reflex the tick
+ * is. A tick taken inside that window fetches reflex_trap_handler from flash,
+ * which is not there.
  *
- * So the target is now narrow and named: give esp_flash_* an os_func layer that
- * does not require a scheduler, rather than trying to reach it through the
- * legacy guard API. The acceptance test is unchanged and unambiguous —
- * `make parity-diff` must reach zero on the independence build *and* the
- * own-entry build must still reach a prompt. Every attempt so far has achieved
- * exactly one of those two.
+ * The masking is conditional for the mirror-image reason: with FreeRTOS running
+ * esp_flash keeps its app os_func, that takes a mutex, and a mutex cannot be
+ * waited on with interrupts masked. Masking unconditionally deadlocked the
+ * independence build on its first configuration write. Both halves belong to
+ * one regime and are selected together.
  *
- * What this costs today, measured: `aura setkey` reports success and two boards
- * cannot share a key, so the mesh cannot pair; `purpose set` is gone by the next
- * boot. `make parity-diff` reports it as the single capability regression
- * between the default build and both Reflex configurations.
+ * `make parity-diff` now reports **zero** capability regressions for both the
+ * independence build and the own-entry build against the stock ESP-IDF build.
  */
 
 #include "reflex_kv.h"
+#include "esp_flash.h"
+#ifdef REFLEX_OWN_ENTRY
+#include "esp_flash_internal.h"
+#endif
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
@@ -99,7 +100,11 @@
 /* ROM flash functions (mask ROM, always available) */
 /* Declared in reflex_rom_esp32c6.h now. These three externs were the first
  * instance of the technique in this tree; the header generalises it. */
-#include "reflex_rom_esp32c6.h"
+/* Not reflex_rom_esp32c6.h: its ROM flash declarations collide with ESP-IDF's
+ * for the same symbols, and the bootloader still needs Reflex's. This one
+ * translation unit sits on ESP-IDF's side of that line and declares the single
+ * ROM entry point it still wants. */
+extern int esp_rom_printf(const char *fmt, ...);
 
 typedef struct {
     uint32_t magic;
@@ -156,11 +161,62 @@ static uint32_t sector_addr(uint32_t sector) {
     return KV_FLASH_BASE + sector * KV_SECTOR_SIZE;
 }
 
+/* Flash operations run with interrupts masked.
+ *
+ * esp_flash's no-OS os_func suspends the cache and does not disable
+ * interrupts — it is written for the case where none are running. Under
+ * REFLEX_OWN_ENTRY they are: Reflex's tick fires at 1 kHz, and
+ * reflex_trap_handler lives in flash, so a tick taken inside the suspended
+ * window fetches an instruction that is not there. The board hung in
+ * reflex_kv_init on the first read, before any of these functions could report
+ * anything.
+ *
+ * Masking costs whatever ticks fall inside a flash operation, which is a real
+ * cost during an erase and an acceptable one: the store is written at init and
+ * on rare configuration changes, and the alternative is a machine that stops.
+ * The app-side os_func ESP-IDF installs when FreeRTOS is running does the same
+ * thing for the same reason. */
+#ifdef REFLEX_OWN_ENTRY
+static inline uint32_t kv_intr_mask(void) {
+    uint32_t ms;
+    __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(ms));
+    return ms;
+}
+
+static inline void kv_intr_restore(uint32_t ms) {
+    if (ms & 0x8u) __asm__ volatile("csrsi mstatus, 0x8");
+}
+#else
+/* Not when FreeRTOS is running, and this is the other half of the same
+ * mistake. There, esp_flash keeps its app os_func, which takes a mutex —
+ * and a mutex cannot be waited on with interrupts masked, because the context
+ * switch that releases it can never run. Masking unconditionally deadlocked
+ * the independence build on its first configuration write, immediately after
+ * fixing the own-entry hang the same masking cures.
+ *
+ * The masking and the no-OS os_func belong to one regime and are now selected
+ * together: where Reflex owns the machine, mask and swap; where FreeRTOS owns
+ * it, leave both alone and let ESP-IDF do its own locking. */
+static inline uint32_t kv_intr_mask(void) {
+    return 0;
+}
+
+static inline void kv_intr_restore(uint32_t ms) {
+    (void)ms;
+}
+#endif
+
 static void flash_read(uint32_t addr, void *buf, size_t len) {
     uint32_t aligned_buf[64];
     size_t aligned_len = (len + 3) & ~3;
     if (aligned_len > sizeof(aligned_buf)) aligned_len = sizeof(aligned_buf);
-    esp_rom_spiflash_read(addr, aligned_buf, (int)aligned_len);
+    uint32_t ms = kv_intr_mask();
+    esp_err_t rrc = esp_flash_read(NULL, aligned_buf, addr, (uint32_t)aligned_len);
+    kv_intr_restore(ms);
+    if (rrc != ESP_OK) {
+        /* A failed read must not present as a valid entry header. */
+        memset(aligned_buf, 0xFF, aligned_len);
+    }
     memcpy(buf, aligned_buf, len);
 }
 
@@ -178,12 +234,37 @@ static bool flash_write(uint32_t addr, const void *buf, size_t len) {
     if (aligned_len > sizeof(aligned_buf)) return false;
     memset(aligned_buf, 0xFF, aligned_len);
     memcpy(aligned_buf, buf, len);
-    (void)esp_rom_spiflash_unlock();
-    /* 0 is ESP_ROM_SPIFLASH_RESULT_OK. */
-    return esp_rom_spiflash_write(addr, aligned_buf, (int)aligned_len) == 0;
+    uint32_t ms = kv_intr_mask();
+    esp_err_t wrc = esp_flash_write(NULL, aligned_buf, addr, (uint32_t)aligned_len);
+    kv_intr_restore(ms);
+    return wrc == ESP_OK;
 }
 
 reflex_err_t reflex_kv_init(void) {
+#ifdef REFLEX_OWN_ENTRY
+    /* Give esp_flash_* an os_func layer that needs no scheduler.
+     *
+     * esp_flash_* is what makes this store persist at all: raw ROM flash access
+     * with the cache enabled never reaches the medium. But its default os_func
+     * layer takes a lock built on FreeRTOS, and under REFLEX_OWN_ENTRY that
+     * scheduler was never started — the board hung in this function before
+     * reaching a shell.
+     *
+     * Two earlier attempts missed this layer. Bracketing the ROM calls with
+     * Cache_Suspend_ICache/Cache_Resume_ICache left the store still reporting
+     * "initialised fresh", so the cache is not the whole story;
+     * spi_flash_guard_set(&g_flash_guard_no_os_ops) still hung, because those
+     * guards serve the legacy spi_flash_* API and esp_flash_* does not consult
+     * them. esp_flash_app_disable_os_functions swaps the chip's own os_func for
+     * esp_flash_noos_functions, which is the layer that was actually in the
+     * way. */
+    /* The default chip explicitly, not NULL. Unlike esp_flash_read and its
+     * siblings, this one does not substitute the default for a NULL chip — it
+     * dereferences straight away. Passing NULL faulted at mcause=0x7
+     * mtval=0x8, a store to the os_func field of a null struct, which the trap
+     * handler reported precisely. */
+    (void)esp_flash_app_disable_os_functions(esp_flash_default_chip);
+#endif
     uint32_t best_seq = 0;
     uint32_t best_sector = 0;
     bool found = false;
@@ -199,8 +280,11 @@ reflex_err_t reflex_kv_init(void) {
     }
 
     if (!found) {
-        (void)esp_rom_spiflash_unlock();
-        esp_rom_spiflash_erase_sector(KV_FLASH_BASE / KV_SECTOR_SIZE);
+        {
+            uint32_t ems = kv_intr_mask();
+            (void)esp_flash_erase_region(NULL, KV_FLASH_BASE, KV_SECTOR_SIZE);
+            kv_intr_restore(ems);
+        }
         kv_page_header_t hdr = { .magic = KV_MAGIC, .sequence = 1 };
         flash_write(KV_FLASH_BASE, &hdr, sizeof(hdr));
         s_active_sector = 0;
@@ -331,7 +415,11 @@ static reflex_err_t kv_compact(void) {
     }
 
     /* Erase new sector and write header */
-    esp_rom_spiflash_erase_sector(new_base / KV_SECTOR_SIZE);
+    {
+        uint32_t ems = kv_intr_mask();
+        (void)esp_flash_erase_region(NULL, new_base, KV_SECTOR_SIZE);
+        kv_intr_restore(ems);
+    }
     kv_page_header_t hdr = { .magic = KV_MAGIC, .sequence = s_active_seq + 1 };
     flash_write(new_base, &hdr, sizeof(hdr));
 

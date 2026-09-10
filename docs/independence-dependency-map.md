@@ -1223,6 +1223,143 @@ dozen capability regressions; that very nearly went into the record as "Reflex
 ownership costs everything". A run with silent commands is now marked
 untrustworthy as a whole rather than reported selectively.
 
+### The key-value store persists, and what it cost
+
+Chasing why received frames were rejected led here. The version counter said "a
+peer is running a different build"; moving it behind the Aura gate showed it had
+been counting anything on the band that happened to be
+`sizeof(goose_arc_packet_t)` bytes. The frames did not hold our key — and they
+should have, because both boards had been given one. `aura setkey` reported
+success through a fully rc-checked write and did not survive a reboot. Neither
+did anything else.
+
+Four attempts to fix it. Three were real bugs that were not the cause, and they
+are kept because each looked sufficient:
+
+1. **The store was writing into the `nvs` partition.** `KV_FLASH_BASE` was
+   `0x9000` with six 4 KB sectors, and `partitions.csv` puts `nvs` at `0x9000`
+   with size `0x6000` — the same six sectors. `phy_init` saving radio
+   calibration overwrote it every boot. Real, fixed, not the cause: it has its
+   own `reflexkv` partition now.
+2. **Entries were written at unaligned offsets with nothing checked.** The
+   packed header is five bytes and three separate appends put the key at offset
+   13 and the value at 21; `esp_rom_spiflash_write` needs a word-aligned
+   destination and its result was discarded. Real, fixed, not the cause.
+3. **`Cache_Suspend_ICache`/`Cache_Resume_ICache` around the ROM calls**,
+   interrupts masked, the window IRAM-resident and holding one ROM call. Still
+   "initialised fresh": suspending the instruction cache is not the whole of
+   what ESP-IDF's flash path does.
+4. **`esp_flash_*` with `spi_flash_guard_set(&g_flash_guard_no_os_ops)`**, which
+   ESP-IDF documents as "to be used when no OS is present". Hangs under
+   `REFLEX_OWN_ENTRY`: those guards serve the legacy `spi_flash_*` API, which
+   `esp_flash_*` never consults.
+
+What works is `esp_flash_*` plus two things for the case where Reflex owns the
+machine: `esp_flash_app_disable_os_functions` swaps the chip's own `os_func` for
+`esp_flash_noos_functions` — the layer the guard API could not reach — and the
+flash calls run with interrupts masked, because that no-OS layer suspends the
+cache without disabling interrupts. It assumes none are running; under Reflex
+the tick is, and a tick taken inside that window fetches `reflex_trap_handler`
+from flash, which is not there.
+
+The masking is conditional for the mirror-image reason. With FreeRTOS running,
+`esp_flash` keeps its app `os_func`, that takes a mutex, and a mutex cannot be
+waited on with interrupts masked — masking unconditionally deadlocked the
+independence build on its first configuration write, immediately after the same
+masking cured the own-entry hang. Both halves belong to one regime and are
+selected together.
+
+**Result:** `make parity-diff` reports **zero** capability regressions for the
+independence build *and* the own-entry build against stock ESP-IDF. Both clauses
+of the acceptance test, together, for the first time in four attempts.
+
+### What it cost, in the ledger rather than in silence
+
+Tier F grew from 1 to 3: `esp_flash.h` and `esp_flash_internal.h`. The ratchet
+refused it, correctly — that is its job — and the increase is recorded in
+`tools/independence_baseline.json` under `deliberate_increases`, with what, why,
+and the evidence.
+
+The reasoning is the whole argument of the parity work. The store used raw ROM
+access *specifically* to hold this tier at 1, and that is precisely why it lost
+every key it was given. The count was protecting a subsystem that did not work.
+Independence measured as subtraction rewarded that; independence measured as
+capability did not. Two of three Reflex-native replacements have now been found
+non-functional, and both were found by the capability measure, not the count.
+
+### Bedrock: what each build can actually do
+
+The ratchet counts ESP-IDF includes removed and forbids that number from
+growing. It measures subtraction, and it cannot see whether the Reflex code that
+replaced a dependency still does the job. Twice it has scored a replacement as
+progress while that replacement did nothing at all — `reflex_task_reflex.c`
+could not wake a task from a delay, and `reflex_kv_flash.c` persists nothing.
+Both lowered the count, both passed every gate. There are only three such swaps
+in the build, so that is two out of three.
+
+`tools/parity_check.py` measures the other half: the same battery of shell
+commands against two builds, diffed. Hardware only, deliberately — the host
+suite mocks flash as RAM, which is exactly what hid the persistence bug.
+
+Measured on one board, all three configurations in turn:
+
+| capability | default | independence | own_entry |
+|---|---|---|---|
+| boots, auth, shell | yes | yes | yes |
+| tick | 999 Hz | 998 Hz | **1000 Hz** |
+| Reflex task slots in use | 0 | 0 | **8** |
+| LED on/off | yes | yes | yes |
+| PWM attach/detach | yes | yes | yes |
+| temperature | yes | yes | yes |
+| LP heartbeat | yes | yes | yes |
+| mesh transmit | yes | yes | yes |
+| VM programs | 3 | 3 | 3 |
+| **persist across reboot** | **yes** | **no** | **no** |
+
+So with Reflex owning the entry point, the scheduler, the trap vector and the
+console — running the whole substrate on its own eight tasks — the system is at
+capability parity with the stock ESP-IDF build on every axis measured **except
+persistence**. The entire remaining functional gap of this work is one
+subsystem, and it is the one above.
+
+**The parity run also found a defect of its own**, which is the argument for
+having it. On the own-entry build every reading after `kernel tick` came back
+empty, and it reproduced exactly. Not transport: `kernel tick` calls
+`reflex_sched_tick_stop()`, and on a build where Reflex owns the scheduler that
+tick *is* the scheduler's clock. Stopping it left every task blocked forever
+with nothing to wake them — the machine died mid-command. A diagnostic that
+destroys the system it is diagnosing. It now stops only a tick it started
+itself.
+
+Red-teaming the tool then found three defects in it, all of the kind it exists
+to catch:
+
+- **A check that could not fail.** `pwm_attach` read `"orient=rising" in ask(s,
+  "bonsai exp4 status") or True`. `status` is not an exp4 subcommand, so the
+  match always failed and the `or True` reported success anyway. Every parity
+  run so far had reported PWM attach as working without testing it. It reads
+  the reply to `connect` now, and re-measured, it is genuinely true — the old
+  answer was right for no reason.
+- **Numeric regressions were invisible.** The verdict logic only compared
+  booleans and `None`, so `tick_hz` could fall from 999 to 100 and print "same".
+  Checks and observations are now declared separately: booleans and three
+  numeric rules (tick within 95% of baseline, no fewer VM programs, no
+  unreclaimed task slots) produce verdicts; temperature, heartbeat, mesh
+  counters and slot usage are reported as context and never given one, because
+  they legitimately differ between builds and moments. Mutation-checked against
+  a synthetic degraded run: all three numeric rules fire and the exit code
+  turns 1.
+- **It left state on the device.** The persistence probe writes a purpose and
+  never cleared it, so on a build where persistence works the board kept it —
+  observed later as a board still reading `purpose=photography`. It clears up
+  after itself now, and reports whether that worked.
+
+That near-miss is also why the tool distinguishes a silent command from an
+absent capability. It did not at first, and one dead connection reported as a
+dozen capability regressions; that very nearly went into the record as "Reflex
+ownership costs everything". A run with silent commands is now marked
+untrustworthy as a whole rather than reported selectively.
+
 ### Reflex's own key-value store keeps nothing, and that is why the mesh cannot pair
 
 Chasing why received frames were rejected led somewhere else entirely. The

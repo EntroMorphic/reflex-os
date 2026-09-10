@@ -51,6 +51,14 @@ TIERS = [
     ("esp_sleep",        "B", "Deep-sleep entry"),
     ("esp_heap_caps",    "B", "Heap reporting"),
     ("nvs",              "F", "Storage, partitions"),
+    # Reflex's own key-value store talks to flash through esp_flash_* rather
+    # than the ROM. It used raw esp_rom_spiflash_* precisely to avoid this
+    # dependency, and that is why it persisted nothing: raw ROM flash access
+    # with the cache enabled never reaches the medium. Tier F alongside nvs,
+    # because it is the same concern — storage — reached a different way, and
+    # because a store that silently loses everything is worth less than the
+    # count it was protecting. See docs/independence-dependency-map.md.
+    ("esp_flash",        "F", "Storage, partitions"),
     ("sdkconfig",        "F", "Build system"),
     ("esp_system",       "F", "Startup, reset"),
     ("esp_timer",        "F", "Startup, timers"),

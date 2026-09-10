@@ -50,7 +50,16 @@ else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_task_esp32c6.c")
 endif()
 
-set(REFLEX_PLATFORM_REQUIRES ieee802154)
+# spi_flash is for reflex_kv_flash.c, the 802.15.4 build's key-value store.
+#
+# It used raw esp_rom_spiflash_* to avoid any ESP-IDF component, and that choice
+# was the direct cause of it persisting nothing: raw ROM flash access while the
+# CPU runs XIP from the same flash does not reach the medium. esp_flash_* does,
+# and where Reflex owns the machine the store swaps in esp_flash's own no-OS
+# os_func layer so that path needs no scheduler. The dependency is the price of
+# a store that keeps what it is given; it is recorded in
+# docs/independence-dependency-map.md rather than hidden.
+set(REFLEX_PLATFORM_REQUIRES ieee802154 spi_flash)
 if(NOT CONFIG_REFLEX_RADIO_802154)
     list(APPEND REFLEX_PLATFORM_REQUIRES nvs_flash)
 endif()

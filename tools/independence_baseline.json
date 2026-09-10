@@ -4,6 +4,17 @@
     "B": 2,
     "C": 4,
     "D": 1,
-    "F": 1
-  }
+    "F": 3
+  },
+  "deliberate_increases": [
+    {
+      "tier": "F",
+      "from": 1,
+      "to": 3,
+      "what": "esp_flash.h and esp_flash_internal.h in platform/esp32c6/reflex_kv_flash.c",
+      "why": "Reflex's own key-value store used raw esp_rom_spiflash_* to hold this tier at 1, and that is exactly why it persisted nothing: raw ROM flash access while the CPU executes XIP from the same flash never reaches the medium. The count was protecting a store that silently lost every key it was given \u2014 aura pairing impossible, purpose gone by the next boot. Independence measured as subtraction rewarded that; make parity-diff, which measures capability, did not.",
+      "evidence": "With the dependency: parity-diff reports 0 capability regressions for both the independence build and the own-entry build against stock ESP-IDF. Without it: 1, persistence.",
+      "decided": "2026-09-09"
+    }
+  ]
 }
