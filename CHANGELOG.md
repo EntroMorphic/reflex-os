@@ -33,6 +33,8 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Fixed
 
+- **Every frame this mesh has transmitted was DMA'd out of a released stack frame.** `reflex_radio_send` built its 127-byte frame in a local array and passed the pointer to `esp_ieee802154_transmit`, which does not copy — `tx_init` stores the pointer, programs `TXDMA_ADDR` and returns, and the radio reads that buffer over the following millisecond. The buffer is dead the moment the call returns. It worked only because nothing happened to reuse those bytes in time; the failure mode is an occasional corrupted frame, indistinguishable from interference. Now a static aligned buffer, with a `s_tx_busy` flag that is not a lock but an assertion that sending is still serialised. Found by reading the transmit path for the Tier D work, not from a symptom.
+
 - **The mesh's wire format had an uninitialised byte in every frame.** `FRAME_HDR_LEN` was 10 where the 802.15.4 header built here is 9 bytes, so the payload landed at `frame[11]` and `frame[10]` was never written yet transmitted, with the length byte one too large to match. Both ends used the same constant, so the errors cancelled and Reflex talked to Reflex perfectly — and to nothing else, since a compliant receiver reads that byte as the first payload octet. It leaked stack memory over the air until the transmit buffer became static, which incidentally made the byte a stable zero.
 
   Fixed with a peer on the bench, and left wrong for exactly one commit for that reason: both ends derive their layout from the one constant, and altering a working protocol with no second board to prove it against is how a working mesh becomes a silent one. Verified immediately on two boards — `rx_done=20` against `tx_done=19` over 90 s with the corrected format. To be precise about what changed: Reflex↔Reflex worked before and works now; the frame is now standards-correct and one byte shorter.
@@ -40,8 +42,6 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 ### Known gaps
 
 - **`mesh peer ls` reports a peer as stale while frames from it are arriving.** Observed with two paired boards: `rx_discover=5` over the preceding 60 s, and the peer listed as *"stale (last: 71.6s ago)"*. DISCOVER does not appear to refresh the peer's last-seen timestamp. A mesh-layer defect, not the MAC's — noticed while proving the radio, and recorded rather than chased.
-
-- **Every frame this mesh has transmitted was DMA'd out of a released stack frame.** `reflex_radio_send` built its 127-byte frame in a local array and passed the pointer to `esp_ieee802154_transmit`, which does not copy — `tx_init` stores the pointer, programs `TXDMA_ADDR` and returns, and the radio reads that buffer over the following millisecond. The buffer is dead the moment the call returns. It worked only because nothing happened to reuse those bytes in time; the failure mode is an occasional corrupted frame, indistinguishable from interference. Now a static aligned buffer, with a `s_tx_busy` flag that is not a lock but an assertion that sending is still serialised. Found by reading the transmit path for the Tier D work, not from a symptom.
 
 ### Removed
 
@@ -137,7 +137,7 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Known gaps
 
-- `mesh status` reports `rx=0` while `mesh stat` reports nine frames received and rejected. Two counters disagreeing about whether anything arrived reads as a dead mesh when it is a live unpaired one. A reporting gap, not an independence one; open.
+- ~~`mesh status` reports `rx=0` while `mesh stat` reports nine frames received and rejected.~~ **Retracted: this is not a defect.** `mesh status`'s `rx` is the sum of the *accepted* op counters (`rx_sync + rx_query + rx_advertise + rx_posture + rx_mmio_sync + rx_discover`), and a frame that fails the aura check never reaches any of them. `rx=0` alongside `aura_fail=9` is two counters correctly reporting different things: authenticated arcs, and rejections. Confirmed by pairing two boards — `rx` went to 6 and `aura_fail` to 0. Logged as a gap on a misreading; the only fair criticism is that an unpaired mesh is hard to tell from a dead one at a glance, which is legibility, not correctness.
 
 - **Half of Tier C's "floor" was not a floor: `intr_handler_set` is gone from the own-entry build.** Tier C on the own-entry path drops **4 → 2**, and the on-path total **10 → 8**. The previous entry claimed this dependency could end "only by giving up the safety check on the hand-off." That was wrong. It was structural to one *ordering*, not to the design.
 
