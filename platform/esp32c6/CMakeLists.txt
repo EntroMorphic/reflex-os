@@ -94,7 +94,7 @@ idf_component_register(SRCS ${REFLEX_PLATFORM_SRCS}
 
 # Coexistence may only be compiled out when nothing else uses the radio.
 #
-# The blob it removes is 27 of the image's 42 blob symbols and 10,130 bytes, and
+# The blob it removes is 10,130 bytes and 5 of the image's 19 blob symbols, and
 # reflex_radio_802154.c replaces its whole contribution to the receive path with
 # one COEX_PTI register write. That substitution is a fixed priority, and a fixed
 # priority is only correct when there is nothing to arbitrate against.

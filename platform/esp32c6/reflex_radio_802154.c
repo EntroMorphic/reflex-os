@@ -7,9 +7,9 @@
  *
  * This file was headed "blob-free", and that was wrong. Measured with
  * make blob-check, this backend still links libphy.a (42,385 bytes) and
- * libbtbb.a (6,181) across 15 symbols, for RF calibration and analog bring-up.
+ * libbtbb.a (6,181) across 14 symbols, for RF calibration and analog bring-up.
  * What it avoids is the Wi-Fi blob: the ESP-NOW image carries 804,754 bytes
- * across 151 symbols, of which libpp.a is 188,257 on its own. Sixteen times
+ * across 139 symbols, of which libpp.a is 188,257 on its own. Sixteen times
  * less unreadable code is the true claim and a better one than the false.
  *
  * Build with CONFIG_REFLEX_RADIO_802154=1 to use this instead of
@@ -169,8 +169,8 @@ reflex_err_t reflex_radio_init(void) {
      *
      * Without this the radio transmits and receives nothing, and it took a
      * bisection to find out why. Building with
-     * CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n drops libcoexist.a entirely — 27 of
-     * the image's 42 blob symbols and 10,130 bytes — and the radio still
+     * CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n drops libcoexist.a entirely —
+     * 10,130 bytes and 5 of the image's 19 blob symbols — and the radio still
      * initialises, still reports the right channel and PAN ID, and still
      * transmits. It simply never receives a frame. Measured twice against a
      * peer board: 0 frames with coex off, 10 and 12 with it on, transmission
@@ -260,6 +260,7 @@ void reflex_radio_reg_snapshot(reflex_radio_reg_snapshot_t *out) {
     out->panid = REFLEX_REG_READ(REFLEX_154_INF0_PAN_ID_REG);
     out->short_addr = REFLEX_REG_READ(REFLEX_154_INF0_SHORT_ADDR_REG);
     out->ctrl_cfg = REFLEX_REG_READ(REFLEX_154_CTRL_CFG_REG);
+    out->coex_pti = REFLEX_REG_READ(REFLEX_154_COEX_PTI_REG);
     out->event_en = REFLEX_REG_READ(REFLEX_154_EVENT_EN_REG);
     out->event_status = REFLEX_REG_READ(REFLEX_154_EVENT_STATUS_REG);
     out->rx_status = REFLEX_REG_READ(REFLEX_154_RX_STATUS_REG);
@@ -288,6 +289,26 @@ void reflex_radio_reg_dump(uint32_t *out, int words) {
     }
 }
 
-void reflex_radio_set_coex_pti(uint32_t value) {
+reflex_err_t reflex_radio_set_coex_pti(uint32_t value) {
+#if CONFIG_ESP_COEX_SW_COEXIST_ENABLE
+    /* The blob owns this register here, and rewrites it on every scene change
+     * (IEEE802154_SET_TXRX_PTI on transmit, receive and the timed variants).
+     * A write from here would survive until the next one of those and then
+     * vanish, which is a worse failure than refusing: it would look like it
+     * took effect. */
+    (void)value;
+    return REFLEX_ERR_INVALID_STATE;
+#else
+    /* Only the three defined fields. The register is 32 bits wide and 23 of
+     * them are reserved; writing into reserved bits of a peripheral nobody has
+     * documentation for is not a diagnostic, it is a guess. */
+    const uint32_t writable = (REFLEX_154_COEX_PTI_MASK << REFLEX_154_COEX_PTI_S) |
+                              (REFLEX_154_COEX_ACK_PTI_MASK << REFLEX_154_COEX_ACK_PTI_S) |
+                              REFLEX_154_CLOSE_RF_SEL;
+    if (value & ~writable) {
+        return REFLEX_ERR_INVALID_ARG;
+    }
     REFLEX_REG_WRITE(REFLEX_154_COEX_PTI_REG, value);
+    return REFLEX_OK;
+#endif
 }

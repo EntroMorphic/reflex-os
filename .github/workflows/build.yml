@@ -213,8 +213,8 @@ jobs:
         run: make independence-own-entry
       - name: Ratchet the vendor blobs
         # check_independence.py counts ESP-IDF *source* dependencies and cannot
-        # see a linked binary at all. Disabling coexistence removed 27 blob
-        # symbols and 10,130 bytes without touching a single include, and the
+        # see a linked binary at all. Disabling coexistence removed 10,130
+        # bytes and 5 blob symbols without touching a single include, and the
         # independence ratchet reported no movement for it. This is the measure
         # that would have.
         run: |

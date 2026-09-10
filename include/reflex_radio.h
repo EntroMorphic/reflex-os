@@ -82,6 +82,7 @@ typedef struct {
     uint32_t panid;
     uint32_t short_addr;
     uint32_t ctrl_cfg;
+    uint32_t coex_pti; /**< COEX_PTI: load-bearing for receive, see the ledger */
     uint32_t event_en;
     uint32_t event_status;
     uint32_t rx_status;
@@ -108,9 +109,17 @@ void reflex_radio_reg_dump(uint32_t *out, int words);
  * the two builds is this one (0x83 with coex, 0x11 without). This exists to
  * find out whether that value is the whole difference.
  *
- * No-op on backends with no 802.15.4 MAC.
+ * Refused, rather than performed, in two cases. On a backend with no such
+ * MAC there is no register to write. And in a build where coexistence *is*
+ * compiled in, the blob owns this register and rewrites it on every transmit
+ * and receive scene change — a write from here would be overwritten at an
+ * unpredictable moment, which is worse than not writing at all because it looks
+ * like it worked. Bits outside the three defined fields are refused too.
+ *
+ * @return REFLEX_OK, REFLEX_ERR_NOT_SUPPORTED, or REFLEX_ERR_INVALID_STATE /
+ *         REFLEX_ERR_INVALID_ARG.
  */
-void reflex_radio_set_coex_pti(uint32_t value);
+reflex_err_t reflex_radio_set_coex_pti(uint32_t value);
 
 #ifdef __cplusplus
 }

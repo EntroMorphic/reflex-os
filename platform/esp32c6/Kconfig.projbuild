@@ -7,7 +7,7 @@ menu "Reflex OS"
 
             Neither is blob-free; the difference is how much vendor binary
             ships. Measured by make blob-check: ESP-NOW links 804,754 bytes
-            across 151 symbols, 802.15.4 links 48,566 across 15. The 802.15.4
+            across 139 symbols, 802.15.4 links 48,566 across 14. The 802.15.4
             path avoids the Wi-Fi blob entirely (libpp.a is 188,257 bytes on
             its own) and keeps libphy.a and libbtbb.a for RF calibration and
             analog bring-up, which no register documentation would let Reflex

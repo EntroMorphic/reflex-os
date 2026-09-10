@@ -195,6 +195,11 @@ REGS = [
     # Not optional, and that is the measurement that cost the most to get:
     # a build with CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n receives nothing at all.
     ("REFLEX_154_COEX_PTI_REG",          "IEEE802154_COEX_PTI_REG",          "IEEE802154", "COEX_PTI",          None, "coexistence traffic priority; RX dies without it"),
+    # A bit mask, so it belongs here and not in WIDTH_MASKS: that list yields
+    # (1 << width) - 1, which for a 1-bit field is 1, and ESP-IDF's macro is
+    # BIT(8). The bridge caught exactly that divergence when it was put in the
+    # wrong list — which is the whole reason the bridge exists.
+    ("REFLEX_154_CLOSE_RF_SEL",          "IEEE802154_CLOSE_RF_SEL",          "IEEE802154", "COEX_PTI", "CLOSE_RF_SEL", "the only other defined bit of COEX_PTI"),
     ("REFLEX_154_TX_ABORT_INTR_CTRL_REG","IEEE802154_TX_ABORT_INTERRUPT_CONTROL_REG","IEEE802154","TX_ABORT_INTERRUPT_CONTROL",None,""),
     ("REFLEX_154_ENHANCE_ACK_CFG_REG",   "IEEE802154_ENHANCE_ACK_CFG_REG",   "IEEE802154", "ENHANCE_ACK_CFG",   None, ""),
     ("REFLEX_154_SEC_CTRL_REG",          "IEEE802154_SEC_CTRL_REG",          "IEEE802154", "SEC_CTRL",          None, "touched by the transmit path even unused"),

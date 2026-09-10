@@ -80,9 +80,9 @@ idf.py menuconfig → Reflex OS → Radio backend
 Neither is blob-free, and this table used to say the 802.15.4 backend was —
 "fully independent of ESP-IDF". It is not. Measured with `make blob-check`, the
 802.15.4 image still links `libphy.a` (42,385 bytes) and `libbtbb.a` (6,181) for
-RF calibration and analog bring-up, across 15 symbols. What it avoids is the
+RF calibration and analog bring-up, across 14 symbols. What it avoids is the
 Wi-Fi blob: `libpp.a` alone is 188,257 bytes, and the ESP-NOW image carries
-804,754 bytes across 151 symbols. Sixteen times less unreadable code is the
+804,754 bytes across 139 symbols. Sixteen times less unreadable code is the
 honest claim, and it is a good one; "blob-free" was not true.
 
 ## Shell

@@ -57,6 +57,7 @@ void reflex_radio_reg_dump(uint32_t *out, int words) {
     memset(out, 0, (size_t)words * sizeof(uint32_t));
 }
 
-void reflex_radio_set_coex_pti(uint32_t value) {
+reflex_err_t reflex_radio_set_coex_pti(uint32_t value) {
     (void)value; /* no 802.15.4 MAC on this backend */
+    return REFLEX_ERR_NOT_SUPPORTED;
 }

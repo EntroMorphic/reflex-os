@@ -3,7 +3,7 @@
 
 `check_independence.py` counts ESP-IDF *source* dependencies — includes and
 local externs — and it cannot see a binary at all. That gap is not theoretical:
-disabling coexistence removed 27 of the image's 42 blob symbols and 10,130 bytes
+disabling coexistence removed 10,130 bytes and 5 of the image's 19 blob symbols
 of `libcoexist.a` without changing a single include, so the independence ratchet
 reported no movement whatsoever for a real reduction in borrowed vendor code.
 This is the measure that sees it.
@@ -17,9 +17,17 @@ shows up as an unrecognised increase rather than as silence.
 
 Two numbers per build, both ratcheted:
 
-  symbols  distinct blob-defined symbols that source objects in the image
-           reference. The honest measure of coupling: how many places Reflex's
-           image reaches into code nobody can read.
+  symbols  distinct blob-defined symbols referenced by objects that actually
+           contribute to the image. The honest measure of coupling: how many
+           places the firmware reaches into code nobody can read.
+
+           "Actually contribute" is load-bearing and was got wrong first time.
+           This walked every .obj in the build directory — 1,016 of them for the
+           own-entry build, of which the linker keeps 312. The other 704 are
+           compiled and discarded, and counting their undefined symbols inflated
+           the number by 1 here, 5 for build_independence and 7 for the default
+           build's phy/btbb/coex subset. A count that moves when a discarded
+           object changes is not measuring what ships.
   bytes    how much of those archives the linker actually kept. The measure of
            how much unreadable code ships.
 
@@ -37,6 +45,12 @@ DEFAULT_BUILD = os.path.join(ROOT, "build_own_entry")
 NM = "riscv32-esp-elf-nm"
 
 
+def _under(path, directory):
+    """True when `path` is inside `directory` — by path prefix, not substring."""
+    d = os.path.realpath(directory)
+    return path == d or path.startswith(d + os.sep)
+
+
 def blob_archives(map_path, idf):
     """Prebuilt archives this link pulled in from the ESP-IDF tree."""
     text = open(map_path, errors="replace").read()
@@ -45,13 +59,32 @@ def blob_archives(map_path, idf):
         p = m.group(1)
         if not p.startswith("/"):
             continue
-        # Built by this project, not shipped by the vendor.
-        if os.path.realpath(ROOT) in os.path.realpath(p):
+        # Built by this project, not shipped by the vendor. Prefix, not
+        # containment: `ROOT in path` also matches a sibling whose name merely
+        # begins with ROOT — /x/reflex-os-vendor/lib/libphy.a would be taken for
+        # ours and a real blob silently dropped from the count.
+        rp = os.path.realpath(p)
+        if _under(rp, ROOT):
             continue
-        if idf and os.path.realpath(idf) not in os.path.realpath(p):
+        if idf and not _under(rp, idf):
             continue
         found[os.path.basename(p)] = p
     return found, text
+
+
+def linked_objects(map_text):
+    """Basenames of the objects the linker actually kept.
+
+    The map lists a contributing input on each output-section line, either as a
+    bare path or as archive(member). Anything not named here was compiled and
+    discarded, and its undefined symbols are not couplings of the image.
+    """
+    kept = set()
+    for m in re.finditer(r'^\s+\.\S+\s+0x[0-9a-f]+\s+0x[0-9a-f]+\s+(\S+)', map_text, re.M):
+        p = m.group(1)
+        kept.add(os.path.basename(p.split("(")[-1].rstrip(")")) if "(" in p
+                 else os.path.basename(p))
+    return kept
 
 
 def linked_bytes(map_text, archive_name):
@@ -71,12 +104,12 @@ def defined_symbols(path):
     return syms
 
 
-def required_symbols(build, defined):
-    """Blob symbols that objects in this build leave undefined."""
+def required_symbols(build, defined, kept):
+    """Blob symbols left undefined by objects that reach the image."""
     need = {}
     for dirpath, _dirs, files in os.walk(build):
         for f in files:
-            if not f.endswith(".obj"):
+            if not f.endswith(".obj") or f not in kept:
                 continue
             out = subprocess.run([NM, "-u", os.path.join(dirpath, f)],
                                  capture_output=True, text=True).stdout
@@ -96,7 +129,7 @@ def measure(build, idf):
     for name, path in archives.items():
         for s in defined_symbols(path):
             defined.setdefault(s, name)
-    need = required_symbols(build, defined)
+    need = required_symbols(build, defined, linked_objects(map_text))
     per = {}
     for name in archives:
         per[name] = {

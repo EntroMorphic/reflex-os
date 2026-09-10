@@ -1353,6 +1353,77 @@ hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
 forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
 this entry.
 
+### The blob symbol count was inflated, and I published it everywhere (2026-09-10)
+
+Red-teaming the entry below found that `check_blobs.py` counted symbols
+referenced by objects the linker had thrown away.
+
+It walked every `.obj` in the build directory. For the own-entry build that is
+**1,016 objects, of which the linker keeps 312** — the other 704 are compiled and
+discarded, and their undefined symbols are not couplings of anything that ships.
+Corrected to count only objects the map names:
+
+| | published | measured |
+|---|---|---|
+| 802.15.4, coex on | 58,696 bytes, **42** symbols | 58,696 bytes, **19** symbols |
+| 802.15.4, coex off | 48,566 bytes, **15** symbols | 48,566 bytes, **14** symbols |
+| ESP-NOW / Wi-Fi | 804,754 bytes, **151** symbols | 804,754 bytes, **139** symbols |
+| what coex removes | **27** symbols | **5** symbols |
+
+The byte figures were always right — they come from the map, which lists only
+what was linked. Every symbol figure was wrong, and the headline "42 blob
+symbols → 15" should have read **19 → 14**.
+
+**The reduction is real and unchanged in substance**: `libcoexist.a` is gone,
+10,130 bytes and 5 symbols with it, with 0 capability regressions. What was
+wrong was the size of the surrounding numbers, not the direction or the cause.
+
+The cost of getting it wrong was not one number. It was nine files — the README
+radio table, the Kconfig help, `reflex_radio_802154.c`, `main.c`'s boot log
+comment, both `sdkconfig.defaults` files, the Makefile, the CI workflow, the
+changelog and this ledger — because the same-commit doc-sync discipline
+propagated an unverified figure faithfully to every one of them. Discipline
+about *where* a number goes is no substitute for checking the number.
+
+Two more defects in the same tool, both fixed with tests:
+
+- **A sibling directory counted as this project.** `realpath(ROOT) in realpath(p)`
+  is substring containment, so `/x/reflex-os-vendor/lib/libphy.a` matched
+  `/x/reflex-os` and a genuine vendor blob would have been dropped from the
+  count. A blob ratchet that *under*-counts is worse than no ratchet. Now a path
+  prefix.
+
+- **`make tools` was a gate that could not fail.** `tools/` is a directory, so
+  make finds it up to date and exits 0 without running anything. It was listed
+  as a gate and reported as passing in several sessions. The real target is
+  `tools-test`, which does run and does pass — nothing was hidden — but the
+  reporting was false. `tools` is now `.PHONY` and aliased to `tools-test`.
+
+And a hazard in the diagnostic that found the coexistence result: `mesh pti`
+wrote `COEX_PTI` unconditionally. In a build where coexistence *is* compiled in,
+the blob rewrites that register on every transmit and receive scene change, so a
+write from the shell would survive until the next one and then vanish — worse
+than refusing, because it would look like it worked. The backend now refuses
+that case, refuses values with bits outside the three defined fields, and the
+shell reads the register back rather than reporting what was asked for. `mesh
+regs` prints `coex_pti` decoded, since it decides whether the radio receives.
+
+Sustained receive with the static PTI, checked because one register written once
+at init invites the question of whether anything later overwrites it — six
+minutes against a live peer, `rx_aura_fail` tracking the peer's transmits one
+for one, `COEX_PTI` still `0x83`:
+
+```
+t+1min  tx 12  rx_aura_fail 13   070: 00000083
+t+3min  tx 38  rx_aura_fail 39   070: 00000083
+t+6min  tx 77  rx_aura_fail 78   070: 00000083
+```
+
+With coexistence compiled out, `IEEE802154_SET_TXRX_PTI` expands to nothing and
+`ieee802154_ll_disable_coex()` is reached only from `mac_init`, before Reflex's
+write — so there is no path that rewrites it, which is what the soak confirms
+rather than assumes.
+
 ### Tier D: measuring the landscape found a blob that was not needed (2026-09-10)
 
 Tier D is still 1 — `esp_ieee802154.h` — and no MAC code exists. But the
@@ -1370,10 +1441,10 @@ vendor archives define:
 
 | archive | bytes linked | symbols referenced |
 |---|---|---|
-| `libphy.a` | 42,385 | 13 |
+| `libphy.a` | 42,385 | 12 |
 | `libbtbb.a` | 6,181 | 2 |
-| `libcoexist.a` | 10,130 | **27** |
-| | **58,696** | **42** |
+| `libcoexist.a` | 10,130 | **5** |
+| | **58,696** | **19** |
 
 That third row was the surprise. `libcoexist.a` is a binary blob, it was 27 of
 42 symbols, and it is there because of a Kconfig option.
@@ -1410,7 +1481,7 @@ So coexistence's entire contribution to this receive path is one register value.
 the two field constants rather than the magic number, and two cold boots receive
 12 frames each with `libcoexist.a` absent from the image.
 
-**Result: 42 blob symbols → 15, 58,696 bytes → 48,566, no capability lost.**
+**Result: 19 blob symbols → 14, 58,696 bytes → 48,566, no capability lost.**
 `make parity-diff` reports 0 regressions. This is a real reduction in borrowed
 vendor code, and Tier D's include count did not move by one.
 
@@ -1427,7 +1498,7 @@ both 802.15.4 builds, once in the default.
 
 ### The independence ratchet cannot see a binary
 
-Removing 27 blob symbols and 10 KB changed no include, so
+Removing 10,130 bytes and 5 blob symbols changed no include, so
 `check_independence.py` reported no movement at all. It counts ESP-IDF *source*
 coupling and is blind to linked vendor binaries — the inverse of this ledger's
 recurring failure: three times the measure improved while the system did not,
@@ -1438,9 +1509,9 @@ configuration in CI alongside the independence check:
 
 | configuration | blob bytes | blob symbols |
 |---|---|---|
-| `build` (ESP-NOW / Wi-Fi) | 804,754 | 151 |
-| `build_independence` | 48,566 | 15 |
-| `build_own_entry` | 48,566 | 15 |
+| `build` (ESP-NOW / Wi-Fi) | 804,754 | 139 |
+| `build_independence` | 48,566 | 14 |
+| `build_own_entry` | 48,566 | 14 |
 
 A blob is defined structurally rather than by a list: an archive the link pulls
 from the ESP-IDF tree rather than one the build produced. A new vendor binary in
@@ -1456,7 +1527,7 @@ symbols, for RF calibration and analog bring-up that no register documentation
 would let Reflex replace. It is not blob-free and never was.
 
 What is true is better than what was claimed was true: the Wi-Fi path carries
-804,754 bytes across 151 symbols, `libpp.a` alone being 188,257. **Sixteen times
+804,754 bytes across 139 symbols, `libpp.a` alone being 188,257. **Sixteen times
 less unreadable code** is the honest claim. Corrected in the README, the Kconfig
 help, `reflex_radio.h`, `reflex_radio_802154.c`, the boot log, the user manual,
 `boot.md` and the independence PRD.

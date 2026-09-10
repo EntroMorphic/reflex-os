@@ -1874,23 +1874,38 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
         printf("mesh posture: state=%d weight=%u rc=0x%x\n", state, weight, rc); outcome_rc(rc);
     } else if (argc >= 3 && strcmp(argv[1], "pti") == 0) {
         /* Diagnostic, and it exists because of a measurement rather than a
-         * hunch. Building with CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n removes 27
-         * blob symbols and 10 KB and stops the radio receiving — measured
-         * twice, with transmission unaffected — and COEX_PTI is the only
-         * configuration register that differs between the two builds. This
-         * writes it, to find out whether that value is the whole difference. */
-        reflex_radio_reg_snapshot_t chk;
-        reflex_radio_reg_snapshot(&chk);
-        if (!chk.valid) {
-            printf("radio pti: this backend has no 802.15.4 MAC\n");
-            outcome_rc(REFLEX_ERR_NOT_SUPPORTED);
+         * hunch. Building with CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n drops
+         * libcoexist.a — 10,130 bytes and 5 of the image's 19 blob symbols —
+         * and stops the radio receiving, measured twice with transmission
+         * unaffected. COEX_PTI is the only configuration register that differs
+         * between the two builds, and writing it here is what established that
+         * the blob's whole contribution to the receive path is one value.
+         *
+         * The backend refuses the write in a build where coexistence is
+         * compiled in, because there the blob rewrites this register on every
+         * scene change and a write from here would silently vanish. */
+        unsigned long v = strtoul(argv[2], NULL, 0);
+        reflex_err_t prc = reflex_radio_set_coex_pti((uint32_t)v);
+        if (prc == REFLEX_OK) {
+            /* Read it back rather than reporting what was asked for: the
+             * register has reserved bits and a peripheral is entitled to
+             * ignore a write. Saying "wrote X" when the hardware holds Y is
+             * how a diagnostic becomes a second source of wrong answers. */
+            reflex_radio_reg_snapshot_t after;
+            reflex_radio_reg_snapshot(&after);
+            printf("coex_pti <- 0x%08lx, reads back 0x%08lx%s\n", v, (unsigned long)after.coex_pti,
+                   after.coex_pti == (uint32_t)v ? "" : "  <-- MISMATCH");
+        } else if (prc == REFLEX_ERR_INVALID_STATE) {
+            printf("coex_pti: refused, coexistence is compiled in and owns this "
+                   "register\n");
+        } else if (prc == REFLEX_ERR_INVALID_ARG) {
+            printf("coex_pti: refused, 0x%08lx sets bits outside COEX_PTI, "
+                   "COEX_ACK_PTI and CLOSE_RF_SEL\n",
+                   v);
         } else {
-            unsigned long v = strtoul(argv[2], NULL, 0);
-            reflex_radio_set_coex_pti((uint32_t)v);
-            reflex_radio_reg_snapshot(&chk);
-            printf("coex_pti <- 0x%08lx\n", v);
-            outcome_rc(REFLEX_OK);
+            printf("coex_pti: this backend has no 802.15.4 MAC\n");
         }
+        outcome_rc(prc);
     } else if (argc >= 3 && strcmp(argv[1], "regs") == 0 && strcmp(argv[2], "all") == 0) {
         /* The whole peripheral. Ground truth for a Reflex-owned MAC: the state
          * ESP-IDF's driver produces for the configuration Reflex asks for. */
@@ -1940,6 +1955,13 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
             printf("  ctrl_cfg=0x%08lx event_en=0x%08lx event_status=0x%08lx\n",
                    (unsigned long)r.ctrl_cfg, (unsigned long)r.event_en,
                    (unsigned long)r.event_status);
+            /* Printed because it decides whether this radio receives at all:
+             * 0x83 with coexistence, 0x11 without, and 0x11 receives nothing. */
+            printf(
+                "  coex_pti=0x%08lx (pti=%lu hw_ack_pti=%lu)\n", (unsigned long)r.coex_pti,
+                (unsigned long)((r.coex_pti >> REFLEX_154_COEX_PTI_S) & REFLEX_154_COEX_PTI_MASK),
+                (unsigned long)((r.coex_pti >> REFLEX_154_COEX_ACK_PTI_S) &
+                                REFLEX_154_COEX_ACK_PTI_MASK));
             printf("  rx_status=0x%08lx tx_status=0x%08lx\n", (unsigned long)r.rx_status,
                    (unsigned long)r.tx_status);
             printf("  txdma=0x%08lx rxdma=0x%08lx\n", (unsigned long)r.txdma_addr,

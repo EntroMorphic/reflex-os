@@ -8,7 +8,7 @@ RELEASE_DIR := release/$(RELEASE_NAME)
 .PHONY: build flash release clean test tasm-test loomc-test tools-test hw-test doc-links \
         format format-check format-diff warn-check lock-check independence independence-check tick-measure ci-lint soc-header soc-bridge \
         own-entry-build parity-base parity-other parity-diff independence-own-entry \
-        blob-check blob-check-all \
+        blob-check blob-check-all blobs-test \
         soc-check rom-check idf-build verify config-reset docs atlas
 
 build:
@@ -49,7 +49,13 @@ tasm-test:
 loomc-test:
 	python3 tests/host/test_loomc.py
 
-tools-test: tasm-test loomc-test independence-test
+# `make tools` is a trap: tools/ is a directory, so make finds it up to date and
+# exits 0 without running anything. It was used as a gate in several sessions and
+# reported as passing every time. Aliased so the mistake cannot be silent.
+.PHONY: tools
+tools: tools-test
+
+tools-test: tasm-test loomc-test independence-test blobs-test
 
 # What ESP-IDF code is actually in the image, which counting #include lines
 # cannot tell you: a driver whose objects the linker discards is still counted,
@@ -113,6 +119,9 @@ parity-diff:
 independence-test:
 	@python3 tools/test_check_independence.py
 
+blobs-test:
+	@python3 tools/test_check_blobs.py
+
 # Shell validation against a flashed board. Non-destructive: never provisions
 # or clears an Aura key, never reboots, restores role/vitals/purpose.
 #   make hw-test PORT=/dev/cu.usbmodem1101
@@ -155,8 +164,8 @@ independence-check:
 # The measure check_independence.py cannot make.
 #
 # It counts ESP-IDF source dependencies — includes and local externs — and is
-# blind to a linked binary. Disabling coexistence removed 27 blob symbols and
-# 10,130 bytes without touching a single include, and the independence ratchet
+# blind to a linked binary. Disabling coexistence removed 10,130 bytes and 5
+# blob symbols without touching a single include, and the independence ratchet
 # reported no movement at all for it. This ratchets the vendor blobs instead.
 #
 # Needs a build and the ESP-IDF environment; without either it says so and
