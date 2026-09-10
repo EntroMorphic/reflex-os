@@ -1254,8 +1254,30 @@ after a reset. The pairing procedure the user manual documents cannot work.
   `kv_entry_span` rule is shared by the writer and all three readers so the walk
   cannot disagree with the append.
 
-**Neither was the whole cause, and the remainder is recorded rather than
-guessed.** With a dedicated partition, alignment fixed, checked writes and
+**The remaining cause is now proved rather than inferred — by fixing it, and by
+the fix being unshippable.** Swapping the three flash primitives for
+`esp_flash_read`/`esp_flash_write`/`esp_flash_erase_region`, which disable the
+cache around the operation, made the store work: `resumed` instead of
+`initialised fresh`, the write offset growing across boots, the aura key
+loading, and `make parity-diff` falling from one capability regression to
+**zero**. So the diagnosis was right.
+
+It is reverted, because it takes ESP-IDF's flash lock and that lock is built on
+FreeRTOS. Under `REFLEX_OWN_ENTRY` the scheduler was never started, and the
+board hangs in `reflex_kv_init` before reaching a shell — verified on hardware,
+and verified to boot again after the revert. Persistence for the ordinary builds
+bought with a dead board for the one where Reflex owns the machine is not a
+trade worth making, and shipping a hang is worse than shipping the gap.
+
+The fix is therefore neither obvious option: bracket the ROM calls with an
+interrupt and cache disable that does not depend on FreeRTOS — the ROM `Cache_*`
+entry points — with every instruction executed while the cache is off resident
+in IRAM, which is why ESP-IDF marks that whole path `IRAM_ATTR`. Contained work,
+with a clear test on both configurations: `make parity-diff` must reach zero on
+the independence build *and* the own-entry build must still reach a prompt.
+
+**Neither of the two defects above was the whole cause, and the rest is recorded
+rather than guessed.** With a dedicated partition, alignment fixed, checked writes and
 `esp_rom_spiflash_unlock` called first, a header written at boot reads back
 correctly *in the same boot* and is gone after a reset — `reflex_kv_init`
 reports `initialised fresh` every time. Write and read agree within a boot

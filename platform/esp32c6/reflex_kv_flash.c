@@ -3,7 +3,8 @@
  * @brief Reflex KV — raw flash backend using ROM SPI flash functions.
  *
  * Simple page-based key-value store on a dedicated flash partition.
- * Uses esp_rom_spiflash_* (mask ROM, zero ESP-IDF component deps).
+ * Uses esp_rom_spiflash_* (mask ROM, zero ESP-IDF component deps) — see the
+ * KNOWN DEFECT below, which that choice is the direct cause of.
  *
  * Layout (one 4KB sector):
  *   [4B magic][4B sequence][entries...][0xFF fill]
@@ -17,36 +18,34 @@
 
 /* KNOWN DEFECT: nothing written here survives a reboot.
  *
- * Established on hardware, and narrowed by elimination rather than argument:
+ * The cause is no longer a hypothesis. It is raw ROM flash access issued while
+ * the CPU executes XIP out of the same flash with the cache enabled: write and
+ * read agree inside one boot because both go through that path, and the medium
+ * never receives the data. Proved by making it work — swapping these three
+ * primitives for esp_flash_read/esp_flash_write/esp_flash_erase_region, which
+ * disable the cache around the operation, and watching the store report
+ * "resumed" instead of "initialised fresh", the write offset grow across boots,
+ * the aura key load, and `make parity-diff` fall from one capability regression
+ * to zero.
  *
- *   - A write is verified by reading it straight back in the same boot and the
- *     value is correct, so the call is not simply failing.
- *   - The very next boot does not find the page header, and reflex_kv_init
- *     therefore reports "initialised fresh" every time.
- *   - Not alignment: entries are now assembled and written once at a word
- *     aligned offset, and flash_write refuses anything else.
- *   - Not block protection: esp_rom_spiflash_unlock is called first.
- *   - Not the old collision with the nvs partition, which was real and is
- *     fixed — this store had been writing at 0x9000, the same six sectors NVS
- *     occupies, so phy_init saving radio calibration overwrote it. It now has
- *     its own `reflexkv` partition.
+ * That change is reverted, and the reason is the constraint on any real fix:
+ * esp_flash_* takes ESP-IDF's flash lock, which is built on FreeRTOS. Under
+ * REFLEX_OWN_ENTRY the scheduler was never started, and the board hangs in
+ * reflex_kv_init before it reaches a shell. Persistence for the ordinary builds
+ * bought with a dead board for the one where Reflex owns the machine is not a
+ * trade worth making, and shipping a hang is worse than shipping this.
  *
- * What is left is that these are raw ROM flash operations issued while the CPU
- * is executing XIP out of the same flash with the cache enabled. Write and read
- * agree inside one boot because both go through that path; the medium never
- * receives the data. ESP-IDF wraps such operations in a cache-and-interrupt
- * disable for exactly this reason.
- *
- * Fixing it costs the property that motivated this file. It has no ESP-IDF
- * component dependencies, and the fix — esp_flash_write/esp_flash_read, or
- * ESP-IDF's cache-disable primitives — is a component dependency either way.
- * That is a deliberate trade to make, not one to slip in: a store that silently
- * loses everything is worth less than a tier count, but the choice belongs in
- * the independence ledger rather than in this comment.
+ * So the fix is neither of the two obvious ones. It is to bracket the ROM calls
+ * with an interrupt and cache disable that does not depend on FreeRTOS — the
+ * ROM Cache_* entry points — with every instruction executed while the cache is
+ * off resident in IRAM, which is why ESP-IDF marks that whole path
+ * IRAM_ATTR. That is a contained piece of work with a clear test on both
+ * configurations, and it is the next thing to do here.
  *
  * What this costs today, measured: `aura setkey` reports success and two boards
- * can never share a key, so the mesh cannot pair; `purpose set` is gone by the
- * next boot. Both were silent before the logging added alongside this note.
+ * cannot share a key, so the mesh cannot pair; `purpose set` is gone by the next
+ * boot. `make parity-diff` reports it as the single capability regression
+ * between the default build and both Reflex configurations.
  */
 
 #include "reflex_kv.h"
@@ -162,18 +161,11 @@ static bool flash_write(uint32_t addr, const void *buf, size_t len) {
     uint32_t aligned_buf[66]; /* >= header + KV_KEY_MAX + KV_VAL_MAX, rounded */
     size_t aligned_len = (len + 3) & ~3;
     if ((addr & 3u) != 0) return false;
-    /* Unlock first. The ROM write path does not clear the chip's
-     * block-protection bits and reports success regardless, so without this
-     * every write in this file was a no-op that looked like a success — the
-     * page header included, which is why the store reported "initialised
-     * fresh" on every boot and nothing ever survived one. */
-    (void)esp_rom_spiflash_unlock();
     if (aligned_len > sizeof(aligned_buf)) return false;
     memset(aligned_buf, 0xFF, aligned_len);
     memcpy(aligned_buf, buf, len);
-    /* 0 is ESP_ROM_SPIFLASH_RESULT_OK. Compared as a literal because this file
-     * declares the ROM entry points itself and pulls in no ESP-IDF headers,
-     * which is the whole point of it. */
+    (void)esp_rom_spiflash_unlock();
+    /* 0 is ESP_ROM_SPIFLASH_RESULT_OK. */
     return esp_rom_spiflash_write(addr, aligned_buf, (int)aligned_len) == 0;
 }
 
