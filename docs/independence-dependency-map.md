@@ -1353,12 +1353,12 @@ hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
 forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
 this entry.
 
-### Reflex owns the 802.15.4 MAC. Transmit is proved; receive is not (2026-09-10)
+### Reflex owns the 802.15.4 MAC, transmit and receive (2026-09-10)
 
 `platform/esp32c6/reflex_802154_mac.c` — 229 lines — replaces ESP-IDF's
-`ieee802154` component, about 3,240 lines across ten objects. Behind
-`CONFIG_REFLEX_RADIO_802154_OWN_MAC`, off by default, built with
-`make own-mac-build`.
+`ieee802154` component, about 3,240 lines across ten objects.
+`CONFIG_REFLEX_RADIO_802154_OWN_MAC` is on by default in
+`sdkconfig.defaults.own_entry`; build it with `make own-entry-build`.
 
 The driver is not merely unused; it is not in the image. The platform
 `CMakeLists` drops `ieee802154` from `REQUIRES` when the option is set, because
@@ -1389,11 +1389,60 @@ merely functional. `tx_done` is counted by Reflex's own interrupt handler, so
 transmit is complete end to end: Reflex's init, Reflex's registers, Reflex's
 ISR, no ESP-IDF driver anywhere.
 
-**Receive is not proved.** `rx_done` stayed 0 because there is no peer: the
-bench's second C6 needs a power cycle after the transmit experiment recorded
-below. The option stays off by default until a peer confirms RX. Saying the MAC
-"works" on the strength of transmit alone would be exactly the overreach this
-ledger keeps recording.
+**Receive is proved too, once the second board came back.** Both C6s on the
+own-MAC build, 90 seconds:
+
+```
+t+30s  reflex mac: tx_done=7  tx_abort=0 rx_done=7  rx_dropped=0   aura_fail=8
+t+60s  reflex mac: tx_done=14 tx_abort=0 rx_done=14 rx_dropped=0   aura_fail=15
+t+90s  reflex mac: tx_done=20 tx_abort=0 rx_done=21 rx_dropped=0   aura_fail=21
+```
+
+`rx_done` tracks the peer's transmit rate one for one, and `aura_fail` rising
+with it means the frames reached the mesh callback and parsed — that callback
+drops anything whose length is not exactly `sizeof(goose_arc_packet_t)`, so the
+payload boundary is right, and the frames fail only on the aura key, which is
+what unpaired boards do.
+
+Controlled the same way as every other radio claim here: with the peer silenced
+(reflashed to the ESP-NOW build, no 802.15.4), **`rx_done` is 0 over 60 seconds**
+while `tx_done` reaches 13. The frames were over the air, from the peer, through
+Reflex's own MAC.
+
+So: **Reflex's MAC transmits and receives, with ESP-IDF's 802.15.4 driver absent
+from the image.**
+
+
+**Ten minutes, both boards, and an authenticated mesh.** With the format fix
+below in place:
+
+```
+t+1min   tx_done=13  rx_done=14   tx_abort=0 rx_dropped=0   tick 1001 Hz
+t+5min   tx_done=64  rx_done=65   tx_abort=0 rx_dropped=0   tick 1000 Hz
+t+10min  tx_done=128 rx_done=129  tx_abort=0 rx_dropped=0   tick 1000 Hz
+```
+
+Zero aborts, zero drops, zero spurious interrupts, and the scheduler tick
+unmoved throughout — the MAC's interrupt is Reflex's own, running from Reflex's
+trap handler, and it costs the tick nothing.
+
+Then, with a shared aura key provisioned on both boards so the frames must
+actually authenticate:
+
+```
+rx_discover=5  tx_discover=5  aura_fail=0  replay_drop=0  malformed=0
+mesh: peers=1  rx=6  tx=5
+mesh peer ls -> 1: reflex-o  00:00:00:00:24:c8
+```
+
+That is the whole path: payload integrity, HMAC, peer registration. The mesh
+callback drops anything whose length is not exactly
+`sizeof(goose_arc_packet_t)`, so `rx_discover` rising is a statement about the
+payload boundary and not merely about frames arriving.
+
+`make parity-diff` against stock ESP-IDF: **0 capability regressions**.
+`CONFIG_REFLEX_RADIO_802154_OWN_MAC` is on by default in the own-entry
+configuration on the strength of that, not on a hunch.
 
 #### What Reflex does not own, and will not
 
@@ -1473,9 +1522,16 @@ It also leaked memory over the air. The frame was built on the stack, so
 frame, broadcast. Making the buffer static ended that incidentally: the byte is
 now a stable zero because nothing ever writes it.
 
-**Not fixed here.** The fix changes the wire format, and there is one working C6
-on the bench. Changing a protocol that demonstrably works, with no second board
-to prove the change against, is how a working mesh becomes a silent one.
+**Fixed once the peer was back**, and left wrong for exactly one commit for that
+reason. `FRAME_HDR_LEN` is 9. Both ends derive their layout from that single
+constant, so the change is symmetric, and it was proved on two boards
+immediately: `rx_done=20` against `tx_done=19` over 90 seconds with the
+corrected format, no drops and no aborts.
+
+Precisely what changed, because it is easy to overclaim: Reflex↔Reflex worked
+before and works now — the two errors cancelled. What is different is that the
+frame is standards-correct, one byte shorter, and no longer carries a byte
+nobody wrote.
 
 ### Reflex-driven TX: two attempts, one real fact, one wedged board (2026-09-10)
 

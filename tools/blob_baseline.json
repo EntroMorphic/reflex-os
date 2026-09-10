@@ -11,10 +11,6 @@
     "build_own_entry": {
       "bytes": 48566,
       "symbols": 14
-    },
-    "build_ownmac": {
-      "bytes": 48566,
-      "symbols": 14
     }
   },
   "note": "Vendor blob ratchet. Lower is the only legal direction. Regenerate deliberately with tools/check_blobs.py --update."

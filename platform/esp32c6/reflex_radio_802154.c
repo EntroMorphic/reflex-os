@@ -50,30 +50,26 @@
  * [1 len] [2 frame_ctrl] [1 seq] [2 dst_panid] [2 dst_addr] [2 src_addr] [N payload]
  * FCS (2 bytes) is appended by hardware on TX, included in len on RX.
  *
- * KNOWN DEFECT, deliberately not fixed here: the header above is 9 bytes —
- * 2 frame control, 1 sequence, 2 destination PAN, 2 destination address,
- * 2 source address — and FRAME_HDR_LEN is 10. build_broadcast_frame writes
- * frame[1..9] and then places the payload at frame[1 + FRAME_HDR_LEN], which is
- * frame[11], so frame[10] is never written and is transmitted in every frame.
- * The length byte is correspondingly one too large.
+ * Nine bytes, and it used to say ten. 2 frame control, 1 sequence, 2
+ * destination PAN, 2 destination address, 2 source address —
+ * build_broadcast_frame writes frame[1..9] and nothing else. With
+ * FRAME_HDR_LEN at 10 the payload was placed at frame[1 + 10] = frame[11], so
+ * frame[10] was never written and was transmitted in every frame, and the
+ * length byte was one too large to match.
  *
- * Both sides use the same constant, so the two errors cancel and Reflex talks
- * to Reflex perfectly. They do not cancel for anyone else: a standards
- * compliant 802.15.4 receiver parses that byte as the first octet of payload,
- * so these frames are interoperable only with themselves.
+ * Both sides used the same constant, so the two errors cancelled and Reflex
+ * talked to Reflex perfectly. They do not cancel for anyone else: a compliant
+ * 802.15.4 receiver reads that byte as the first octet of payload, so these
+ * frames were interoperable only with themselves. It also leaked memory over
+ * the air for as long as the frame was built on the stack — one uninitialised
+ * byte per broadcast — which making the buffer static incidentally ended.
  *
- * It also used to leak memory over the air. The frame was built on the stack,
- * so frame[10] carried whatever that stack slot last held — one uninitialised
- * byte per frame, broadcast. Making the buffer static (see reflex_radio_send)
- * incidentally ended that: the byte is now a stable zero, because nothing ever
- * writes it.
- *
- * Not fixed in this commit because the fix changes the wire format, and there
- * is currently one working C6 on the bench — the other needs a power cycle
- * after the transmit experiment recorded in the ledger. Changing a protocol
- * that demonstrably works, with no second board to prove the change against, is
- * how a working mesh becomes a silent one. It is fixed with a peer present. */
-#define FRAME_HDR_LEN 10
+ * Corrected with a peer on the bench, deliberately: the fix changes the wire
+ * format, both ends derive their layout from this one constant, and altering a
+ * protocol that demonstrably works without a second board to prove it against
+ * is how a working mesh becomes a silent one. It was left wrong for exactly one
+ * commit for that reason. */
+#define FRAME_HDR_LEN 9
 
 static reflex_radio_recv_cb_t s_user_cb = NULL;
 static uint8_t s_seq_num = 0;
