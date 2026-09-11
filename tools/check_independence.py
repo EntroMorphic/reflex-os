@@ -18,9 +18,10 @@ Two guarantees, both enforced by `--check`:
 
 Scope. The independence path is the ESP32-C6 with `CONFIG_REFLEX_RADIO_802154`.
 Sources compiled only off that path — the classic-ESP32 backend, the Wi-Fi
-stack, the ESP-NOW radio — are measured and reported but not ratcheted, because
-they are deliberately borrowed. They are listed so that "off-path" stays a
-decision rather than a hiding place.
+stack, the ESP-NOW radio — are deliberately borrowed, and are ratcheted as a
+total rather than per tier. Listing them was never enough to keep "off-path" a
+decision rather than a hiding place: a report nothing checks is a report, and a
+decision that stops being re-made becomes a default.
 """
 import json
 import os
@@ -633,7 +634,7 @@ def main():
         for rel, n, inc, tier, _w in sorted(on):
             print(f"    {tier}  {rel}:{n}  {inc}")
 
-    print(f"\n  off-path (deliberately borrowed, not ratcheted): {len(off)}")
+    print(f"\n  off-path (deliberately borrowed, ratcheted as a total): {len(off)}")
     if verbose:
         for rel, n, inc, tier, _w in sorted(off):
             print(f"    {tier}  {rel}:{n}  {inc}")

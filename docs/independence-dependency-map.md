@@ -72,7 +72,8 @@ about what is left.
 | **total** | **23** |
 
 A further 19 sit off-path — the classic-ESP32 backend, the Wi-Fi stack, the
-ESP-NOW radio — deliberately borrowed and reported but not ratcheted, so that
+ESP-NOW radio — deliberately borrowed, and ratcheted as a total since
+2026-09-10, so that
 "off-path" stays a decision rather than a hiding place.
 
 Every one of the 23 is in a platform backend, the kernel's FreeRTOS shims, or
