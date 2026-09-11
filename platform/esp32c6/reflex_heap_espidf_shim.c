@@ -25,7 +25,7 @@
  * guessed at.
  */
 
-#ifdef REFLEX_OWN_HEAP
+#ifdef REFLEX_HEAP_SHIM
 
 #include "reflex_heap.h"
 #include <stddef.h>
@@ -274,4 +274,4 @@ size_t __wrap_heap_caps_get_largest_free_block(uint32_t caps) {
     return st.largest_free > theirs ? st.largest_free : theirs;
 }
 
-#endif /* REFLEX_OWN_HEAP */
+#endif /* REFLEX_HEAP_SHIM */

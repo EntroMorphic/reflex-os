@@ -344,15 +344,37 @@ reflex_err_t reflex_802154_mac_init(uint8_t channel, uint16_t panid, uint16_t sh
 reflex_err_t reflex_802154_mac_transmit(const uint8_t *frame) {
     if (!frame) return REFLEX_ERR_INVALID_ARG;
     if (frame[0] < 3 || frame[0] > 127) return REFLEX_ERR_INVALID_SIZE;
-    if (s_tx_in_flight) return REFLEX_ERR_INVALID_STATE;
+    /* Interrupts off across the whole sequence, claim included.
+     *
+     * The peripheral has one command register, one DMA pointer and one state
+     * machine, and this runs from a task while mac_isr drives the same three
+     * from interrupt context — on TX_DONE, RX_DONE or TX_ABORT it calls
+     * mac_rx_start(), which writes RXDMA_ADDR and issues RX_START. An
+     * interrupt taken between the STOP and the TX_START below therefore
+     * retargets the DMA at the receive buffer and puts the radio back into
+     * receive, and the TX_START that follows transmits from a pointer the
+     * peripheral is no longer using. The claim has the same problem one level
+     * up: a TX_DONE landing between the test and the set clears the flag that
+     * was about to be raised, leaving a transmit in flight that reports idle.
+     *
+     * Three register writes and a flag, so this is a microsecond with
+     * interrupts masked — cheaper than the state machine this protects. */
+    uint32_t saved;
+    __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(saved));
 
+    if (s_tx_in_flight) {
+        if (saved & 0x8u) __asm__ volatile("csrsi mstatus, 0x8");
+        return REFLEX_ERR_INVALID_STATE;
+    }
     s_tx_in_flight = true;
-    /* Stop the receiver before retargeting the DMA. The peripheral has one
-     * command register and one state machine; issuing TX_START while a receive
-     * is in progress is what ESP-IDF's own transmit guards against. */
+
+    /* Stop the receiver before retargeting the DMA. Issuing TX_START while a
+     * receive is in progress is what ESP-IDF's own transmit guards against. */
     mac_cmd(REFLEX_154_CMD_STOP);
     REFLEX_REG_WRITE(REFLEX_154_TXDMA_ADDR_REG, (uint32_t)(uintptr_t)frame);
     mac_cmd(REFLEX_154_CMD_TX_START);
+
+    if (saved & 0x8u) __asm__ volatile("csrsi mstatus, 0x8");
     return REFLEX_OK;
 }
 

@@ -75,6 +75,7 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - Post-soak integrity intact: `atlas verify` 12738/12738 duplicates=0 failures=0; all seven seeded cells (`sys.origin`, `sys.purpose`, `sys.metabolic`, `sys.swarm.posture`, `sys.kernel.disposition`, `agency.led.intent`, `perception.heap.pressure`) still resolve; LED still responds.
 - Observation, not a defect: the peer's `perception.mesh.health` read *connected* in the first cycle and *sparse* thereafter. Sustained local paging load makes discovery beacons less regular, so a peer legitimately observes thinner traffic — the vital reporting what is actually on the air. The inverted discovery governance responds by hunting more often, which is the intended reaction.
 - `status` now reports `heap free=/min_free=` and `cells=`, added for this soak: `perception.heap.pressure` carries only a trit against 8K/16K thresholds, so a slow leak would have stayed invisible until it was already critical.
+- **Since 2026-09-11 that line reads `heap free=... min_free=... (reflex)` on the 802.15.4 builds**, and the suffix is not decoration. Reflex owns the allocator on that path: every allocation in the image is served from a 192 KiB region Reflex manages, and the figure is Reflex's own bookkeeping about that region rather than `esp_get_free_heap_size()`. ESP-IDF keeps a small residual heap for paths the shim does not intercept, and it is deliberately excluded — the metabolic breaker exists to refuse Reflex's own allocations under pressure, so it should act on the pool those allocations come from. The 8K/16K thresholds are unchanged and a booted board reads about 118 KiB free. On the Wi-Fi build the line and its source are unchanged.
 
 ### G11 — Ternary Task Disposition (kernel policy layer)
 - Source: `goose_kernel_policy_tick` in `goose_supervisor.c`; `kernel` shell command
@@ -211,6 +212,39 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 4. **Execute**: `vm task start` for background or `vm run` for foreground
 
 ## Known Gaps (docs lead, code trails)
+
+### A persistent state exists that crash-loops the board (2026-09-11, open)
+
+Found while red-teaming something else, unresolved, and recorded because it is
+reachable from the shell and the recovery is not obvious.
+
+**Symptom.** The board boot-loops: `Guru Meditation Error: Core 0 panic'ed
+(Stack protection fault)`, detected in task `IDLE`, stack pointer 112 bytes
+below its bounds, in ROM code, immediately after the supervisor prints its
+policy line. Boot0's loop protection then halts it. Seven boots and ten panics
+in a thirty-five second window, never reaching `system_stable`.
+
+**Recovery.** `esptool erase_region 0x10000 0x6000` — the `reflexkv`
+partition. One boot, zero panics, stable. Reflashing the application alone does
+*not* fix it, which is what makes it worth writing down: the natural first move
+fails and the state survives it.
+
+**What it is not.** It is not the Reflex allocator. A control build with the
+heap shim disabled crash-loops identically, which is how the possibility was
+eliminated rather than argued about.
+
+**Not yet reproduced from a clean store.** Each of these was tried on an erased
+partition, followed by a reset, and each booted cleanly: `purpose set nav`;
+`snapshot save` + `config set log_level 3` + `vitals override temp 1`; and
+sixty successive `purpose set` writes to force the KV ring through compaction.
+The state that does it accumulated across several *interrupted* hardware-suite
+runs — the suite sets `purpose`, saves snapshots, loads a loom fragment and
+overrides a vital, and when it is interrupted between a set and its cleanup
+those survive in combination. Which combination has not been isolated.
+
+**Why it matters beyond the bench.** `make hw-test` can leave a board in this
+state if it is interrupted, and the failure presents as "the board is dead"
+rather than as anything pointing at persisted state.
 
 ### ESP-IDF independence
 

@@ -1620,6 +1620,58 @@ The test that would actually isolate it: keep a reference to `modem_clock.c`
 alive — take the address of one of its functions without calling it — and see
 whether presence alone is enough.
 
+#### Red-team, round two: a transmit race, a coupling nothing enforced (2026-09-11)
+
+**A task-versus-ISR race in Reflex's own MAC transmit.** The 802.15.4 peripheral
+has one command register, one DMA pointer and one state machine.
+`reflex_802154_mac_transmit` runs from a task and issues STOP, retargets the
+DMA, then issues TX_START, while `mac_isr` independently calls `mac_rx_start()`
+on TX_DONE, RX_DONE and TX_ABORT — which writes RXDMA_ADDR and issues RX_START.
+An interrupt taken between the STOP and the TX_START therefore points the DMA
+at the receive buffer and puts the radio back into receive, and the TX_START
+that follows transmits from a pointer the peripheral is no longer using. The
+`s_tx_in_flight` claim had the same problem one level up: a TX_DONE landing
+between the test and the set clears the flag that is about to be raised,
+leaving a transmit in flight that reports idle. Three register writes and a
+flag now happen with interrupts masked — a microsecond, against a state machine
+that cannot be re-entered safely.
+
+Validated directly rather than by inspection. The own-entry build has no shell,
+so a scratch probe transmitted three frames at bring-up and read the MAC's own
+counters back: `rc=0` three times, `tx_done=3 tx_abort=0 spurious=0`. The
+masked sequence completes, the ISR still fires, and the flag handshake clears
+between transmits. Probe reverted.
+
+**The wrap flags and the shim's own guard were gated separately.** The
+`--wrap` linker flags were added under `CONFIG_REFLEX_RADIO_802154` in the
+platform CMakeLists; the shim's `#ifdef` tested `REFLEX_OWN_HEAP`, defined in
+the top-level CMakeLists under the same condition. The same condition, in two
+files, with nothing enforcing that they stay the same — and disabling one of
+them for a control build left every `__wrap_` symbol undefined at link. They
+are now one block: the block that adds the flags also supplies the
+component-private define the shim compiles against. `REFLEX_OWN_HEAP` remains
+global because `goose_metabolic.c` and `shell/shell.c` condition on it too.
+
+**Two user-facing documents were out of date in the same commit that changed
+their subject.** `status` gained a `(reflex)` suffix and a different meaning
+without `implementation-status.md` or the CHANGELOG saying so, and the
+CHANGELOG's top entry still recorded the PHY root cause as unfound after it had
+been found. Both corrected; the PHY entry now supersedes rather than replaces
+the two below it, because the wrong turns are the instructive part.
+
+**And one finding that turned out not to be ours at all** — a persistent state
+that crash-loops the board. It is recorded in
+[implementation-status.md](implementation-status.md) under Known Gaps rather
+than here, because it is not an independence question. The part that belongs
+here is the method: the board was crash-looping with the heap shim in place,
+which looked exactly like a regression from the allocator, and a control build
+with the shim disabled crash-looped identically. The possibility was eliminated
+by measurement in one build cycle instead of by argument.
+
+After remediation: 691 host assertions, **183/183 on both C6s**, every runnable
+gate green, on-path still 6, heap reporting live at
+`heap free=118544 min_free=116104 (reflex)`.
+
 #### Red-teaming the heap: eight findings, all remediated (2026-09-11)
 
 The allocator and its splice went in with 680 host assertions and 183/183 on

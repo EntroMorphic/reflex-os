@@ -154,6 +154,15 @@ endif()
 # pointers back to __real_, so an entry point that is missed costs memory
 # rather than correctness.
 if(CONFIG_REFLEX_RADIO_802154)
+    # The wrap flags and the shim's own #ifdef must agree, so the same block
+    # supplies both. They were gated separately at first — flags here on
+    # CONFIG_REFLEX_RADIO_802154, the source on REFLEX_OWN_HEAP defined in the
+    # top-level CMakeLists — which happens to be the same condition and is
+    # therefore a coupling nothing enforces. Disabling one for a control build
+    # left every __wrap_ symbol undefined at link. REFLEX_OWN_HEAP stays global
+    # because goose_metabolic.c and shell/shell.c condition on it too; this
+    # component-private define is what the shim itself compiles against.
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE "REFLEX_HEAP_SHIM=1")
     target_link_libraries(${COMPONENT_LIB} INTERFACE
         "-Wl,--wrap=malloc" "-Wl,--wrap=free"
         "-Wl,--wrap=calloc" "-Wl,--wrap=realloc"
