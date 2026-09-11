@@ -15,6 +15,8 @@
 /* Must track KV_FLASH_BASE in reflex_kv_flash.c: the store moved to its own
  * `reflexkv` partition after it was found sharing the six sectors NVS occupies. */
 #define MOCK_FLASH_BASE 0x10000
+#include "reflex_flash.h"
+
 #define KV_KEY_MAX_TEST 15
 
 static uint8_t s_mock_flash[MOCK_FLASH_SIZE];
@@ -22,31 +24,30 @@ static uint8_t s_mock_flash[MOCK_FLASH_SIZE];
 /* The store talks to ESP-IDF's flash API now, because raw ROM access never
  * reached the medium. The mock follows it, and keeps refusing unaligned writes
  * the way the chip does. */
-int esp_flash_read(void *chip, void *buf, uint32_t addr, uint32_t len) {
-    (void)chip;
+/* The store talks to Reflex's own SPI1 flash driver now. The mock stands in
+ * for it and keeps refusing unaligned writes the way the controller does. It
+ * cannot model the medium — the class of bug that hid here twice — so this
+ * backend's acceptance test is on hardware. */
+reflex_err_t reflex_flash_read(uint32_t addr, void *dst, size_t len) {
     uint32_t offset = addr - MOCK_FLASH_BASE;
-    if (offset + len > MOCK_FLASH_SIZE) return -1;
-    memcpy(buf, s_mock_flash + offset, len);
-    return 0;
+    if (offset + len > MOCK_FLASH_SIZE) return REFLEX_ERR_INVALID_RESPONSE;
+    memcpy(dst, s_mock_flash + offset, len);
+    return REFLEX_OK;
 }
 
-int esp_flash_write(void *chip, const void *buf, uint32_t addr, uint32_t len) {
-    (void)chip;
+reflex_err_t reflex_flash_write(uint32_t addr, const void *src, size_t len) {
     uint32_t offset = addr - MOCK_FLASH_BASE;
-    if (offset + len > MOCK_FLASH_SIZE) return -1;
-    if ((addr & 3u) != 0) return -1;
-    for (uint32_t i = 0; i < len; i++) {
-        s_mock_flash[offset + i] &= ((const uint8_t *)buf)[i];
-    }
-    return 0;
+    if (offset + len > MOCK_FLASH_SIZE) return REFLEX_ERR_INVALID_RESPONSE;
+    if ((addr & 3u) != 0) return REFLEX_ERR_INVALID_ARG;
+    for (uint32_t i = 0; i < len; i++) s_mock_flash[offset + i] &= ((const uint8_t *)src)[i];
+    return REFLEX_OK;
 }
 
-int esp_flash_erase_region(void *chip, uint32_t start, uint32_t size) {
-    (void)chip;
-    uint32_t offset = start - MOCK_FLASH_BASE;
-    if (offset + size > MOCK_FLASH_SIZE) return -1;
-    memset(s_mock_flash + offset, 0xFF, size);
-    return 0;
+reflex_err_t reflex_flash_erase(uint32_t addr, size_t len) {
+    uint32_t offset = addr - MOCK_FLASH_BASE;
+    if (offset + len > MOCK_FLASH_SIZE) return REFLEX_ERR_INVALID_RESPONSE;
+    memset(s_mock_flash + offset, 0xFF, len);
+    return REFLEX_OK;
 }
 
 int esp_rom_spiflash_read(uint32_t addr, uint32_t *dest, int len) {

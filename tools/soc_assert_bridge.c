@@ -45,6 +45,11 @@ _Static_assert(REFLEX_LP_WDT_CONFIG1_REG == (uint32_t)(LP_WDT_CONFIG1_REG),
                "REFLEX_LP_WDT_CONFIG1_REG diverges from LP_WDT_CONFIG1_REG");
 _Static_assert(REFLEX_LP_WDT_FEED_REG == (uint32_t)(LP_WDT_FEED_REG),
                "REFLEX_LP_WDT_FEED_REG diverges from LP_WDT_FEED_REG");
+_Static_assert(
+    REFLEX_EXTMEM_L1_CACHE_AUTOLOAD_CTRL_REG == (uint32_t)(EXTMEM_L1_CACHE_AUTOLOAD_CTRL_REG),
+    "REFLEX_EXTMEM_L1_CACHE_AUTOLOAD_CTRL_REG diverges from EXTMEM_L1_CACHE_AUTOLOAD_CTRL_REG");
+_Static_assert(REFLEX_EXTMEM_L1_CACHE_AUTOLOAD_ENA == (uint32_t)(EXTMEM_L1_CACHE_AUTOLOAD_ENA),
+               "REFLEX_EXTMEM_L1_CACHE_AUTOLOAD_ENA diverges from EXTMEM_L1_CACHE_AUTOLOAD_ENA");
 _Static_assert(REFLEX_LP_WDT_INT_RAW_REG == (uint32_t)(LP_WDT_INT_RAW_REG),
                "REFLEX_LP_WDT_INT_RAW_REG diverges from LP_WDT_INT_RAW_REG");
 _Static_assert(REFLEX_LP_WDT_INT_RAW_BIT == (uint32_t)(LP_WDT_LP_WDT_INT_RAW),
@@ -140,6 +145,48 @@ _Static_assert(REFLEX_EXTMEM_L1_CACHE_SHUT_IBUS == (uint32_t)(EXTMEM_L1_CACHE_SH
                "REFLEX_EXTMEM_L1_CACHE_SHUT_IBUS diverges from EXTMEM_L1_CACHE_SHUT_IBUS");
 _Static_assert(REFLEX_EXTMEM_L1_CACHE_SHUT_DBUS == (uint32_t)(EXTMEM_L1_CACHE_SHUT_DBUS),
                "REFLEX_EXTMEM_L1_CACHE_SHUT_DBUS diverges from EXTMEM_L1_CACHE_SHUT_DBUS");
+_Static_assert(REFLEX_SPI1_CMD_REG == (uint32_t)(SPI_MEM_CMD_REG(1)),
+               "REFLEX_SPI1_CMD_REG diverges from SPI_MEM_CMD_REG(1)");
+_Static_assert(REFLEX_SPI1_ADDR_REG == (uint32_t)(SPI_MEM_ADDR_REG(1)),
+               "REFLEX_SPI1_ADDR_REG diverges from SPI_MEM_ADDR_REG(1)");
+_Static_assert(REFLEX_SPI1_CTRL_REG == (uint32_t)(SPI_MEM_CTRL_REG(1)),
+               "REFLEX_SPI1_CTRL_REG diverges from SPI_MEM_CTRL_REG(1)");
+_Static_assert(REFLEX_SPI1_USER_REG == (uint32_t)(SPI_MEM_USER_REG(1)),
+               "REFLEX_SPI1_USER_REG diverges from SPI_MEM_USER_REG(1)");
+_Static_assert(REFLEX_SPI1_USER1_REG == (uint32_t)(SPI_MEM_USER1_REG(1)),
+               "REFLEX_SPI1_USER1_REG diverges from SPI_MEM_USER1_REG(1)");
+_Static_assert(REFLEX_SPI1_USER2_REG == (uint32_t)(SPI_MEM_USER2_REG(1)),
+               "REFLEX_SPI1_USER2_REG diverges from SPI_MEM_USER2_REG(1)");
+_Static_assert(REFLEX_SPI1_MOSI_DLEN_REG == (uint32_t)(SPI_MEM_MOSI_DLEN_REG(1)),
+               "REFLEX_SPI1_MOSI_DLEN_REG diverges from SPI_MEM_MOSI_DLEN_REG(1)");
+_Static_assert(REFLEX_SPI1_MISO_DLEN_REG == (uint32_t)(SPI_MEM_MISO_DLEN_REG(1)),
+               "REFLEX_SPI1_MISO_DLEN_REG diverges from SPI_MEM_MISO_DLEN_REG(1)");
+_Static_assert(REFLEX_SPI1_RD_STATUS_REG == (uint32_t)(SPI_MEM_RD_STATUS_REG(1)),
+               "REFLEX_SPI1_RD_STATUS_REG diverges from SPI_MEM_RD_STATUS_REG(1)");
+_Static_assert(REFLEX_SPI1_W0_REG == (uint32_t)(SPI_MEM_W0_REG(1)),
+               "REFLEX_SPI1_W0_REG diverges from SPI_MEM_W0_REG(1)");
+_Static_assert(REFLEX_SPI1_CMD_USR == (uint32_t)(SPI_MEM_USR),
+               "REFLEX_SPI1_CMD_USR diverges from SPI_MEM_USR");
+_Static_assert(REFLEX_SPI1_CMD_FLASH_READ == (uint32_t)(SPI_MEM_FLASH_READ),
+               "REFLEX_SPI1_CMD_FLASH_READ diverges from SPI_MEM_FLASH_READ");
+_Static_assert(REFLEX_SPI1_CMD_FLASH_WREN == (uint32_t)(SPI_MEM_FLASH_WREN),
+               "REFLEX_SPI1_CMD_FLASH_WREN diverges from SPI_MEM_FLASH_WREN");
+_Static_assert(REFLEX_SPI1_CMD_FLASH_RDSR == (uint32_t)(SPI_MEM_FLASH_RDSR),
+               "REFLEX_SPI1_CMD_FLASH_RDSR diverges from SPI_MEM_FLASH_RDSR");
+_Static_assert(REFLEX_SPI1_CMD_FLASH_SE == (uint32_t)(SPI_MEM_FLASH_SE),
+               "REFLEX_SPI1_CMD_FLASH_SE diverges from SPI_MEM_FLASH_SE");
+_Static_assert(REFLEX_SPI1_CMD_FLASH_PP == (uint32_t)(SPI_MEM_FLASH_PP),
+               "REFLEX_SPI1_CMD_FLASH_PP diverges from SPI_MEM_FLASH_PP");
+_Static_assert(REFLEX_SPI1_USR_COMMAND == (uint32_t)(SPI_MEM_USR_COMMAND),
+               "REFLEX_SPI1_USR_COMMAND diverges from SPI_MEM_USR_COMMAND");
+_Static_assert(REFLEX_SPI1_USR_ADDR == (uint32_t)(SPI_MEM_USR_ADDR),
+               "REFLEX_SPI1_USR_ADDR diverges from SPI_MEM_USR_ADDR");
+_Static_assert(REFLEX_SPI1_USR_DUMMY == (uint32_t)(SPI_MEM_USR_DUMMY),
+               "REFLEX_SPI1_USR_DUMMY diverges from SPI_MEM_USR_DUMMY");
+_Static_assert(REFLEX_SPI1_USR_MISO == (uint32_t)(SPI_MEM_USR_MISO),
+               "REFLEX_SPI1_USR_MISO diverges from SPI_MEM_USR_MISO");
+_Static_assert(REFLEX_SPI1_USR_MOSI == (uint32_t)(SPI_MEM_USR_MOSI),
+               "REFLEX_SPI1_USR_MOSI diverges from SPI_MEM_USR_MOSI");
 _Static_assert(REFLEX_SPI_MEM_MMU_ITEM_CONTENT_REG == (uint32_t)(SPI_MEM_MMU_ITEM_CONTENT_REG(0)),
                "REFLEX_SPI_MEM_MMU_ITEM_CONTENT_REG diverges from SPI_MEM_MMU_ITEM_CONTENT_REG(0)");
 _Static_assert(REFLEX_SPI_MEM_MMU_ITEM_INDEX_REG == (uint32_t)(SPI_MEM_MMU_ITEM_INDEX_REG(0)),
@@ -400,6 +447,18 @@ _Static_assert(REFLEX_PCR_RMT_RST_EN == (uint32_t)(PCR_RMT_RST_EN),
                "REFLEX_PCR_RMT_RST_EN diverges from PCR_RMT_RST_EN");
 _Static_assert(REFLEX_PCR_RMT_SCLK_EN == (uint32_t)(PCR_RMT_SCLK_EN),
                "REFLEX_PCR_RMT_SCLK_EN diverges from PCR_RMT_SCLK_EN");
+_Static_assert(REFLEX_SPI1_USR_ADDR_BITLEN_V == (uint32_t)(SPI_MEM_USR_ADDR_BITLEN_V),
+               "REFLEX_SPI1_USR_ADDR_BITLEN_V diverges from SPI_MEM_USR_ADDR_BITLEN_V");
+_Static_assert(REFLEX_SPI1_USR_DUMMY_CYCLELEN_V == (uint32_t)(SPI_MEM_USR_DUMMY_CYCLELEN_V),
+               "REFLEX_SPI1_USR_DUMMY_CYCLELEN_V diverges from SPI_MEM_USR_DUMMY_CYCLELEN_V");
+_Static_assert(REFLEX_SPI1_USR_COMMAND_VALUE_V == (uint32_t)(SPI_MEM_USR_COMMAND_VALUE_V),
+               "REFLEX_SPI1_USR_COMMAND_VALUE_V diverges from SPI_MEM_USR_COMMAND_VALUE_V");
+_Static_assert(REFLEX_SPI1_USR_COMMAND_BITLEN_V == (uint32_t)(SPI_MEM_USR_COMMAND_BITLEN_V),
+               "REFLEX_SPI1_USR_COMMAND_BITLEN_V diverges from SPI_MEM_USR_COMMAND_BITLEN_V");
+_Static_assert(REFLEX_SPI1_USR_MISO_DBITLEN_V == (uint32_t)(SPI_MEM_USR_MISO_DBITLEN_V),
+               "REFLEX_SPI1_USR_MISO_DBITLEN_V diverges from SPI_MEM_USR_MISO_DBITLEN_V");
+_Static_assert(REFLEX_SPI1_USR_MOSI_DBITLEN_V == (uint32_t)(SPI_MEM_USR_MOSI_DBITLEN_V),
+               "REFLEX_SPI1_USR_MOSI_DBITLEN_V diverges from SPI_MEM_USR_MOSI_DBITLEN_V");
 _Static_assert(REFLEX_SPI_MEM_MMU_PAGE_SIZE == (uint32_t)(SPI_MEM_MMU_PAGE_SIZE),
                "REFLEX_SPI_MEM_MMU_PAGE_SIZE diverges from SPI_MEM_MMU_PAGE_SIZE");
 _Static_assert(REFLEX_LP_WDT_STG_MASK == (uint32_t)(LP_WDT_WDT_STG0_V),
@@ -454,6 +513,18 @@ _Static_assert(REFLEX_PCR_RMT_SCLK_DIV_NUM_MASK == (uint32_t)(PCR_RMT_SCLK_DIV_N
                "REFLEX_PCR_RMT_SCLK_DIV_NUM_MASK diverges from PCR_RMT_SCLK_DIV_NUM_V");
 _Static_assert(REFLEX_PCR_RMT_SCLK_SEL_MASK == (uint32_t)(PCR_RMT_SCLK_SEL_V),
                "REFLEX_PCR_RMT_SCLK_SEL_MASK diverges from PCR_RMT_SCLK_SEL_V");
+_Static_assert(REFLEX_SPI1_USR_ADDR_BITLEN_S == (uint32_t)(SPI_MEM_USR_ADDR_BITLEN_S),
+               "REFLEX_SPI1_USR_ADDR_BITLEN_S diverges from SPI_MEM_USR_ADDR_BITLEN_S");
+_Static_assert(REFLEX_SPI1_USR_DUMMY_CYCLELEN_S == (uint32_t)(SPI_MEM_USR_DUMMY_CYCLELEN_S),
+               "REFLEX_SPI1_USR_DUMMY_CYCLELEN_S diverges from SPI_MEM_USR_DUMMY_CYCLELEN_S");
+_Static_assert(REFLEX_SPI1_USR_COMMAND_VALUE_S == (uint32_t)(SPI_MEM_USR_COMMAND_VALUE_S),
+               "REFLEX_SPI1_USR_COMMAND_VALUE_S diverges from SPI_MEM_USR_COMMAND_VALUE_S");
+_Static_assert(REFLEX_SPI1_USR_COMMAND_BITLEN_S == (uint32_t)(SPI_MEM_USR_COMMAND_BITLEN_S),
+               "REFLEX_SPI1_USR_COMMAND_BITLEN_S diverges from SPI_MEM_USR_COMMAND_BITLEN_S");
+_Static_assert(REFLEX_SPI1_USR_MISO_DBITLEN_S == (uint32_t)(SPI_MEM_USR_MISO_DBITLEN_S),
+               "REFLEX_SPI1_USR_MISO_DBITLEN_S diverges from SPI_MEM_USR_MISO_DBITLEN_S");
+_Static_assert(REFLEX_SPI1_USR_MOSI_DBITLEN_S == (uint32_t)(SPI_MEM_USR_MOSI_DBITLEN_S),
+               "REFLEX_SPI1_USR_MOSI_DBITLEN_S diverges from SPI_MEM_USR_MOSI_DBITLEN_S");
 _Static_assert(REFLEX_SPI_MEM_MMU_PAGE_SIZE_S == (uint32_t)(SPI_MEM_MMU_PAGE_SIZE_S),
                "REFLEX_SPI_MEM_MMU_PAGE_SIZE_S diverges from SPI_MEM_MMU_PAGE_SIZE_S");
 _Static_assert(REFLEX_LP_WDT_STG0_S == (uint32_t)(LP_WDT_WDT_STG0_S),

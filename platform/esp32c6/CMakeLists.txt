@@ -23,7 +23,8 @@ set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "../reflex_crypto.c" "../reflex_
 
 # KV backend selection: raw flash (802.15.4 mode) or NVS (WiFi mode)
 if(CONFIG_REFLEX_RADIO_802154)
-    list(APPEND REFLEX_PLATFORM_SRCS "reflex_kv_flash.c" "reflex_heap_espidf_shim.c")
+    list(APPEND REFLEX_PLATFORM_SRCS "reflex_kv_flash.c" "reflex_heap_espidf_shim.c"
+                                     "reflex_flash_esp32c6.c")
 else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_kv_esp32c6.c")
 endif()

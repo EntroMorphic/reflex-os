@@ -58,6 +58,11 @@ REGS = [
     ("REFLEX_LP_WDT_FEED_REG",         "LP_WDT_FEED_REG",         "LP_WDT", "WDTFEED",     None, ""),
     # Interrupt status, so the watchdog can be observed expiring without being
     # allowed to reset the board in order to prove it.
+    # EXTMEM, for Reflex's own flash window: the cache has to be suspended to
+    # reach the medium, and resuming it needs the autoload setting the rest of
+    # the system was using — sampled, not assumed.
+    ("REFLEX_EXTMEM_L1_CACHE_AUTOLOAD_CTRL_REG", "EXTMEM_L1_CACHE_AUTOLOAD_CTRL_REG", "EXTMEM", "L1_CACHE_AUTOLOAD_CTRL", None, ""),
+    ("REFLEX_EXTMEM_L1_CACHE_AUTOLOAD_ENA", "EXTMEM_L1_CACHE_AUTOLOAD_ENA", "EXTMEM", "L1_CACHE_AUTOLOAD_CTRL", "L1_CACHE_AUTOLOAD_ENA", "cache autoload enable"),
     ("REFLEX_LP_WDT_INT_RAW_REG",      "LP_WDT_INT_RAW_REG",      "LP_WDT", "INT_RAW",     None, "stage expiry, latched"),
     ("REFLEX_LP_WDT_INT_RAW_BIT",      "LP_WDT_LP_WDT_INT_RAW",   "LP_WDT", "INT_RAW",     "LP_WDT_INT_RAW", "set when stage 0 expires"),
     ("REFLEX_LP_WDT_WPROTECT_REG",     "LP_WDT_WPROTECT_REG",     "LP_WDT", "WDTWPROTECT", None, "write the key here to unlock the rest"),
@@ -125,6 +130,31 @@ REGS = [
     ("REFLEX_EXTMEM_L1_CACHE_SHUT_DBUS","EXTMEM_L1_CACHE_SHUT_DBUS","EXTMEM", "L1_CACHE_CTRL", "L1_CACHE_SHUT_BUS1", "IDF calls bus1 the DBUS"),
 
     # --- Boot0: flash MMU ---
+    # SPI1 — the flash controller, for Reflex's own flash driver. SPI0 serves
+    # the cache; SPI1 is the one software drives, and IDF indexes both by unit.
+    ("REFLEX_SPI1_CMD_REG",        "SPI_MEM_CMD_REG(1)",        "SPI1", "SPI_MEM_CMD",        None, "command bits; a started command self-clears"),
+    ("REFLEX_SPI1_ADDR_REG",       "SPI_MEM_ADDR_REG(1)",       "SPI1", "SPI_MEM_ADDR",       None, "flash address for the next command"),
+    ("REFLEX_SPI1_CTRL_REG",       "SPI_MEM_CTRL_REG(1)",       "SPI1", "SPI_MEM_CTRL",       None, "line mode; zero is plain single-line"),
+    ("REFLEX_SPI1_USER_REG",       "SPI_MEM_USER_REG(1)",       "SPI1", "SPI_MEM_USER",       None, "which phases a user transaction has"),
+    ("REFLEX_SPI1_USER1_REG",      "SPI_MEM_USER1_REG(1)",      "SPI1", "SPI_MEM_USER1",      None, "address and dummy phase lengths"),
+    ("REFLEX_SPI1_USER2_REG",      "SPI_MEM_USER2_REG(1)",      "SPI1", "SPI_MEM_USER2",      None, "command value and its bit length"),
+    ("REFLEX_SPI1_MOSI_DLEN_REG",  "SPI_MEM_MOSI_DLEN_REG(1)",  "SPI1", "SPI_MEM_MOSI_DLEN",  None, ""),
+    ("REFLEX_SPI1_MISO_DLEN_REG",  "SPI_MEM_MISO_DLEN_REG(1)",  "SPI1", "SPI_MEM_MISO_DLEN",  None, ""),
+    ("REFLEX_SPI1_RD_STATUS_REG",  "SPI_MEM_RD_STATUS_REG(1)",  "SPI1", "SPI_MEM_RD_STATUS",  None, "flash status register after FLASH_RDSR"),
+    ("REFLEX_SPI1_W0_REG",         "SPI_MEM_W0_REG(1)",         "SPI1", "SPI_MEM_W0",         None, "first of 16 data words: 64 bytes per transaction"),
+    # CMD bits. Writing one starts that command; it reads back zero when done.
+    ("REFLEX_SPI1_CMD_USR",        "SPI_MEM_USR",        "SPI1", "SPI_MEM_CMD", "SPI_MEM_USR",        "start a user-defined transaction"),
+    ("REFLEX_SPI1_CMD_FLASH_READ", "SPI_MEM_FLASH_READ", "SPI1", "SPI_MEM_CMD", "SPI_MEM_FLASH_READ", ""),
+    ("REFLEX_SPI1_CMD_FLASH_WREN", "SPI_MEM_FLASH_WREN", "SPI1", "SPI_MEM_CMD", "SPI_MEM_FLASH_WREN", "write enable, required before program and erase"),
+    ("REFLEX_SPI1_CMD_FLASH_RDSR", "SPI_MEM_FLASH_RDSR", "SPI1", "SPI_MEM_CMD", "SPI_MEM_FLASH_RDSR", "read status; bit 0 of RD_STATUS is write-in-progress"),
+    ("REFLEX_SPI1_CMD_FLASH_SE",   "SPI_MEM_FLASH_SE",   "SPI1", "SPI_MEM_CMD", "SPI_MEM_FLASH_SE",   "sector erase at ADDR"),
+    ("REFLEX_SPI1_CMD_FLASH_PP",   "SPI_MEM_FLASH_PP",   "SPI1", "SPI_MEM_CMD", "SPI_MEM_FLASH_PP",   "page program at ADDR from the data words"),
+    # USER phase enables.
+    ("REFLEX_SPI1_USR_COMMAND",    "SPI_MEM_USR_COMMAND", "SPI1", "SPI_MEM_USER", "SPI_MEM_USR_COMMAND", ""),
+    ("REFLEX_SPI1_USR_ADDR",       "SPI_MEM_USR_ADDR",    "SPI1", "SPI_MEM_USER", "SPI_MEM_USR_ADDR",    ""),
+    ("REFLEX_SPI1_USR_DUMMY",      "SPI_MEM_USR_DUMMY",   "SPI1", "SPI_MEM_USER", "SPI_MEM_USR_DUMMY",   ""),
+    ("REFLEX_SPI1_USR_MISO",       "SPI_MEM_USR_MISO",    "SPI1", "SPI_MEM_USER", "SPI_MEM_USR_MISO",    ""),
+    ("REFLEX_SPI1_USR_MOSI",       "SPI_MEM_USR_MOSI",    "SPI1", "SPI_MEM_USER", "SPI_MEM_USR_MOSI",    ""),
     ("REFLEX_SPI_MEM_MMU_ITEM_CONTENT_REG", "SPI_MEM_MMU_ITEM_CONTENT_REG(0)", "SPI0", "SPI_MEM_MMU_ITEM_CONTENT", None, "IDF indexes by SPI unit; Boot0 uses 0"),
     ("REFLEX_SPI_MEM_MMU_ITEM_INDEX_REG",   "SPI_MEM_MMU_ITEM_INDEX_REG(0)",   "SPI0", "SPI_MEM_MMU_ITEM_INDEX",   None, ""),
     ("REFLEX_SPI_MEM_MMU_POWER_CTRL_REG",   "SPI_MEM_MMU_POWER_CTRL_REG(0)",   "SPI0", "SPI_MEM_MMU_POWER_CTRL",   None, ""),
@@ -367,6 +397,12 @@ REGS = [
 
 # Value masks: (1 << bitWidth) - 1 rather than a single bit.
 WIDTH_MASKS = [
+    ("REFLEX_SPI1_USR_ADDR_BITLEN_V",    "SPI_MEM_USR_ADDR_BITLEN_V",    "SPI1", "SPI_MEM_USER1",     "SPI_MEM_USR_ADDR_BITLEN",    "field value mask"),
+    ("REFLEX_SPI1_USR_DUMMY_CYCLELEN_V", "SPI_MEM_USR_DUMMY_CYCLELEN_V", "SPI1", "SPI_MEM_USER1",     "SPI_MEM_USR_DUMMY_CYCLELEN", "field value mask"),
+    ("REFLEX_SPI1_USR_COMMAND_VALUE_V",  "SPI_MEM_USR_COMMAND_VALUE_V",  "SPI1", "SPI_MEM_USER2",     "SPI_MEM_USR_COMMAND_VALUE",  "field value mask"),
+    ("REFLEX_SPI1_USR_COMMAND_BITLEN_V", "SPI_MEM_USR_COMMAND_BITLEN_V", "SPI1", "SPI_MEM_USER2",     "SPI_MEM_USR_COMMAND_BITLEN", "field value mask"),
+    ("REFLEX_SPI1_USR_MISO_DBITLEN_V",   "SPI_MEM_USR_MISO_DBITLEN_V",   "SPI1", "SPI_MEM_MISO_DLEN", "SPI_MEM_USR_MISO_DBITLEN",   "field value mask"),
+    ("REFLEX_SPI1_USR_MOSI_DBITLEN_V",   "SPI_MEM_USR_MOSI_DBITLEN_V",   "SPI1", "SPI_MEM_MOSI_DLEN", "SPI_MEM_USR_MOSI_DBITLEN",   "field value mask"),
     ("REFLEX_SPI_MEM_MMU_PAGE_SIZE", "SPI_MEM_MMU_PAGE_SIZE", "SPI0", "SPI_MEM_MMU_POWER_CTRL", "SPI_MMU_PAGE_SIZE", "field value mask"),
     ("REFLEX_LP_WDT_STG_MASK",       "LP_WDT_WDT_STG0_V",     "LP_WDT", "WDTCONFIG0", "WDT_STG0",  "3 bits: 0 off, 3 reset system, 4 reset RTC too"),
     ("REFLEX_LP_WDT_RESET_LEN_MASK", "LP_WDT_WDT_SYS_RESET_LENGTH_V", "LP_WDT", "WDTCONFIG0", "WDT_SYS_RESET_LENGTH", "same width as the CPU field"),
@@ -403,6 +439,12 @@ WIDTH_MASKS = [
 # REG_SET_FIELD does — pasted names fail at the preprocessor with an error that
 # names neither the field nor the call site.
 SHIFTS = [
+    ("REFLEX_SPI1_USR_ADDR_BITLEN_S",     "SPI_MEM_USR_ADDR_BITLEN_S",     "SPI1", "SPI_MEM_USER1",     "SPI_MEM_USR_ADDR_BITLEN",     "field shift"),
+    ("REFLEX_SPI1_USR_DUMMY_CYCLELEN_S",  "SPI_MEM_USR_DUMMY_CYCLELEN_S",  "SPI1", "SPI_MEM_USER1",     "SPI_MEM_USR_DUMMY_CYCLELEN",  "field shift"),
+    ("REFLEX_SPI1_USR_COMMAND_VALUE_S",   "SPI_MEM_USR_COMMAND_VALUE_S",   "SPI1", "SPI_MEM_USER2",     "SPI_MEM_USR_COMMAND_VALUE",   "field shift"),
+    ("REFLEX_SPI1_USR_COMMAND_BITLEN_S",  "SPI_MEM_USR_COMMAND_BITLEN_S",  "SPI1", "SPI_MEM_USER2",     "SPI_MEM_USR_COMMAND_BITLEN",  "field shift"),
+    ("REFLEX_SPI1_USR_MISO_DBITLEN_S",    "SPI_MEM_USR_MISO_DBITLEN_S",    "SPI1", "SPI_MEM_MISO_DLEN", "SPI_MEM_USR_MISO_DBITLEN",    "field shift"),
+    ("REFLEX_SPI1_USR_MOSI_DBITLEN_S",    "SPI_MEM_USR_MOSI_DBITLEN_S",    "SPI1", "SPI_MEM_MOSI_DLEN", "SPI_MEM_USR_MOSI_DBITLEN",    "field shift"),
     ("REFLEX_SPI_MEM_MMU_PAGE_SIZE_S", "SPI_MEM_MMU_PAGE_SIZE_S", "SPI0", "SPI_MEM_MMU_POWER_CTRL", "SPI_MMU_PAGE_SIZE", "field shift"),
     ("REFLEX_LP_WDT_STG0_S",           "LP_WDT_WDT_STG0_S",       "LP_WDT", "WDTCONFIG0", "WDT_STG0", ""),
     ("REFLEX_LP_WDT_SYS_RESET_LEN_S",  "LP_WDT_WDT_SYS_RESET_LENGTH_S", "LP_WDT", "WDTCONFIG0", "WDT_SYS_RESET_LENGTH", ""),

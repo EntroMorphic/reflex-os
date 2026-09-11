@@ -6,7 +6,7 @@
       "C": 6,
       "D": 1,
       "E": 0,
-      "F": 1
+      "F": 0
     },
     "build_own_entry": {
       "A": 0,
@@ -14,7 +14,7 @@
       "C": 0,
       "D": 3,
       "E": 0,
-      "F": 2
+      "F": 0
     }
   },
   "deliberate_increases": [

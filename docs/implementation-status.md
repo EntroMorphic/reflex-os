@@ -238,6 +238,26 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 
 ## Known Gaps (docs lead, code trails)
 
+### The usable flash is capped at 2 MB on a 4 MB chip (2026-09-11, open)
+
+The ROM's flash descriptor reports `chip_size = 2097152` on these boards, and
+`esp_flash_spi_init.c` uses the *smaller* of the detected size and the
+descriptor's. Every flash access at or above `0x200000` therefore fails with
+`ESP_ERR_INVALID_ARG`, through both `esp_flash` and Reflex's own driver.
+
+`partitions.csv` places `storage` (1 MB, FAT) at `0x220000`, entirely above
+that line, so that partition is unreachable at runtime. Nothing uses it today,
+which is why this is recorded rather than fixed.
+
+ESP-IDF's remedy is `CONFIG_SPI_FLASH_SIZE_OVERRIDE` — `default n`, not set
+here — which makes its bootloader apply the image-header size via
+`bootloader_flash_update_size()`. Reflex's boot0 replaces that bootloader, so
+enabling the option alone may not be sufficient; boot0 would likely have to
+write the descriptor itself. Changing flash sizing deserves its own change with
+its own validation.
+
+
+
 ### The crash-loop: root-caused and fixed (2026-09-11, closed)
 
 Opened earlier the same day as "a persistent state exists that crash-loops the

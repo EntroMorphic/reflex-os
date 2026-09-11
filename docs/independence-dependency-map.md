@@ -79,8 +79,8 @@ part nothing recomputed.
 | C | **0 — clear** | 6 | FreeRTOS as the scheduler |
 | D | 3 | 1 | Radio |
 | E | **0 — clear** | **0 — clear** | Console RX, peripheral drivers |
-| F | 2 | 1 | Build system, startup, heap, image |
-| **on-path total** | **6** | **9** | |
+| F | **0 — clear** | **0 — clear** | Build system, startup, heap, image |
+| **on-path total** | **4** | **8** | |
 | bedrock | 0 | 0 | vendor binary; ratcheted by `make blob-check` |
 | off-path | 31 | 30 | alternative backends; ratcheted as a total |
 
@@ -1619,6 +1619,104 @@ conclusion down is the part worth recording.
 The test that would actually isolate it: keep a reference to `modem_clock.c`
 alive — take the address of one of its functions without calling it — and see
 whether presence alone is enough.
+
+#### Reflex owns flash: Tier F is zero, and a five-year-old claim was false (2026-09-11)
+
+`esp_flash.h` and `esp_flash_internal.h` are gone from `reflex_kv_flash.c`.
+**Tier F 2 -> 0** on the 802.15.4 path; on-path on the own-entry configuration
+6 -> 4, and what remains there is three RF blob symbols and `esp_sleep.h`.
+
+**The claim this replaces was wrong, and it stood for months.** This file has
+said since the store was written that "raw `esp_rom_spiflash_*` access while
+the CPU executes XIP out of the same flash does not reach the medium". It does.
+Probed on hardware at a legal address, inside a cache-suspended window: ROM
+erase+write+read round-trips, `esp_flash_read` then sees exactly what the ROM
+wrote, and the ROM reads back exactly what `esp_flash_write` wrote. The two
+drivers agree on the same medium.
+
+What actually breaks the ROM path is that it is **not self-sufficient**. At
+early boot a ROM read returns the *same fixed garbage for every address*
+(`magic=0x7f000000` for all six sectors), and it begins working only after
+ESP-IDF's `esp_flash` has performed an operation and left SPI1 configured. One
+`esp_flash_read` repairs it; nothing else does:
+
+```
+[kvdiag] rom_before=0x7f000000  espidf(rc=0)=0x52464b56  rom_after=0x52464b56
+```
+
+A store built on the ROM path therefore reads nothing at boot, concludes its
+partition is empty, erases it, and loses everything — which is exactly the
+symptom the old claim described. The medium was never the problem. The
+controller was unconfigured. Two attempts at ROM configuration calls
+(`esp_rom_spiflash_config_readmode`, `config_clk`) reconfigure the controller
+the CPU is executing from and boot-loop the board, so that route is closed.
+
+**So Reflex drives SPI1 itself** (`platform/esp32c6/reflex_flash_esp32c6.c`,
+~190 lines). Every transaction sets CTRL, USER, USER1, USER2 and the phase
+lengths from scratch and depends on nothing left behind by anyone. Reads are
+user-mode transactions (command `0x03`, 24-bit address, no dummy); erase and
+program use the controller's built-in `FLASH_SE` and `FLASH_PP` commands after
+`FLASH_WREN`, then poll the chip's own write-in-progress bit. Two hardware
+details are taken from ESP-IDF's sequences rather than guessed: a command is
+started by writing its bit to `CMD` and the register reads back zero when
+done, and **page program carries its byte count in the top byte of the address
+register**. Transfers are chunked to the sixteen data words, and program
+chunks are additionally clamped to the 256-byte page, because page program
+wraps within a page rather than continuing into the next.
+
+**Verified against an independent witness before it was trusted.** Reads first,
+because reads cannot damage anything: Reflex's driver matches `esp_flash`
+byte-for-byte at 4, 8, 16, 64, 68 and 260 bytes, at the KV header, the app
+image, the bootloader at `0x0`, and an erased sector. Then writes on a scratch
+sector, with `esp_flash` as witness: erase+program round-trips, and short
+successive records (4, 12, 20, 20, 68 bytes) all land exactly.
+
+**And then it still failed, for a reason worth recording.** With the store
+swapped over, both C6s dropped to 181/1: `config get log_level` returned
+nothing. Writes landed and were witnessed; the entry walk looked healthy; the
+control settled that it was a regression (pre-swap image, same board, same
+freshly erased store: 183/0). The cause: `kv_find` reads each entry's key at
+`entry_offset + sizeof(header)`, and the header is **five** bytes, so every key
+read lands one past a word boundary. `esp_flash_read` had always accepted
+unaligned reads; the new driver refused them, the store's fallback filled the
+buffer with `0xFF`, every key comparison failed, and `kv_find` reported
+NOT_FOUND for entries it had just written and could see. Entry *headers* sit at
+aligned offsets and read perfectly, which is why the walk looked healthy while
+nothing ever matched — and why a diagnostic `printf` inside the walk appeared
+to "fix" it, since I misread a trace that never showed a match. Reads now
+accept any address and length through a bounce buffer.
+
+Three theories died on the way and are recorded so they are not retried: page
+wrap (already handled), a 4-byte read length (reads match at every length), and
+cache suspend/resume churn around each read (removing it changed nothing; the
+cache is now suspended only for operations that mutate the medium, which is
+correct on its own terms).
+
+**Measured after the fix.** Both C6s 183/0 and the V3 177/0/4; the store
+resumes across a reboot with both a string and an integer value restored
+(`flash KV resumed`, `purpose=flashown`, `log_level=3`); 300 successive writes
+drive repeated compaction with no panic and no reset.
+
+#### The usable flash is capped at 2 MB on a 4 MB chip (2026-09-11, open)
+
+Found while probing the flash driver, unrelated to it, and left open. The ROM's
+flash descriptor reports `chip_size=2097152` on these boards, and
+`esp_flash_spi_init.c` deliberately uses the *smaller* of the detected size and
+the descriptor's. Every access at or above `0x200000` therefore fails with
+`ESP_ERR_INVALID_ARG`:
+
+```
+probe 0x220000: reflex rc=0x301   esp_flash rc=0x102 (ESP_ERR_INVALID_ARG)
+probe 0x15000 : reflex rc=0x0     esp_flash rc=0x0   match=1
+```
+
+The partition table declares partitions up to `0x320000`, so the entire 1 MB
+`storage` partition is unreachable at runtime. ESP-IDF's fix is
+`CONFIG_SPI_FLASH_SIZE_OVERRIDE`, which is `default n` and not set here; its
+bootloader would otherwise apply the image-header size through
+`bootloader_flash_update_size()`, and Reflex's boot0 replaces that bootloader.
+Not acted on: nothing currently uses `storage`, and changing flash sizing
+deserves its own change with its own validation.
 
 #### Red-team, round three: a redundant round trip, and a claim I had to retract (2026-09-11)
 
