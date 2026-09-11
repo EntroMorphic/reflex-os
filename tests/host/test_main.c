@@ -214,6 +214,8 @@ int main(void) {
     extern int test_shell_parse_passed(void);
     extern int test_shell_outcome(void);
     extern int test_shell_outcome_passed(void);
+    extern int test_reflex_heap(void);
+    extern int test_reflex_heap_passed(void);
     extern int test_reflex_queue(void);
     extern int test_reflex_queue_passed(void);
 
@@ -241,6 +243,8 @@ int main(void) {
     s_passed += test_shell_parse_passed();
     s_failed += test_shell_outcome();
     s_passed += test_shell_outcome_passed();
+    s_failed += test_reflex_heap();
+    s_passed += test_reflex_heap_passed();
     s_failed += test_reflex_queue();
     s_passed += test_reflex_queue_passed();
 

@@ -4,7 +4,13 @@ if(NOT "${IDF_TARGET}" STREQUAL "esp32c6")
 endif()
 
 set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "../reflex_crypto.c" "../reflex_log_format.c"
-    "reflex_intr_espidf_shim.c")
+    "reflex_intr_espidf_shim.c" "../../kernel/reflex_heap.c")
+
+# reflex_heap.c is compiled here and nothing calls it yet, which is deliberate
+# and is the same arrangement the scheduler files are under: the linker
+# discards it, it costs nothing in the image, and it cannot rot silently while
+# the work to reach it is still ahead. Four files in this tree were in no
+# CMakeLists at all and had therefore never been through a compiler.
 
 # The shim is compiled unconditionally, and that is deliberate.
 #

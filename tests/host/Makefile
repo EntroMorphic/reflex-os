@@ -20,6 +20,7 @@ SRCS = test_main.c \
        test_shell_parse.c \
        test_shell_outcome.c \
        test_kqueue.c \
+       test_heap.c \
        mock_hal.c \
        mock_task.c \
        ../../vm/ternary.c \
@@ -36,6 +37,7 @@ SRCS = test_main.c \
        ../../shell/shell_outcome.c \
        ../../kernel/reflex_sched.c \
        ../../kernel/reflex_kqueue.c \
+       ../../kernel/reflex_heap.c \
        ../../platform/reflex_crypto.c
 
 OUT = build/reflex_test
