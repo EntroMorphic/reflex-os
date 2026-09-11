@@ -9,6 +9,16 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Changed
 
+- **Twelve more PHY experiments; the root cause is still not found.** Asked to iterate until it was found, I did not find it. The boundary is now as tight as black-box measurement can draw it, and the contradiction at its centre is the finding rather than a failure to reach one.
+
+  `modem_clock_module_enable(PERIPH_PHY_MODULE)` must be called, before `register_chipv7_phy`, with that module's dependency set. Ruled out, each by its own experiment: object presence without the call; ESP-IDF's exact write order and granularity; the same call for a different module; writing the five bits twice; ESP-IDF's own HAL functions in place of Reflex's writes; the ICG map programmed immediately before the configures; configures with interrupts disabled; the call placed after calibration; timing (10 ms does not substitute); and linkage.
+
+  **Test N is the one that matters:** every register the SVD documents where a read has no side effect — 8,597 words across 42 peripherals — diffed across the call. Five deltas, all free-running: the SYSTIMER counter, a GPIO input, an 802.15.4 counter, and the RNG. **The call alters no configuration state anywhere on the chip.** The disassembly agrees it should not need to: it compiles to exactly its source, its ICG loop covers the same ten domains with the same `initial | current`, and its HAL setter touches only 4-bit fields.
+
+  So a call that writes nothing observable, whose halves are provably equivalent to code already running, is nonetheless required. One of those "provably"s hides a variable. Not yet ruled out, in order: the **refcount gate** — `device_enable` runs a configure only when `refs == 0`, and those counters are `static` and were never read, so if something enabled the PHY module earlier then the configures never run in the working case either and every experiment above aimed at the wrong half; a **write with no readable state**, which a state diff cannot see; and instruction-level tracing, which is the honest next tool.
+
+  Method lesson, and it cost four of the twelve cycles: three experiments compared a build that scanned registers against one that did not, and "the PHY dependencies specifically matter" was concluded across that confound before a control removed it. The cheap control belongs first.
+
 - **The PHY does not hang — it spins, and that is the first description of the failure rather than another eliminated cause.** Wrapping the blob's own callback instead of watching registers: `phy_i2c_enter_critical` brackets every analog-bus transaction `register_chipv7_phy` makes, so counting it measures how far calibration gets. The working configuration completes **430** transactions and returns; the broken one passes 380, 390, 400 **and keeps climbing indefinitely**.
 
   Logging the caller's return address shows two addresses alternating for ever — both in **mask ROM**, in the unexported region past `wifi_get_target_power`, which the linker scripts cannot name further. Two call sites alternating is a polling loop: the blob is waiting on a hardware condition that never becomes true.

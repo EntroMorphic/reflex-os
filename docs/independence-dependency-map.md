@@ -1474,6 +1474,69 @@ mystery sharper rather than solving it: **ESP-IDF's call changes no register at
 all** in either modem peripheral, and a 10 ms delay cannot substitute for it.
 Whatever it provides is neither state nor time.
 
+#### Twelve more experiments, and the root cause is still not found (2026-09-11)
+
+Asked to iterate until the cause was found and understood, I did not find it.
+What follows is the boundary, drawn as tightly as black-box measurement can draw
+it, so the next attempt starts here rather than at the beginning.
+
+**The requirement.** `modem_clock_module_enable(PERIPH_PHY_MODULE)` must be
+called, before `register_chipv7_phy`, with that module's dependency set.
+
+| experiment | result |
+|---|---|
+| A: object linked, never called (address taken) | hangs — presence is not enough |
+| D: ESP-IDF's exact write order and granularity | hangs |
+| F: same call, different module (ETM) | hangs — the PHY deps matter |
+| G: the five bits written twice | hangs |
+| H: the call alone, no scan | **works** — resolves the scan confound |
+| I: ESP-IDF's own HAL functions, no `module_enable` | hangs |
+| J: Reflex's ICG immediately before the configures | hangs |
+| K: configures with interrupts disabled | hangs |
+| M: the call placed *after* calibration | hangs — position matters |
+| N: every documented register on the chip, diffed across the call | **5 deltas, all free-running** |
+
+Test N is the one that matters. 8,597 words across 42 peripherals — everything
+the SVD documents where a read has no side effect — and the only differences are
+the SYSTIMER counter, a GPIO input, an 802.15.4 counter, and the RNG, which
+changes when you look at it. **The call alters no configuration state anywhere.**
+
+And the disassembly agrees that it should not need to. `modem_clock_module_enable`
+compiles to exactly its source: assert, `icg_map_init_all`, `get_module_deps`,
+`device_enable`. The ICG loop runs domains 0..9 — the same ten Reflex programs —
+computing `initial_gating_mode[domain] | current`, which is what Reflex computes.
+The HAL setter it calls manipulates 4-bit fields with masks `0xf1000`,
+`0xffff1`, `0xfff10`; no other peripheral is touched.
+
+**So the evidence is internally contradictory**, and that is the finding rather
+than a failure to reach one: a call that provably writes nothing observable, and
+whose two halves are provably equivalent to code that is already running, is
+nonetheless required. One of those three "provably"s has a hidden variable in it.
+
+What is ruled out, each by its own experiment: register state, write order,
+write granularity, repetition, interrupt masking, timing (a 10 ms delay does not
+substitute), linkage, object presence, and call position after the fact.
+
+What has not been ruled out, in the order worth trying:
+
+1. **The refcount gate.** `modem_clock_device_enable` runs a configure only when
+   `refs == 0`. If something earlier in this build already enabled the PHY
+   module, the configures never run in the working case either — which would
+   mean the active ingredient is neither the ICG map nor the configures, and
+   every experiment above has been aimed at the wrong half. The refcounts are
+   `static` and were never read.
+2. **A write with no readable state** — a trigger bit that self-clears leaves no
+   delta, and a state diff cannot see it. Test N compares state, not writes.
+3. **Instruction-level tracing.** A JTAG step through the working and broken
+   paths would end this in minutes and is the honest next tool; black-box
+   testing from inside the firmware has been taken as far as it goes.
+
+The method lesson, which cost four of the twelve cycles: three experiments
+compared a build that scanned registers against one that did not, and the
+conclusion "the PHY dependencies specifically matter" was drawn across that
+confound before Test H removed it. A confound found late invalidates everything
+built on it, and the cheap control should come first.
+
 #### One arm of that bisection was weaker than it was written up as
 
 "Component linked, call removed — still hangs" was recorded as ruling out a
