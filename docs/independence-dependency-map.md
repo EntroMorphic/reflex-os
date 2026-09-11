@@ -1474,6 +1474,57 @@ mystery sharper rather than solving it: **ESP-IDF's call changes no register at
 all** in either modem peripheral, and a 10 ms delay cannot substitute for it.
 Whatever it provides is neither state nor time.
 
+#### Six more, two hypotheses killed, one real fact won — still not the root
+
+Asked to find the roots of the hang and address them. I did not. Two of the
+three candidates left standing are now dead, by measurement rather than
+argument, and one solid new fact came out of it.
+
+**The refcount gate is dead.** `MODEM_CLOCK_instance()` is weak, not static, so
+the counters are reachable from Reflex. Read across the call:
+
+```
+before: ADC_COMMON_FE=0 PRIVATE_FE=0 COEXIST=0 I2C_MASTER=0 ... 802154_MAC=0
+after : ADC_COMMON_FE=1 PRIVATE_FE=1 COEXIST=0 I2C_MASTER=1 ... 802154_MAC=0
+```
+
+All zero beforehand, and exactly the three PHY dependencies increment. The
+configures do run. The worry that every experiment had been aimed at the wrong
+half was wrong.
+
+**The gating map is genuinely required, and its untouched value is now known.**
+Every previous ICG comparison was taken *after* Reflex's own map init had run,
+so the reset state had never been seen. With no map programming at all:
+
+```
+untouched   icg_sys=0x44646400  icg_lp=0x44000000
+programmed  icg_sys=0x64646400  icg_lp=0x66660000
+```
+
+and the radio hangs untouched. Decoding the difference: in MODEM_SYSCON only
+**MODEM_APB** changes, gaining the MODEM gating bit (4 → 6); in MODEM_LPCON,
+COEX and WIFIPWR go 0 → 6 and LP_APB and I2C_MASTER 4 → 6. That is real
+knowledge about what the map must contain, and it was missing until now.
+
+**And replicating it still does not work.** Reflex's map init produces those
+exact values; written per-domain in ten separate read-modify-writes as ESP-IDF
+does rather than two; programmed before the clocks rather than after; followed by
+ESP-IDF's *own* HAL configure functions, against pointers verified as the real
+peripheral addresses (`MODEM_SYSCON` is an absolute symbol at `0x600a9800`).
+Every one of those hangs. Only the genuine call works.
+
+So the contradiction survives contact with six more experiments, and it is now
+very precisely bounded: the call's refcount effect is accounted for, its map
+values are accounted for, its write granularity is accounted for, its ordering
+is accounted for, its configure functions are literally ESP-IDF's own, and no
+register anywhere on the chip differs across it.
+
+What that leaves is a mechanism outside the state this method can observe. The
+honest next tool is a debugger: single-step the working and broken paths and
+diff the instruction streams. Everything reachable from inside the firmware has
+now been tried, and the remaining permutations are guesses rather than
+experiments — which is the point at which to stop permuting.
+
 #### Twelve more experiments, and the root cause is still not found (2026-09-11)
 
 Asked to iterate until the cause was found and understood, I did not find it.

@@ -9,6 +9,16 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Changed
 
+- **Six more PHY experiments: two hypotheses killed, one real fact won, root cause still not found.** Asked to find the roots of the hang and address them — I did not, and say so rather than present a boundary as an answer.
+
+  **The refcount gate is dead.** `MODEM_CLOCK_instance()` is weak rather than static, so ESP-IDF's counters are readable from Reflex. Across the call they read all-zero before and exactly the three PHY dependencies at 1 after. The configures do run; the worry that every prior experiment had aimed at the wrong half was unfounded.
+
+  **The gating map is genuinely required, and its reset value is now known** — every earlier ICG comparison was taken *after* Reflex's own map init had run, so the untouched state had never been observed. It is `icg_sys=0x44646400 icg_lp=0x44000000`, against `0x64646400 / 0x66660000` once programmed, and the radio hangs if it is left alone. Decoded: in MODEM_SYSCON only **MODEM_APB** changes (4 → 6, gaining the MODEM gating bit); in MODEM_LPCON, COEX and WIFIPWR go 0 → 6 and LP_APB and I2C_MASTER 4 → 6. That is new, concrete knowledge about what the map must contain.
+
+  **And replicating all of it still hangs.** Reflex's map init produces those exact values, written per-domain in ten read-modify-writes as ESP-IDF does rather than two, programmed before the clocks rather than after, followed by ESP-IDF's *own* HAL configure functions against pointers verified as the real peripheral addresses. Only the genuine call works.
+
+  The contradiction is now bounded on every side this method can reach: refcounts accounted for, map values accounted for, write granularity accounted for, ordering accounted for, configures literally ESP-IDF's own, and no register anywhere on the chip differing. What remains is a mechanism outside observable state, and the honest next tool is a debugger — single-step both paths and diff the instruction streams. Further permutations from inside the firmware would be guesses rather than experiments.
+
 - **Twelve more PHY experiments; the root cause is still not found.** Asked to iterate until it was found, I did not find it. The boundary is now as tight as black-box measurement can draw it, and the contradiction at its centre is the finding rather than a failure to reach one.
 
   `modem_clock_module_enable(PERIPH_PHY_MODULE)` must be called, before `register_chipv7_phy`, with that module's dependency set. Ruled out, each by its own experiment: object presence without the call; ESP-IDF's exact write order and granularity; the same call for a different module; writing the five bits twice; ESP-IDF's own HAL functions in place of Reflex's writes; the ICG map programmed immediately before the configures; configures with interrupts disabled; the call placed after calibration; timing (10 ms does not substitute); and linkage.
