@@ -46,29 +46,55 @@ INC="-Iinclude -Icomponents/goose/include -Ivm/include -Ishell/include -Ikernel
 # exact on a 32-bit target and only lossy on the 64-bit host doing the
 # compiling, so the warnings describe this machine rather than the firmware.
 # Nothing else is suppressed.
+# -Wno-asm-operand-widths belongs to the same family as the two casts above and
+# is here for the same reason: a uint32_t in an "=r" constraint is exactly a
+# register on RV32 and half of one on the 64-bit host doing the compiling, so
+# the warning describes this machine and not the firmware. It fires on the
+# scheduler's stack switch and on the kernel self-test's CSR reads.
 FLAGS="-O2 -Wall -Wextra -Werror -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast \
+       -Wno-asm-operand-widths \
        -DREFLEX_RTC_DATA_ATTR="
 
 # Not compilable on the host for reasons other than a missing ESP-IDF header,
 # so they cannot be detected by the probe below and are named explicitly.
-declare -A EXPLICIT_SKIP=(
-  ["core/boot.c"]="needs sdkconfig.h for CONFIG_IDF_TARGET"
-  ["kernel/reflex_startup.c"]="asks the compiler for RISC-V register t0; rejected by the host backend, not the assembler"
-)
+# A case statement rather than an associative array, because macOS still ships
+# bash 3.2 and `declare -A` is bash 4. Under 3.2 the declaration below parsed
+# as an *indexed* array assignment, evaluated "core/boot.c" as an arithmetic
+# expression, and died with `core: unbound variable` — printed on every run,
+# and ignored, because the gate went on to exit 0 anyway. The skip list has
+# therefore been doing nothing on this machine.
+explicit_skip_reason() {
+  case "$1" in
+    core/boot.c)
+      echo "needs sdkconfig.h for CONFIG_IDF_TARGET" ;;
+    kernel/reflex_startup.c)
+      echo "asks the compiler for RISC-V register t0; rejected by the host backend, not the assembler" ;;
+    *)
+      echo "" ;;
+  esac
+}
 
 checked=0; skipped=0; failed=0
 skip_list=(); fail_list=()
 
 while IFS= read -r f; do
-    if [[ -n "${EXPLICIT_SKIP[$f]:-}" ]]; then
-        skip_list+=("$f — ${EXPLICIT_SKIP[$f]}"); skipped=$((skipped+1)); continue
+    reason="$(explicit_skip_reason "$f")"
+    if [[ -n "$reason" ]]; then
+        skip_list+=("$f — $reason"); skipped=$((skipped+1)); continue
     fi
 
     # Probe: a missing header means the file belongs to the ESP-IDF-dependent
     # set. Any other diagnostic is a real finding and must not be skipped.
+    # Both compilers' wording, because they differ and only one was matched:
+    # GCC says "fatal error: esp_now.h: No such file or directory", clang says
+    # "fatal error: 'esp_now.h' file not found". This gate was written against
+    # GCC, so on a clang host every ESP-IDF-dependent file fell through to be
+    # compiled and counted as a failure. Extraction is sed rather than
+    # `grep -oP`, which is a GNU extension BSD grep does not have.
     probe=$($CC -fsyntax-only $INC -DREFLEX_RTC_DATA_ATTR= "$f" 2>&1)
-    if grep -q "fatal error:.*No such file or directory" <<<"$probe"; then
-        hdr=$(grep -m1 -oP "fatal error: \K[^:]+" <<<"$probe")
+    if grep -qE "fatal error:.*(No such file or directory|file not found)" <<<"$probe"; then
+        hdr=$(grep -m1 "fatal error:" <<<"$probe" \
+              | sed -E "s/.*fatal error: '?([^':]+)'?.*/\1/")
         skip_list+=("$f — needs $hdr"); skipped=$((skipped+1)); continue
     fi
 
@@ -77,6 +103,17 @@ while IFS= read -r f; do
     # files carrying RISC-V inline assembly (reflex_sched.c, reflex_trap.c)
     # become checkable on an x86 host instead of failing on `wfi` and `csrci`.
     if ! out=$($CC -S $FLAGS $INC "$f" -o /dev/null 2>&1); then
+        # A host backend that cannot assemble RISC-V inline asm is a fact about
+        # the host, not a finding about the firmware. The comment above about
+        # -S stopping before the assembler holds for GCC; clang validates
+        # inline asm through its integrated assembler even under -S, so on a
+        # clang host these files cannot be compiled at all. Detected rather
+        # than named, so the GCC CI host keeps compiling them and only the
+        # host that genuinely cannot skips them.
+        if grep -qE "unrecognized instruction mnemonic|unknown register name|invalid operand for instruction|instantiated into assembly here" <<<"$out"; then
+            skip_list+=("$f — RISC-V inline asm this host's backend cannot assemble")
+            skipped=$((skipped+1)); continue
+        fi
         fail_list+=("$out"); failed=$((failed+1))
     fi
     checked=$((checked+1))
