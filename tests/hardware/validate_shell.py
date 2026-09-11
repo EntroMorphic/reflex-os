@@ -328,11 +328,29 @@ def validate(port, r):
     # the wrong frequency.
     IDF_LEDC = ("timer=0x00138808 ch0=0x00000004 duty=0x00000800 "
                 "pcr=0x00000001 sclk=0x00700000")
+    #
+    # Four states, not two. Collapsing them is how this failed the V3 for
+    # months over something the firmware was reporting correctly: the ESP32
+    # prints `ledc readback=unavailable (no snapshot on this target)` and emits
+    # no `ledc timer=` line at all, so the match ran against an empty string
+    # and blamed the board for the test's assumption. The same mistake, and the
+    # same fix, as the atlas probe above.
     ledc_line = next((l for l in got.splitlines() if "ledc timer=" in l), "")
-    if "sclk=0x00000000" in ledc_line:
+    if "ledc readback=unavailable" in got:
+        r.skip("Reflex LEDC matches ESP-IDF register for register",
+               "this target reports no LEDC snapshot, which is the honest "
+               "answer where Reflex does not own the peripheral")
+    elif "sclk=0x00000000" in ledc_line:
         r.skip("Reflex LEDC matches ESP-IDF register for register",
                "this target still uses ESP-IDF's LEDC, so there is no Reflex "
                "configuration to compare")
+    elif not ledc_line:
+        # Neither a snapshot nor a stated absence. That is a test problem or a
+        # broken command, and it should say which rather than reporting a
+        # register mismatch against nothing.
+        r.check("Reflex LEDC matches ESP-IDF register for register", False,
+                "no `ledc timer=` line and no stated unavailability: "
+                f"{got[:80]!r}")
     else:
         r.check("Reflex LEDC matches ESP-IDF register for register",
                 IDF_LEDC in ledc_line, ledc_line)

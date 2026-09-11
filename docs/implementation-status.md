@@ -211,6 +211,20 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 3. **Deploy**: `vm loadhex <HEX>` in the Reflex shell, or `vm load` for the built-in sample image
 4. **Execute**: `vm task start` for background or `vm run` for foreground
 
+## Hardware-Validated Behaviors (addendum)
+
+- **Three boards, 2026-09-11, after a bench power cycle.** Both ESP32-C6s
+  `183 passed, 0 failed`; the dual-core ESP32 ("the V3") `177 passed, 0 failed,
+  4 skipped`, on firmware rebuilt for that target from the same tree. The V3's
+  one long-standing failure was the suite's, not the firmware's: `bonsai exp4
+  connect` prints `ledc readback=unavailable (no snapshot on this target)` and
+  emits no `ledc timer=` line, and the check matched its expected register
+  string against the resulting empty string. It now tells four states apart —
+  a snapshot to compare, a target that states it has none, a target still on
+  ESP-IDF's LEDC, and a line missing with no explanation, which is a test
+  problem and says so. The C6 still *asserts* the comparison rather than
+  skipping it, which is what makes the skip safe.
+
 ## Known Gaps (docs lead, code trails)
 
 ### The crash-loop: root-caused and fixed (2026-09-11, closed)
