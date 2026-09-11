@@ -213,38 +213,68 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 
 ## Known Gaps (docs lead, code trails)
 
-### A persistent state exists that crash-loops the board (2026-09-11, open)
+### The crash-loop: root-caused and fixed (2026-09-11, closed)
 
-Found while red-teaming something else, unresolved, and recorded because it is
-reachable from the shell and the recovery is not obvious.
+Opened earlier the same day as "a persistent state exists that crash-loops the
+board", unreproducible from a clean store. It is `kv_compact()`, and it was
+never about *which* state — only about *how much*.
 
-**Symptom.** The board boot-loops: `Guru Meditation Error: Core 0 panic'ed
-(Stack protection fault)`, detected in task `IDLE`, stack pointer 112 bytes
-below its bounds, in ROM code, immediately after the supervisor prints its
-policy line. Boot0's loop protection then halts it. Seven boots and ten panics
-in a thirty-five second window, never reaching `system_stable`.
+**The mechanism.** `kv_compact()` built its dedup table as an automatic:
 
-**Recovery.** `esptool erase_region 0x10000 0x6000` — the `reflexkv`
-partition. One boot, zero panics, stable. Reflashing the application alone does
-*not* fix it, which is what makes it worth writing down: the natural first move
-fails and the state survives it.
+    kv_dedup_t dedup[KV_ENTRY_MAX];   /* 256 x 24 bytes = 6,144 bytes */
 
-**What it is not.** It is not the Reflex allocator. A control build with the
-heap shim disabled crash-loops identically, which is how the possibility was
-eliminated rather than argued about.
+Compaction runs from whichever task makes the write that fills the sector. The
+shell runs in `main`, whose stack is 8,688 bytes, so a 6 KB frame plus the
+shell's own usage goes over the end.
 
-**Not yet reproduced from a clean store.** Each of these was tried on an erased
-partition, followed by a reset, and each booted cleanly: `purpose set nav`;
-`snapshot save` + `config set log_level 3` + `vitals override temp 1`; and
-sixty successive `purpose set` writes to force the KV ring through compaction.
-The state that does it accumulated across several *interrupted* hardware-suite
-runs — the suite sets `purpose`, saves snapshots, loads a loom fragment and
-overrides a vital, and when it is interrupted between a set and its cleanup
-those survive in combination. Which combination has not been isolated.
+**Reproduced deterministically.** Successive `purpose set` writes on an erased
+partition, and the board dies on the write that fills the 4 KB sector:
 
-**Why it matters beyond the bench.** `make hw-test` can leave a board in this
-state if it is interrupted, and the failure presents as "the board is dead"
-rather than as anything pointing at persisted state.
+```
+reflex> purpose set fill0139
+Guru Meditation Error: Core 0 panic'ed (Stack protection fault).
+Detected in task "main"
+Stack pointer: 0x40814c50   Stack bounds: 0x40814c60 - 0x40816e50
+```
+
+Sixteen bytes past the bottom, at write 139 — 139 entries of roughly 28 bytes
+is almost exactly one sector.
+
+**Why it looked like haunted persistent state.** A full sector survives a
+reflash, and `boot_count` is written on every boot (`storage/config.c`). So the
+first write of the next boot compacts again, from a boot-time task, and the
+board loops — the panic landing in whichever task was unlucky, which is why it
+was first seen attributed to `IDLE`. Erasing the partition empties the store,
+so no compaction is due, so it boots. That is the whole of "reflashing does not
+fix it but erasing does".
+
+**Why five earlier reproduction attempts failed.** They were the wrong shape:
+`purpose set`, a snapshot, a config write, a vitals override — and sixty
+successive writes, which is under half a sector. Nothing compacted. The trigger
+was never a particular key; it was the sector filling.
+
+**The fix.** The table is `static`. That is safe because the store was already
+single-owner — `s_active_sector`, `s_write_offset` and `s_active_seq` are
+globals with no lock, so two concurrent writers were never supported — and it
+costs 6 KB of .bss, which is the honest price of not putting 6 KB on someone
+else's stack. Verified on hardware both ways: 300 successive writes through
+repeated compactions with no panic and no reset, where it previously died at
+139; and a reboot with a full store now reports `flash KV resumed: sector=1
+seq=2` and reaches `system_stable`.
+
+**Two defects found alongside it, in the same function.**
+
+- `flash_read` clamped the *read* to its 256-byte bounce buffer and then copied
+  the caller's full length out of it, so any read above 256 bytes returned
+  whatever was next on the stack. Reachable: compaction copies whole entries,
+  and a maximum entry is 5 + 15 + 240 = 260 bytes, so the last four bytes of
+  every maximum-size value were stack garbage — and compaction then wrote them
+  back to flash. It now reads in chunks. `tests/host/test_kv.c` carries a
+  regression test that fails against the defect at byte 236, exactly where the
+  arithmetic says it should.
+- Compaction silently dropped unique keys beyond `KV_ENTRY_MAX`. A 4 KB sector
+  can hold more minimum-size entries than that, so it is reachable, and losing
+  data that was successfully written should not be quiet. It now says so.
 
 ### ESP-IDF independence
 

@@ -15,6 +15,8 @@
 /* Must track KV_FLASH_BASE in reflex_kv_flash.c: the store moved to its own
  * `reflexkv` partition after it was found sharing the six sectors NVS occupies. */
 #define MOCK_FLASH_BASE 0x10000
+#define KV_KEY_MAX_TEST 15
+
 static uint8_t s_mock_flash[MOCK_FLASH_SIZE];
 
 /* The store talks to ESP-IDF's flash API now, because raw ROM access never
@@ -133,6 +135,49 @@ int test_kv(void) {
     rc = reflex_kv_get_str(h, "hello", buf, &len);
     if (rc != REFLEX_OK || strcmp(buf, "earth") != 0) {
         printf("FAIL post-compact hello\n"); failures++;
+    }
+
+    /* A maximum-size entry carried through compaction.
+     *
+     * This is the case that made flash_read's truncation reachable. An entry
+     * of a 15-character key and a 240-byte value spans
+     * sizeof(header) + 15 + 240 = 263 bytes, and kv_compact copies whole
+     * entries — so compaction asked flash_read for 263 bytes, which it served
+     * by reading 256 and then copying 263 out of a 256-byte stack array. The
+     * tail of every such entry was whatever happened to be next on the stack.
+     *
+     * The mock cannot model a stack, but it does not have to: it returns the
+     * right bytes, and the old flash_read still mangled them, so this fails
+     * against the defect and passes against the fix. */
+    {
+        char bigkey[KV_KEY_MAX_TEST + 1];
+        memset(bigkey, 'k', KV_KEY_MAX_TEST);
+        bigkey[KV_KEY_MAX_TEST] = '\0';
+
+        uint8_t big[240];
+        for (size_t i = 0; i < sizeof(big); i++) big[i] = (uint8_t)(i * 7u + 3u);
+
+        if (reflex_kv_set_blob(h, bigkey, big, sizeof(big)) != REFLEX_OK) {
+            printf("FAIL max-entry write\n"); failures++;
+        }
+
+        /* Force at least one compaction so the entry is copied rather than
+         * merely read in place. */
+        for (int i = 0; i < 300; i++) {
+            snprintf(key, sizeof(key), "f%d", i % 16);
+            snprintf(val, sizeof(val), "pad_%d_________________", i);
+            if (reflex_kv_set_str(h, key, val) != REFLEX_OK) break;
+        }
+
+        uint8_t back[240];
+        size_t blen = sizeof(back);
+        memset(back, 0, sizeof(back));
+        rc = reflex_kv_get_blob(h, bigkey, back, &blen);
+        if (rc != REFLEX_OK || blen != sizeof(big) || memcmp(back, big, sizeof(big)) != 0) {
+            printf("FAIL max-entry survived compaction (rc=0x%x len=%u)\n",
+                   (unsigned)rc, (unsigned)blen);
+            failures++;
+        }
     }
 
     if (failures == 0) printf("ok\n");

@@ -220,18 +220,41 @@ static inline void kv_intr_restore(uint32_t ms) {
 }
 #endif
 
+/* Reads of any length, in bounce-buffer-sized chunks.
+ *
+ * This clamped the *read* to the bounce buffer and then copied the caller's
+ * full length out of it:
+ *
+ *     if (aligned_len > sizeof(aligned_buf)) aligned_len = sizeof(aligned_buf);
+ *     ...
+ *     memcpy(buf, aligned_buf, len);
+ *
+ * For any len above 256 that copies from beyond a 256-byte stack array — the
+ * caller gets whatever happened to be next on the stack, and the truncation is
+ * silent. It is reachable: kv_compact's copy loop reads a whole entry, and a
+ * maximum-size entry is sizeof(header) + 15 + 240 = 263 bytes. Chunking is
+ * both correct for every length and cheaper to reason about than a cap nobody
+ * can see from the call site. */
 static void flash_read(uint32_t addr, void *buf, size_t len) {
     uint32_t aligned_buf[64];
-    size_t aligned_len = (len + 3) & ~3;
-    if (aligned_len > sizeof(aligned_buf)) aligned_len = sizeof(aligned_buf);
-    uint32_t ms = kv_intr_mask();
-    esp_err_t rrc = esp_flash_read(NULL, aligned_buf, addr, (uint32_t)aligned_len);
-    kv_intr_restore(ms);
-    if (rrc != ESP_OK) {
-        /* A failed read must not present as a valid entry header. */
-        memset(aligned_buf, 0xFF, aligned_len);
+    uint8_t *out = (uint8_t *)buf;
+    size_t done = 0;
+
+    while (done < len) {
+        size_t want = len - done;
+        if (want > sizeof(aligned_buf)) want = sizeof(aligned_buf);
+        size_t aligned_len = (want + 3) & ~(size_t)3;
+
+        uint32_t ms = kv_intr_mask();
+        esp_err_t rrc = esp_flash_read(NULL, aligned_buf, addr + done, (uint32_t)aligned_len);
+        kv_intr_restore(ms);
+        if (rrc != ESP_OK) {
+            /* A failed read must not present as a valid entry header. */
+            memset(aligned_buf, 0xFF, aligned_len);
+        }
+        memcpy(out + done, aligned_buf, want);
+        done += want;
     }
-    memcpy(buf, aligned_buf, len);
 }
 
 /* Returns false if the write did not happen, which the callers now check.
@@ -394,8 +417,31 @@ static reflex_err_t kv_compact(void) {
     uint32_t new_sector = (s_active_sector + 1) % KV_NUM_SECTORS;
     uint32_t new_base = sector_addr(new_sector);
 
-    /* Forward scan: build dedup table (last offset per unique key) */
-    kv_dedup_t dedup[KV_ENTRY_MAX];
+    /* Static, not automatic, and this is the whole of a crash that survived
+     * reflashing.
+     *
+     * KV_ENTRY_MAX is 256 and kv_dedup_t is 24 bytes, so as an automatic this
+     * table put 6,144 bytes into one stack frame. Compaction runs from
+     * whichever task happens to make the write that fills the sector, and the
+     * shell's task has 8,688 bytes of stack: `purpose set` number 139 filled
+     * the sector, kv_compact was called, and the board died with
+     *
+     *     Guru Meditation Error: Core 0 panic'ed (Stack protection fault).
+     *     Detected in task "main"
+     *     Stack pointer: 0x40814c50  Stack bounds: 0x40814c60 - 0x40816e50
+     *
+     * — sixteen bytes past the bottom. The persistent form is worse: a full
+     * sector survives a reflash, `boot_count` is written on every boot, so the
+     * first write of the next boot compacts again and the board boot-loops.
+     * Only erasing the partition clears it, which is exactly the failure
+     * recorded in Known Gaps and is now explained.
+     *
+     * Static is safe here because the store is already single-owner: it keeps
+     * s_active_sector, s_write_offset and s_active_seq as globals with no lock,
+     * so two concurrent writers were never supported and this table adds no
+     * hazard that was not already there. It costs 6 KB of .bss, which is the
+     * honest price of not putting 6 KB on someone else's stack. */
+    static kv_dedup_t dedup[KV_ENTRY_MAX];
     int dedup_count = 0;
     uint32_t off = sizeof(kv_page_header_t);
 
@@ -418,7 +464,19 @@ static reflex_err_t kv_compact(void) {
                 break;
             }
         }
-        if (!found && dedup_count < KV_ENTRY_MAX) {
+        if (!found && dedup_count >= KV_ENTRY_MAX) {
+            /* More unique keys than the table can hold. A 4 KB sector can
+             * carry more minimum-size entries than KV_ENTRY_MAX, so this is
+             * reachable, and dropping them silently loses data that was
+             * successfully written. Say so. */
+            /* esp_rom_printf for the same reason as the init line below: this
+             * component does not depend on core, and keeping it that way is
+             * the point of the file. */
+            esp_rom_printf("[reflex.kv] compaction: over %d unique keys, dropping the rest\n",
+                           KV_ENTRY_MAX);
+            break;
+        }
+        if (!found) {
             dedup[dedup_count].ns = eh.ns_hash;
             memcpy(dedup[dedup_count].key, k, eh.key_len + 1);
             dedup[dedup_count].offset = off;
