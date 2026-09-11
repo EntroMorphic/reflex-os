@@ -337,9 +337,22 @@ def validate(port, r):
     # same fix, as the atlas probe above.
     ledc_line = next((l for l in got.splitlines() if "ledc timer=" in l), "")
     if "ledc readback=unavailable" in got:
-        r.skip("Reflex LEDC matches ESP-IDF register for register",
-               "this target reports no LEDC snapshot, which is the honest "
-               "answer where Reflex does not own the peripheral")
+        # A skip driven purely by a string the firmware prints is a gate that
+        # the firmware can switch off. If this board carries a shadow atlas it
+        # is a C6, Reflex owns its LEDC, and a snapshot is owed — so an
+        # unavailability claim there is a regression and must fail, not skip.
+        # The catalog is a proxy for the target rather than for this
+        # peripheral, which is the same proxy the atlas probe already uses and
+        # the only one the shell exposes; naming it here so the coupling is
+        # visible if either side ever moves.
+        if board_catalog_size(b):
+            r.check("Reflex LEDC matches ESP-IDF register for register", False,
+                    "board has a shadow atlas, so Reflex owns its peripherals, "
+                    "yet it reports no LEDC snapshot — regression, not a skip")
+        else:
+            r.skip("Reflex LEDC matches ESP-IDF register for register",
+                   "this target reports no LEDC snapshot, which is the honest "
+                   "answer where Reflex does not own the peripheral")
     elif "sclk=0x00000000" in ledc_line:
         r.skip("Reflex LEDC matches ESP-IDF register for register",
                "this target still uses ESP-IDF's LEDC, so there is no Reflex "

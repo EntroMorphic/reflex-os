@@ -204,15 +204,6 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 - **Metabolic Regulation (Phase 31)**: `vitals` shows temp=0, battery=1, mesh=-1, heap=1, metabolic=thriving on USB-powered board. `vitals override temp -1` → conserving within 2s. `vitals override battery -1` → surviving (hard constraint). In surviving: zero `#T:H` and `#T:W` events (learning+weave suspended). `vitals clear` → hysteresis holds (stays degraded for recovery window). `#T:X,1,0,1,-1,1` streams at 1Hz. All vital cells visible in `goonies ls`. 10/10 on-device tests.
 - **Streaming telemetry (Phase 30)**: `telemetry on` produces `#T:B,1` at exactly 10Hz (50 lines in 5s) and `#T:V,0,0` at 1Hz. `telemetry off` produces zero stray lines. `#T:P,<name>` and `#T:A,<name>,<type>` fire from shell context on `purpose set`. 10-second soak: B=100, V=10, 0 malformed. Shell commands (`status`, `goonies ls`, `heartbeat`) work while telemetry streams. 10 rapid on/off toggles stable.
 
-## Current Developer Flow
-
-1. **Code**: write `.tasm` or `.ls` files
-2. **Compile**: `python3 tools/tasm.py program.tasm program.rfxv` or `python3 tools/loomc.py program.ls program.loom`
-3. **Deploy**: `vm loadhex <HEX>` in the Reflex shell, or `vm load` for the built-in sample image
-4. **Execute**: `vm task start` for background or `vm run` for foreground
-
-## Hardware-Validated Behaviors (addendum)
-
 - **Three boards, 2026-09-11, after a bench power cycle.** Both ESP32-C6s
   `183 passed, 0 failed`; the dual-core ESP32 ("the V3") `177 passed, 0 failed,
   4 skipped`, on firmware rebuilt for that target from the same tree. The V3's
@@ -223,7 +214,27 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
   a snapshot to compare, a target that states it has none, a target still on
   ESP-IDF's LEDC, and a line missing with no explanation, which is a test
   problem and says so. The C6 still *asserts* the comparison rather than
-  skipping it, which is what makes the skip safe.
+  skipping it, which is what makes the skip safe — and that is now enforced
+  rather than observed: a skip driven purely by a string the firmware prints
+  is a gate the firmware can switch off, so a board carrying a shadow atlas
+  (which means Reflex owns its peripherals) that claims no LEDC snapshot is
+  failed as a regression instead of skipped.
+
+  The V3 build was also checked against the definition CI uses. The first
+  rebuild passed `SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32"`
+  where `.github/workflows/build.yml` passes only the latter — a different
+  invocation, and therefore a result measured on a configuration nobody else
+  builds. Diffing the two resulting sdkconfigs gives **zero differing
+  `CONFIG_` lines**, so the earlier figure stands; it is recorded because it
+  was checked rather than assumed, and the canonical invocation is what is
+  built and flashed now.
+
+## Current Developer Flow
+
+1. **Code**: write `.tasm` or `.ls` files
+2. **Compile**: `python3 tools/tasm.py program.tasm program.rfxv` or `python3 tools/loomc.py program.ls program.loom`
+3. **Deploy**: `vm loadhex <HEX>` in the Reflex shell, or `vm load` for the built-in sample image
+4. **Execute**: `vm task start` for background or `vm run` for foreground
 
 ## Known Gaps (docs lead, code trails)
 
