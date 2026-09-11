@@ -286,7 +286,7 @@ PATH_SYMBOLS = {
 # takes the fence on faith and counts a dependency away that is still there.
 # Only symbols named here are read this way. A stray -D on some unrelated
 # symbol changes nothing, because an unknown symbol still counts both branches.
-BUILD_DEFINED_SYMBOLS = ("REFLEX_OWN_ENTRY",)
+BUILD_DEFINED_SYMBOLS = ("REFLEX_OWN_ENTRY", "REFLEX_OWN_HEAP")
 
 
 def apply_build_config():
@@ -356,7 +356,16 @@ def apply_build_defines():
     seen_c = 0
     counts_defined = {sym: 0 for sym in BUILD_DEFINED_SYMBOLS}
     for e in entries:
-        if not str(e.get("file", "")).endswith(".c"):
+        f = str(e.get("file", ""))
+        if not f.endswith(".c"):
+            continue
+        # Generated stubs inside the build directory are not project sources
+        # and do not carry the project's compile definitions —
+        # project_elf_src_<target>.c is emitted by ESP-IDF's own CMake. Voting
+        # them in makes unanimity unreachable (981 of 982) and silently
+        # downgrades every build-defined symbol to "unknown", which counts both
+        # branches of every fence and quietly inflates the dependency numbers.
+        if (os.sep + "build" in f) or os.path.basename(f).startswith("project_elf_src_"):
             continue
         seen_c += 1
         cmd = e.get("command") or " ".join(e.get("arguments", []))
@@ -545,7 +554,8 @@ def measure_config(build):
     """(per-tier on-path counts, bedrock, off-path total) for one build."""
     global _bedrock_cache
     set_build_dir(os.path.join(ROOT, build))
-    PATH_SYMBOLS.pop("REFLEX_OWN_ENTRY", None)
+    for _sym in BUILD_DEFINED_SYMBOLS:
+        PATH_SYMBOLS.pop(_sym, None)
     apply_build_config()
     apply_build_defines()
     on, off, _unknown = scan()

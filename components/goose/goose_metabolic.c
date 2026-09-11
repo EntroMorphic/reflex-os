@@ -27,7 +27,14 @@
 #include <string.h>
 
 #ifndef REFLEX_HOST_BUILD
+#ifdef REFLEX_OWN_HEAP
+/* Reflex serves this configuration's allocations from its own region, so the
+ * free figure comes from its own bookkeeping rather than from ESP-IDF's. See
+ * platform/esp32c6/reflex_heap_espidf_shim.c. */
+#include "reflex_heap.h"
+#else
 #include "esp_heap_caps.h"
+#endif
 #endif
 
 #define TAG "GOOSE_METABOLIC"
@@ -72,7 +79,17 @@ static int8_t compute_heap_state(void) {
      * — including DMA-only and RTC memory that malloc() can never serve — and
      * so over-reports free space, desensitising the circuit breaker that
      * goose_fabric_alloc_cell relies on to refuse allocations under pressure. */
+#ifdef REFLEX_OWN_HEAP
+    /* The pool Reflex actually allocates from. ESP-IDF keeps a small residual
+     * heap for paths the shim does not intercept, and it is deliberately not
+     * added here: this breaker exists to refuse Reflex's own allocations under
+     * pressure, so the number it acts on should be the pool those allocations
+     * come from. Counting memory Reflex does not serve would desensitise it,
+     * which is the same mistake as passing 0 for the capability mask. */
+    size_t free_bytes = reflex_heap_free_bytes();
+#else
     size_t free_bytes = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+#endif
 #else
     size_t free_bytes = 65536;
 #endif

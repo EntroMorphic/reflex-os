@@ -31,6 +31,8 @@ typedef struct block {
  * minimum payload; otherwise the tail stays with the allocation. */
 #define SPLIT_MIN   (HDR + MIN_PAYLOAD)
 
+static uint8_t *s_region_lo;
+static uint8_t *s_region_hi;
 static block_t *s_first;
 static size_t s_total;
 static size_t s_free;
@@ -79,6 +81,7 @@ static void note_free_change(void) {
 
 void reflex_heap_init(void *base, size_t size) {
     s_first = NULL;
+    s_region_lo = s_region_hi = NULL;
     s_total = s_free = s_min_free = 0;
     s_ready = false;
     if (!base || size < HDR + MIN_PAYLOAD) return;
@@ -95,6 +98,8 @@ void reflex_heap_init(void *base, size_t size) {
     b->size = usable - HDR;
     b->used = 0;
 
+    s_region_lo = (uint8_t *)(void *)start;
+    s_region_hi = s_region_lo + usable;
     s_first = b;
     s_total = b->size;
     s_free = b->size;
@@ -103,6 +108,11 @@ void reflex_heap_init(void *base, size_t size) {
 }
 
 bool reflex_heap_ready(void) { return s_ready; }
+
+bool reflex_heap_owns(const void *ptr) {
+    const uint8_t *p = (const uint8_t *)ptr;
+    return s_ready && p >= s_region_lo && p < s_region_hi;
+}
 
 /* Split @p b so it holds exactly @p want payload bytes, returning the tail to
  * the free pool. Caller holds the lock and has checked b->size >= want. */

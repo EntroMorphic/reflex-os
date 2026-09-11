@@ -75,13 +75,13 @@ part nothing recomputed.
 | tier | `build_own_entry` | `build_independence` | |
 |---|---|---|---|
 | A | **0 — clear** | **0 — clear** | SoC constants, ROM entry points |
-| B | 2 | 2 | Deep-sleep entry, heap reporting |
+| B | 1 | 1 | Deep-sleep entry, heap reporting |
 | C | **0 — clear** | 6 | FreeRTOS as the scheduler |
-| D | 1 | 1 | Radio |
+| D | 3 | 1 | Radio |
 | E | **0 — clear** | **0 — clear** | Console RX, peripheral drivers |
-| F | 3 | 2 | Build system, startup, heap, image |
-| **on-path total** | **6** | **11** | |
-| bedrock | 2 | 0 | vendor binary; ratcheted by `make blob-check` |
+| F | 2 | 1 | Build system, startup, heap, image |
+| **on-path total** | **6** | **9** | |
+| bedrock | 0 | 0 | vendor binary; ratcheted by `make blob-check` |
 | off-path | 31 | 30 | alternative backends; ratcheted as a total |
 
 <!-- /independence-scope -->
@@ -1619,6 +1619,90 @@ conclusion down is the part worth recording.
 The test that would actually isolate it: keep a reference to `modem_clock.c`
 alive — take the address of one of its functions without calling it — and see
 whether presence alone is enough.
+
+#### The heap is Reflex's, and heap reporting with it (2026-09-11)
+
+On-path 8 -> 6. Tier B 2 -> 1 and Tier F 3 -> 2, because `esp_heap_caps.h` in
+`goose_metabolic.c` and `esp_system.h` in `shell/shell.c` are gone from the
+802.15.4 configurations. Those were the two the ledger called "the same concern
+reached from two places", recorded as takeable only by owning the allocator.
+The allocator is now Reflex's.
+
+**Not a rename, which is the thing to check first.** The refused move was
+consolidating the same ESP-IDF calls behind a `reflex_hal_heap_free()`. This is
+the opposite: every allocation in the image — Reflex's, FreeRTOS's task stacks,
+newlib's, the PHY blob's — is served from a region Reflex owns, and the number
+reported is Reflex's own bookkeeping about that region. The dependency ends
+rather than relocating.
+
+**The allocator.** `kernel/reflex_heap.c`, first-fit over one physically-ordered
+doubly-linked list of every block, used and free alike, with immediate
+coalescing. A segregated free list would be faster; this is chosen because
+every block is reachable by walking `next`, which makes `reflex_heap_check()` a
+complete structural audit — blocks tile the region exactly, no two free blocks
+are adjacent, and the free counter equals the free space actually present. The
+host suite runs that audit after every one of 20,000 randomised
+allocate/free/realloc operations against a model of what a caller can observe.
+
+It found six bugs before any of it reached hardware, and all six would have
+presented on the board as corruption or a spurious out-of-memory thousands of
+operations from their cause: a header credited back to the free total on every
+in-place grow; a realloc shrink that split off a tail and never coalesced it,
+leaving two adjacent free blocks; the same in the grow path; an aligned path
+that could hand out a block already in use after a split it had declined to
+make; an aligned path that refused a 32-byte-aligned request on a wholly empty
+heap because the first payload sat 16 bytes below the boundary; and
+`ALIGN_UP((size_t)-1)` wrapping to zero, so a caller asking for everything was
+handed eight bytes and told it succeeded.
+
+**The splice.** `--wrap` on the allocation entry points, with one property that
+makes partial interception safe rather than merely lucky: **every free
+range-checks.** Interception can never be complete — some memory predates the
+region, and ESP-IDF has internal entry points callers reach without passing a
+wrapped symbol — so every free and realloc asks `reflex_heap_owns()` first and
+hands anything foreign back to `__real_`. A missed entry point costs a little
+memory instead of the system.
+
+**Measured against a control, on the same board in the same session.**
+
+| | ESP-IDF's allocator | Reflex's |
+|---|---|---|
+| hardware suite | 183/183 | 183/183 |
+| `heap free` | 290,796 | 289,436 |
+| loom slowest hold | 367 us (alloc) | 326 us (alloc) |
+| loom average hold | 7-8 us | 6-8 us |
+
+1,360 bytes of difference in free memory, 0.47%, which is the per-block header
+overhead on live allocations. No latency regression — if anything the reverse.
+The region is .bss, so ESP-IDF's own heap shrinks by exactly what Reflex claims
+and total capacity is preserved; computing the extent from `_heap_start` by
+hand would have risked owning memory ESP-IDF also believed it owned.
+
+**What the number now means, stated because a number labelled "heap" that
+quietly measures a different pool is worse than no number.** The shell prints
+`heap free=... min_free=... (reflex)`: the pool Reflex serves allocations from,
+192 KiB, reading 118,528 free on a booted board. ESP-IDF keeps a small residual
+heap for paths the shim does not intercept and for fallback when Reflex's
+region is full, and it is deliberately *not* added to the metabolic breaker's
+figure — that breaker exists to refuse Reflex's own allocations under pressure,
+so the number it acts on should be the pool those allocations come from.
+Counting memory Reflex does not serve would desensitise it, which is the same
+mistake as passing 0 for the capability mask.
+
+**Scoped to the 802.15.4 path** via a build-defined `REFLEX_OWN_HEAP`, derived
+from the radio backend because that is what it depends on: the ESP-NOW backend
+runs Wi-Fi, whose driver allocates with capability requirements this region
+does not model. A `-D` rather than a `CONFIG_` read from `sdkconfig.h`, because
+the two files that condition on it would then have had to include
+`sdkconfig.h` — trading a Tier B dependency for a Tier F one and calling it
+progress.
+
+**One measurement bug found on the way.** The unanimity vote that resolves
+build-defined symbols counted ESP-IDF's generated `project_elf_src_<target>.c`,
+which carries no project compile definitions. 981 of 982 is not unanimous, so
+`REFLEX_OWN_HEAP` resolved to "unknown", which counts *both* branches of every
+fence — the tool reporting 9 on-path where the build has 6. Generated files
+under the build directory are now excluded from the vote.
 
 #### Owning the flash window: a hypothesis, measured and refused (2026-09-11)
 

@@ -23,7 +23,7 @@ set(REFLEX_PLATFORM_SRCS "reflex_hal_esp32c6.c" "../reflex_crypto.c" "../reflex_
 
 # KV backend selection: raw flash (802.15.4 mode) or NVS (WiFi mode)
 if(CONFIG_REFLEX_RADIO_802154)
-    list(APPEND REFLEX_PLATFORM_SRCS "reflex_kv_flash.c")
+    list(APPEND REFLEX_PLATFORM_SRCS "reflex_kv_flash.c" "reflex_heap_espidf_shim.c")
 else()
     list(APPEND REFLEX_PLATFORM_SRCS "reflex_kv_esp32c6.c")
 endif()
@@ -143,4 +143,26 @@ if(CONFIG_REFLEX_KERNEL_SCHEDULER)
         "-Wl,--wrap=rtos_int_exit"
         "-Wl,--undefined=__wrap_rtos_int_enter"
         "-Wl,--undefined=__wrap_rtos_int_exit")
+endif()
+
+# Reflex's allocator underneath ESP-IDF's, on the 802.15.4 path only.
+#
+# Gated on the radio backend rather than applied to every C6 build: the ESP-NOW
+# backend runs Wi-Fi, whose driver allocates with capability requirements this
+# region does not model, and the independence measurement is taken on the
+# 802.15.4 configurations. Every wrapped free range-checks and hands foreign
+# pointers back to __real_, so an entry point that is missed costs memory
+# rather than correctness.
+if(CONFIG_REFLEX_RADIO_802154)
+    target_link_libraries(${COMPONENT_LIB} INTERFACE
+        "-Wl,--wrap=malloc" "-Wl,--wrap=free"
+        "-Wl,--wrap=calloc" "-Wl,--wrap=realloc"
+        "-Wl,--wrap=_malloc_r" "-Wl,--wrap=_free_r"
+        "-Wl,--wrap=_calloc_r" "-Wl,--wrap=_realloc_r"
+        "-Wl,--wrap=heap_caps_malloc" "-Wl,--wrap=heap_caps_calloc"
+        "-Wl,--wrap=heap_caps_realloc" "-Wl,--wrap=heap_caps_aligned_alloc"
+        "-Wl,--wrap=heap_caps_free"
+        "-Wl,--wrap=heap_caps_get_free_size"
+        "-Wl,--wrap=heap_caps_get_minimum_free_size"
+        "-Wl,--wrap=heap_caps_get_largest_free_block")
 endif()

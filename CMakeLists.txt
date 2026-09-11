@@ -13,3 +13,16 @@ endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(reflex_os)
+
+# REFLEX_OWN_HEAP says "Reflex serves this image's allocations from its own
+# region". It is derived from the radio backend rather than being a Kconfig
+# option of its own, because that is exactly what it depends on: the shim is
+# applied on the 802.15.4 path and not on the Wi-Fi one.
+#
+# A global -D rather than a CONFIG_ read from sdkconfig.h, so that the files
+# that condition on it — goose_metabolic.c and shell/shell.c — do not have to
+# include sdkconfig.h to see it. Including it would trade a Tier B dependency
+# for a Tier F one and call it progress.
+if(CONFIG_REFLEX_RADIO_802154)
+    idf_build_set_property(COMPILE_DEFINITIONS "REFLEX_OWN_HEAP=1" APPEND)
+endif()

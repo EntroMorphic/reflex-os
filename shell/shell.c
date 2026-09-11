@@ -71,7 +71,11 @@
 static void outcome(shell_reason_t r);
 static bool extra_args(int argc, int expected);
 #include "goose.h"
+#ifdef REFLEX_OWN_HEAP
+#include "reflex_heap.h"
+#else
 #include "esp_system.h"
+#endif
 #include "goose_telemetry.h"
 #include "goose_metabolic.h"
 #include "reflex_tuning.h"
@@ -1054,9 +1058,19 @@ static void shell_cmd_status(int argc, char *argv[]) {
         }
     }
 #endif
+#ifdef REFLEX_OWN_HEAP
+    /* Reflex's own heap: the region every allocation in this configuration is
+     * served from. Named so in the output, because a number labelled "heap"
+     * that quietly measures a different pool than the reader assumes is worse
+     * than no number. */
+    printf("heap free=%lu min_free=%lu (reflex)\n",
+           (unsigned long)reflex_heap_free_bytes(),
+           (unsigned long)reflex_heap_min_free_bytes());
+#else
     printf("heap free=%lu min_free=%lu\n",
            (unsigned long)esp_get_free_heap_size(),
            (unsigned long)esp_get_minimum_free_heap_size());
+#endif
     uint16_t explore_discovered = goose_explore_active();
     uint16_t explore_pain = goose_explore_pain_ticks();
     const char *p = goose_purpose_get_name();

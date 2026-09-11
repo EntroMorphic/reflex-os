@@ -51,6 +51,16 @@ void *reflex_heap_realloc(void *ptr, size_t size);
 /** Payload size of an allocation, for realloc-style copying. 0 if not ours. */
 size_t reflex_heap_block_size(const void *ptr);
 
+/** True if @p ptr lies inside this allocator's region.
+ *
+ * The reason this is public: when Reflex's allocator is spliced in underneath
+ * code that was already running, some memory predates it or comes from a path
+ * that was not intercepted. A free() that assumes every pointer is its own
+ * will read a header that is not there. Range-checking first, and handing
+ * anything foreign back to the allocator it came from, is what makes partial
+ * interception safe rather than merely likely to work. */
+bool reflex_heap_owns(const void *ptr);
+
 /** Free bytes right now. */
 size_t reflex_heap_free_bytes(void);
 

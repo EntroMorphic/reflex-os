@@ -290,6 +290,22 @@ static void test_split_boundaries(void) {
     CHECK("all split boundaries clean", reflex_heap_free_bytes() == total);
 }
 
+static void test_ownership(void) {
+    fresh();
+    void *p = reflex_heap_alloc(64);
+    CHECK("owns its own pointer", reflex_heap_owns(p));
+    CHECK("disowns NULL", !reflex_heap_owns(NULL));
+    int stack_thing = 0;
+    CHECK("disowns a stack address", !reflex_heap_owns(&stack_thing));
+    static int static_thing;
+    CHECK("disowns a static address", !reflex_heap_owns(&static_thing));
+    CHECK("disowns just below the region", !reflex_heap_owns(s_region - 1));
+    CHECK("disowns just past the region", !reflex_heap_owns(s_region + REGION));
+    CHECK("owns the first byte", reflex_heap_owns(s_region));
+    reflex_heap_free(p);
+    CHECK("still owns the range after free", reflex_heap_owns(p));
+}
+
 int test_reflex_heap(void) {
     printf("[heap] ");
     test_init();
@@ -301,6 +317,7 @@ int test_reflex_heap(void) {
     test_min_free_tracking();
     test_double_free_refused();
     test_split_boundaries();
+    test_ownership();
     test_differential();
     if (s_fail == 0) printf("ok\n");
     return s_fail;
