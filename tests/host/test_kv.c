@@ -180,6 +180,58 @@ int test_kv(void) {
         }
     }
 
+    /* A key rewritten after the dedup table is full must keep its new value.
+     *
+     * The store is append-only with the newest version of a key last, so a
+     * compaction scan that gives up when its table fills carries the *old*
+     * value forward — silently, for a key it is still tracking. That is the
+     * regression a first attempt at reporting the overflow introduced: it
+     * reported, and then it broke out of the scan.
+     *
+     * The ordering is the whole test. The rewrite has to appear *after* a key
+     * the table had no room for, or the scan reaches it before it would have
+     * given up and the bug is invisible — which is exactly how the first
+     * version of this test passed against the defect it was written for.
+     *
+     * Sized to stay inside one 4 KB sector so no compaction happens early and
+     * the layout is exactly as described: 300 four-character keys at a 12-byte
+     * span is 3,600 bytes, plus two 16-byte "tracked" entries and the page
+     * header. More unique keys than KV_ENTRY_MAX fit, so the overflow is
+     * reachable rather than theoretical. */
+    {
+        memset(s_mock_flash, 0xFF, MOCK_FLASH_SIZE);
+        s_initialized = false;
+        if (reflex_kv_init() != REFLEX_OK) { printf("FAIL tracked reinit\n"); failures++; }
+
+        reflex_kv_handle_t h2;
+        reflex_kv_open("test", false, &h2);
+
+        if (reflex_kv_set_str(h2, "tracked", "old") != REFLEX_OK) {
+            printf("FAIL tracked seed\n"); failures++;
+        }
+        for (int i = 0; i < 300; i++) {
+            snprintf(key, sizeof(key), "u%03d", i);
+            if (reflex_kv_set_str(h2, key, "x") != REFLEX_OK) break;
+        }
+        /* After the table is already full of u-keys. */
+        if (reflex_kv_set_str(h2, "tracked", "new") != REFLEX_OK) {
+            printf("FAIL tracked rewrite\n"); failures++;
+        }
+        /* Overflow the sector with repeats of an existing key, so compaction
+         * runs without introducing further unique keys. */
+        for (int i = 0; i < 120; i++) {
+            if (reflex_kv_set_str(h2, "u000", "y") != REFLEX_OK) break;
+        }
+
+        len = sizeof(buf);
+        rc = reflex_kv_get_str(h2, "tracked", buf, &len);
+        if (rc != REFLEX_OK || strcmp(buf, "new") != 0) {
+            printf("FAIL tracked key reverted across compaction (rc=0x%x got=%s)\n",
+                   (unsigned)rc, rc == REFLEX_OK ? buf : "-");
+            failures++;
+        }
+    }
+
     if (failures == 0) printf("ok\n");
     return failures;
 }

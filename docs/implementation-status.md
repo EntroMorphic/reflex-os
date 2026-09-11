@@ -262,6 +262,26 @@ repeated compactions with no panic and no reset, where it previously died at
 139; and a reboot with a full store now reports `flash KV resumed: sector=1
 seq=2` and reaches `system_stable`.
 
+**A third defect, introduced by the second fix and caught red-teaming it.**
+Reporting the dedup-table overflow was done with a `break`, which abandons the
+scan. The store is append-only with the newest version of a key last, so
+stopping early means a *later rewrite of a key already in the table* is never
+seen and compaction carries the stale value forward — silently, for a key it is
+still tracking. Worse than the silent drop it was meant to improve on. The scan
+now continues and reports once.
+
+**And the reason that took two attempts to catch: the host suite was building
+stale.** `tests/host/Makefile` made the binary depend on `$(SRCS)` and
+`$(HDRS)`, but `reflex_kv_flash.c` is neither — it is a `.c` that `test_kv.c`
+`#include`s directly. Editing it did not rebuild the suite, so `make test`
+validated yesterday's object and returned a clean pass for a defect sitting in
+the tree. It did that twice in one session, once for `flash_read` and once for
+this. Included `.c` files are now derived from the test sources and added to
+the prerequisites, which is the same principle the file's own comment already
+stated about gates that cannot fail. Verified by reintroducing the regression:
+`make test` now reports `691 passed, 1 failed` where it previously reported a
+clean pass.
+
 **Two defects found alongside it, in the same function.**
 
 - `flash_read` clamped the *read* to its 256-byte bounce buffer and then copied

@@ -59,7 +59,23 @@ HDRS := $(shell find ../../include ../../vm/include ../../components/goose/inclu
                     ../../shell/include ../../kernel ../../core/include \
                     ../stub_headers . -name '*.h' 2>/dev/null)
 
-$(OUT): $(SRCS) $(HDRS)
+# .c files that a test source #includes directly.
+#
+# They cannot go in SRCS — that would compile them twice — and they are not
+# headers, so neither existing prerequisite list covers them. Without this,
+# editing platform/esp32c6/reflex_kv_flash.c does not rebuild the suite and
+# `make test` cheerfully validates a stale binary.
+#
+# That is not hypothetical: it happened twice in one session, and both times it
+# produced a clean pass for a defect that was sitting in the tree. It is the
+# same class as the gate that cannot fail described above — a check run against
+# yesterday's code is indistinguishable from one that passes. Derived rather
+# than listed, so a test that starts including a different .c is covered
+# without anyone remembering to come back here.
+INCLUDED_SRCS := $(shell grep -ho '\#include "[^"]*\.c"' *.c 2>/dev/null \
+                          | sed 's/.*"\(.*\)"/\1/' | sort -u)
+
+$(OUT): $(SRCS) $(HDRS) $(INCLUDED_SRCS)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(SRCS) -lm
 

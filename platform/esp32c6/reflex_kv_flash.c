@@ -443,6 +443,7 @@ static reflex_err_t kv_compact(void) {
      * honest price of not putting 6 KB on someone else's stack. */
     static kv_dedup_t dedup[KV_ENTRY_MAX];
     int dedup_count = 0;
+    bool warned_full = false;
     uint32_t off = sizeof(kv_page_header_t);
 
     while (off < KV_SECTOR_SIZE) {
@@ -467,16 +468,26 @@ static reflex_err_t kv_compact(void) {
         if (!found && dedup_count >= KV_ENTRY_MAX) {
             /* More unique keys than the table can hold. A 4 KB sector can
              * carry more minimum-size entries than KV_ENTRY_MAX, so this is
-             * reachable, and dropping them silently loses data that was
-             * successfully written. Say so. */
-            /* esp_rom_printf for the same reason as the init line below: this
+             * reachable, and dropping data that was successfully written
+             * should not be quiet.
+             *
+             * Reported once and the scan *continues*. Stopping here — which is
+             * what this did at first — is worse than the silent drop it was
+             * meant to improve on: the store is append-only with the newest
+             * version of a key last, so abandoning the scan means a later
+             * rewrite of a key already in the table is never seen, and
+             * compaction then carries the stale value forward. Skipping the
+             * untrackable key and reading on keeps every tracked key current.
+             *
+             * esp_rom_printf for the same reason as the init line below: this
              * component does not depend on core, and keeping it that way is
              * the point of the file. */
-            esp_rom_printf("[reflex.kv] compaction: over %d unique keys, dropping the rest\n",
-                           KV_ENTRY_MAX);
-            break;
-        }
-        if (!found) {
+            if (!warned_full) {
+                esp_rom_printf("[reflex.kv] compaction: over %d unique keys, "
+                               "the excess will not be carried forward\n", KV_ENTRY_MAX);
+                warned_full = true;
+            }
+        } else if (!found) {
             dedup[dedup_count].ns = eh.ns_hash;
             memcpy(dedup[dedup_count].key, k, eh.key_len + 1);
             dedup[dedup_count].offset = off;
