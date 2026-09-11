@@ -1385,6 +1385,9 @@ explained, and seven build-and-flash cycles of bisection did not find it:
 | Clock settling time | 100 µs delay — still hangs |
 | Linking `esp_hw_support` has a side effect | **No.** Component linked, call removed — still hangs |
 | `PERIPH_RCC_ACQUIRE_ATOMIC` touches another register | Read: refcount and critical section only |
+| ESP-IDF's clock enable *instead of* Reflex's | **Works.** So Reflex's is insufficient, not harmful |
+| ESP-IDF's call writes a register outside the five watched | **No.** A wide scan of MODEM_SYSCON and MODEM_LPCON, 96 words, shows **zero deltas** across the call |
+| Timing — the call takes longer than six register writes | **No.** A 10 ms delay in its place still hangs |
 
 After Reflex's clock enable *and* ESP-IDF's, all five registers read identically
 — `icg_sys=0x64646400 icg_lp=0x66660000 conf=0x01e00000 conf1=0x0007e7ff
@@ -1408,10 +1411,37 @@ What was kept, because it was proved independently:
 - **The signal-quality reference**, below, which was built first precisely
   because the PHY is where a wrong sequence does not fail visibly.
 
-What the next attempt should do differently: instrument ESP-IDF's
-`modem_clock_module_enable` itself — dump every modem and PMU register before
-and after it, not the five this work guessed at — and diff. The technique is the
-one that cracked coexistence; it was applied to too narrow a set here.
+That instrumentation was then done, in the red-team pass, and it made the
+mystery sharper rather than solving it: **ESP-IDF's call changes no register at
+all** in either modem peripheral, and a 10 ms delay cannot substitute for it.
+Whatever it provides is neither state nor time.
+
+#### What the blob actually needs, which reframes the whole problem
+
+The measurement that should have come first. `libphy.a` is not a library that
+gets called; it is a component that **calls back**:
+
+```
+libphy.a needs 193 external symbols
+   92  mask ROM, resolved by linker PROVIDE
+   12  ESP-IDF esp_phy source glue it invokes:
+       phy_i2c_enter_critical   phy_i2c_exit_critical   phy_printf
+       phy_param                phy_close_rf_           phy_wakeup_init_
+       phy_get_rf_cal_version   phy_set_most_tpw        phy_set_tsens_power
+       phy_wifi_enable_set      pll_cap_mem_update_new  tx_pwctrl_background_
+   89  other
+```
+
+`register_chipv7_phy` reaches back into ESP-IDF source for its critical
+sections, its logging, its parameter storage and its power-control background
+work, and into mask ROM for ninety-two more. "Own the PHY bring-up" was
+therefore never "make five calls in the right order" — it is "provide the dozen
+hooks the blob expects, with the semantics it expects", and the hang is far more
+likely to be one of those than anything in a clock register.
+
+That is the thing to start from next time, and it is why the bisection above
+could never have succeeded: it was searching the caller's side of a boundary the
+blob crosses in both directions.
 
 ### Signal quality is recorded, and there is a reference
 
@@ -1422,14 +1452,43 @@ does not fail visibly, and a radio can pass every frame while having degraded
 sensitivity or the wrong transmit power. "It works" is weak evidence for that
 change; a distribution against a reference is not.
 
-The reference, five minutes between two boards on a fixed bench, under ESP-IDF's
-bring-up:
+The reference, between two boards on a fixed bench, under ESP-IDF's bring-up:
 
 ```
-signal n=15 rssi mean=-50.0 min=-50 max=-50 | lqi mean=10.1 min=9 max=11
+signal n=15 rssi mean=-50.0 min=-50 max=-50 | lqi mean=10.1 min=9 max=11   (5 min)
+signal n=11 rssi mean=-50.0 min=-51 max=-50 | lqi mean=10.0 min=10 max=10  (3 min, repeat)
 ```
 
 Whoever takes the PHY next has a number to match rather than an impression.
+
+**It shipped broken once.** The commit that introduced this added the struct
+fields and the shell display but not the accumulation — a `git checkout --` on
+the MAC during the PHY revert removed that block while the other two files kept
+their changes. Every build passed, every gate passed, and the command printed
+"no frames received yet" for ever. The first quoted reference above was measured
+*before* that revert, from code that no longer existed in the commit that quoted
+it.
+
+The lesson is narrow and worth keeping: a revert that touches one file of a
+change spanning three leaves the other two looking complete. Gates check that
+the tree builds and that measurements do not regress; none of them check that a
+new command reports anything. The second line above is the same measurement
+taken again from the shipped code, which is what should have been done before
+quoting the first.
+
+#### A bench observation, recorded rather than concluded
+
+Twice in this session a peer board appeared not to be transmitting, and once
+that produced four wasted build cycles chasing a regression that did not exist.
+Both times the board had had a serial monitor attached and then detached. Reset
+through esptool instead, with no monitor, it transmitted immediately and
+reliably.
+
+The suspected mechanism is the console blocking on a USB-serial-JTAG FIFO that
+no host is draining — Reflex's console emit spins on it. That is a hypothesis,
+not a finding: two observations, no controlled test. It is written down because
+the bench procedure depends on it, and "the peer is running because I saw it
+boot" has now been wrong twice.
 
 ### esp_btbb_enable is Reflex's, and the PHY is fully measured (2026-09-10)
 

@@ -1883,9 +1883,10 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
          * "we asked" and "it happened". */
         reflex_154_mac_stats_t m;
         reflex_802154_mac_get_stats(&m);
-        printf("reflex mac: tx_done=%lu tx_abort=%lu rx_done=%lu rx_dropped=%lu\n",
+        printf("reflex mac: tx_done=%lu tx_abort=%lu rx_done=%lu rx_dropped=%lu "
+               "rx_badlen=%lu\n",
                (unsigned long)m.tx_done, (unsigned long)m.tx_abort, (unsigned long)m.rx_done,
-               (unsigned long)m.rx_dropped);
+               (unsigned long)m.rx_dropped, (unsigned long)m.rx_badlen);
         printf("            spurious=%lu last_events=0x%08lx\n", (unsigned long)m.spurious,
                (unsigned long)m.last_events);
         /* Signal quality, the reference for the PHY bring-up. Mean printed in

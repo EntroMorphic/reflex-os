@@ -164,6 +164,24 @@ REGS = [
     ("REFLEX_MODEM_CLK_BT_EN",      "MODEM_SYSCON_CLK_BT_EN",      "MODEM_SYSCON", "CLK_CONF1", "CLK_BT_EN",      "BT/802.15.4 common baseband clock"),
     ("REFLEX_MODEM_RST_ZBMAC",      "MODEM_SYSCON_RST_ZBMAC",      "MODEM_SYSCON", "MODEM_RST_CONF", "RST_ZBMAC", "pulsed 1 then 0 to reset the MAC"),
     ("REFLEX_MODEM_LPCON_CLK_COEX_EN", "MODEM_LPCON_CLK_COEX_EN",  "MODEM_LPCON",  "CLK_CONF",  "CLK_COEX_EN",    "coexistence arbiter clock"),
+    # NOT REFERENCED BY ANY SOURCE FILE, and kept deliberately.
+    #
+    # These thirteen — the PHY clock domains below and the ten ICG gating fields
+    # further down — were added for a PHY bring-up that was written, measured and
+    # reverted (see docs/independence-dependency-map.md). Nothing uses them today.
+    #
+    # That is the same smell as the 802.15.4 shim this project deleted for being
+    # cited as its isolation mechanism while never having been compiled, and the
+    # difference is worth stating rather than assuming. That shim was unverified
+    # dead code: it claimed something no build checked. These are constants that
+    # `make soc-bridge` proves identical to ESP-IDF's macros on every single
+    # build. They cannot rot silently; if ESP-IDF renames or moves a field the
+    # gate fails. Deleting them would discard verified work and the next attempt
+    # would re-derive the same field names by hand.
+    #
+    # If that argument ever stops being true — if the bridge stops proving them,
+    # or the PHY attempt is abandoned rather than deferred — delete them.
+    #
     # The PHY's own clock domains, which esp_phy_common_clock_enable reaches
     # through modem_clock_module_enable(PERIPH_PHY_MODULE): I2C_MASTER (the
     # analog register bus the PHY calibration writes through),

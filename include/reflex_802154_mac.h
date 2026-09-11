@@ -56,6 +56,7 @@ typedef struct {
     uint32_t rx_done;
     uint32_t rx_abort;
     uint32_t rx_dropped; /**< frame arrived with no callback registered */
+    uint32_t rx_badlen;  /**< RX_DONE whose length byte is outside 3..127 */
     uint32_t spurious;   /**< interrupt with no event bit Reflex handles */
     uint32_t last_events;
 

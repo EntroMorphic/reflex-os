@@ -7,6 +7,18 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ## [Unreleased]
 
+### Fixed
+
+- **`mesh macstats` shipped reporting RSSI and LQI that nothing populated.** The previous commit added the struct fields and the shell display but not the accumulation: a `git checkout --` on the MAC during a revert took that block out while the changes in the other two files survived. The result always printed *"signal: no frames received yet"*. Builds passed, all eleven gates passed, and the feature did nothing — and the reference measurement quoted in the changelog and the ledger could not have been produced by the code that shipped. It was taken before the revert, from code that then disappeared.
+
+  Restored and verified on hardware rather than by building: `signal n=11 rssi mean=-50.0 min=-51 max=-50 | lqi mean=10.0 min=10 max=10`, which reproduces the published reference within noise.
+
+- **`reflex_802154_mac_get_stats` could return a torn struct.** The interrupt handler writes it, and with the signal accumulators added it is now large enough that a plain copy can be interrupted part-way — counters from before a frame, accumulators from after. Harmless for a total, wrong for a mean, which is the number that struct exists to report. The copy is bracketed with interrupts off: one bounded copy is cheaper than eight atomics, and this is a shell command, not a hot path.
+
+- **Frames with an unusable length were counted nowhere.** An `RX_DONE` whose length byte falls outside 3..127 fell between the dispatch branch and the no-callback branch: `rx_done` incremented and nothing said why no frame came out. Now `rx_badlen`, reported by `mesh macstats`. A DMA that wrote a length the code cannot parse is exactly the symptom a receive path should be able to report.
+
+- **The PHY bisection had a missing arm, and the conclusion was published without it.** Every recorded test ran Reflex's clock enable *and* ESP-IDF's, or Reflex's alone — never ESP-IDF's *instead of* Reflex's. If Reflex's were actively harmful rather than merely insufficient the conclusion would have been wrong. Tested: ESP-IDF's alone works, so Reflex's is insufficient and not harmful. The conclusion stands; it had a hole and now does not.
+
 ### Added
 
 - **`mesh macstats` reports RSSI and LQI** — count, mean, min and max, accumulated per received frame in the MAC's interrupt handler. Built *before* attempting the PHY bring-up and for a stated reason: the PHY is the one place where a wrong sequence does not fail visibly, and a radio can pass every frame while having degraded sensitivity or the wrong transmit power. "It works" is weak evidence for that change. The reference, five minutes between two boards on a fixed bench under ESP-IDF's bring-up: `signal n=15 rssi mean=-50.0 min=-50 max=-50 | lqi mean=10.1 min=9 max=11`.
@@ -17,7 +29,9 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 - **The PHY bring-up was attempted and reverted. Tier D stays at 1.** `reflex_phy_esp32c6.c` replaced `esp_phy_enable(PHY_MODEM_IEEE802154)` — clock domains, combo parameter, 1,904-byte calibration buffer, 128-byte init table, the `register_chipv7_phy` call, and a PLL-tracking entry point for Reflex's scheduler. On hardware it initialised the PHY blob, printed its version and brought the radio up. **Every part of the sequence is Reflex's and works, except one call:** with `modem_clock_module_enable(PERIPH_PHY_MODULE)` alongside Reflex's own clock enable the radio comes up; without it `register_chipv7_phy` hangs.
 
-  Reverted because the difference cannot be explained, and seven build-and-flash cycles did not find it. Ruled out by measurement: different clock bits (no — `conf`/`conf1`/`lpcon` read byte-identical), the missing ICG gating map (implemented, ten fields, still hangs), ICG ordering (matched ESP-IDF, still hangs), clock settling (100 µs, still hangs), a link-time side effect of `esp_hw_support` (component linked and call removed — still hangs), and `PERIPH_RCC_ACQUIRE_ATOMIC` touching another register (read: refcount and critical section only). After both clock enables, all five registers read identically.
+  Reverted because the difference cannot be explained, and ten build-and-flash cycles did not find it. Ruled out by measurement: different clock bits (no — `conf`/`conf1`/`lpcon` read byte-identical), the missing ICG gating map (implemented, ten fields, still hangs), ICG ordering (matched ESP-IDF, still hangs), clock settling (100 µs, still hangs), a link-time side effect of `esp_hw_support` (component linked and call removed — still hangs), and `PERIPH_RCC_ACQUIRE_ATOMIC` touching another register (read: refcount and critical section only). Then, in the red-team pass: a **wide scan of both modem peripherals, 96 words, shows zero deltas across ESP-IDF's call**, and a 10 ms delay cannot substitute for it. Whatever it provides is neither state nor time.
+
+  **And the measurement that reframes the problem:** `libphy.a` needs **193 external symbols** — 92 from mask ROM, and **12 ESP-IDF source callbacks it invokes**, including `phy_i2c_enter_critical`, `phy_printf`, `phy_param`, `tx_pwctrl_background_` and `pll_cap_mem_update_new`. The blob is not a library that gets called; it calls back. "Own the PHY bring-up" was never "make five calls in the right order" — it is "provide the dozen hooks the blob expects, with the semantics it expects". The bisection could not have succeeded: it searched the caller's side of a boundary the blob crosses in both directions.
 
   Shipping it with ESP-IDF's call still present would have been a Tier D reduction on paper with the dependency intact — the move this ledger exists to refuse. Leaving the file unbuilt would have repeated the 802.15.4 shim that was cited as the isolation mechanism and had never been compiled. The bridge constants and the signal-quality reference were kept because they were proved independently.
 

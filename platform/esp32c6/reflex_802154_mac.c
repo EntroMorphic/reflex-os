@@ -165,8 +165,40 @@ static void __attribute__((section(".iram1"))) mac_isr(void *arg) {
          * checked and did not write, so the payload is len - 2. A length
          * outside that range means the DMA wrote something this code does not
          * understand, and passing it on would be worse than counting it. */
+        if (len >= 3 && len <= 127) {
+            /* Signal quality, accumulated for every frame the radio accepted
+             * rather than only those a callback wanted — this is the reference
+             * a PHY bring-up has to match, and it should not depend on who is
+             * listening.
+             *
+             * This block was lost once already: a `git checkout --` on this
+             * file during a revert took it out while the struct fields and the
+             * shell display survived in their own files, and the result shipped
+             * reporting "no frames received yet" forever. Builds passed, every
+             * gate passed, and the feature did nothing. */
+            int8_t rssi = (int8_t)s_rx_buf[len - 1];
+            uint8_t lqi = s_rx_buf[len];
+            if (s_stats.sig_count == 0) {
+                s_stats.rssi_min = s_stats.rssi_max = rssi;
+                s_stats.lqi_min = s_stats.lqi_max = lqi;
+            } else {
+                if (rssi < s_stats.rssi_min) s_stats.rssi_min = rssi;
+                if (rssi > s_stats.rssi_max) s_stats.rssi_max = rssi;
+                if (lqi < s_stats.lqi_min) s_stats.lqi_min = lqi;
+                if (lqi > s_stats.lqi_max) s_stats.lqi_max = lqi;
+            }
+            s_stats.rssi_sum += rssi;
+            s_stats.lqi_sum += lqi;
+            s_stats.sig_count++;
+        }
         if (len >= 3 && len <= 127 && s_rx_cb) {
             s_rx_cb(&s_rx_buf[1], (uint8_t)(len - 2), (int8_t)s_rx_buf[len - 1], s_rx_buf[len]);
+        } else if (len < 3 || len > 127) {
+            /* Counted, where it previously fell between the two branches and
+             * was recorded nowhere: rx_done incremented and nothing said why no
+             * frame came out. A DMA that wrote a length this code cannot parse
+             * is exactly the symptom a receive path should be able to report. */
+            s_stats.rx_badlen++;
         } else if (!s_rx_cb) {
             s_stats.rx_dropped++;
         }
@@ -307,7 +339,20 @@ void reflex_802154_mac_set_rx_cb(reflex_154_rx_cb_t cb) {
 }
 
 void reflex_802154_mac_get_stats(reflex_154_mac_stats_t *out) {
-    if (out) *out = s_stats;
+    if (!out) return;
+    /* The interrupt handler writes this struct, and it is now large enough that
+     * a plain copy can be interrupted part-way through — the counters would be
+     * from before a frame and the signal accumulators from after it. Harmless
+     * for a total, wrong for a mean, which is the number this struct exists to
+     * report. Bracketed rather than made atomic per field: one bounded copy
+     * with interrupts off is cheaper than eight atomics, and this is a shell
+     * command, not a hot path. */
+    uint32_t saved;
+    __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(saved));
+    *out = s_stats;
+    if (saved & 0x8u) {
+        __asm__ volatile("csrsi mstatus, 0x8");
+    }
 }
 
 #endif /* CONFIG_IDF_TARGET_ESP32C6 */
