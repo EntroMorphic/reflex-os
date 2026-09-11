@@ -1620,6 +1620,39 @@ The test that would actually isolate it: keep a reference to `modem_clock.c`
 alive — take the address of one of its functions without calling it — and see
 whether presence alone is enough.
 
+#### Red-team, round three: a redundant round trip, and a claim I had to retract (2026-09-11)
+
+**The free path went through this shim twice.** ESP-IDF's `free()` is exactly
+`heap_caps_free(ptr)` (components/newlib/src/heap.c), and `heap_caps_free` is
+itself wrapped — so releasing a *foreign* pointer went
+`__wrap_free` → `__real_free` → `__wrap_heap_caps_free` → range-check a second
+time → `__real_heap_caps_free`. Every release path now funnels through one
+static inline that goes straight to `__real_heap_caps_free`.
+
+**And the justification I wrote for it was wrong, which is the more useful
+half.** The comment claimed the saved frames mattered because the IDLE task
+reaps deleted task stacks through this path and had been seen overflowing. So
+it was measured: `uxTaskGetStackHighWaterMark` on the idle task reports **1296
+bytes free of 1536**, flat across eighteen seconds. IDLE uses about 240 bytes.
+Three frames were never what threatened it. The change is kept, because a
+round trip through one's own wrapper is redundant on its own terms; the comment
+is corrected, because a comment asserting a measurement nobody took is worse
+than no comment.
+
+That number is also the most useful thing to come out of this pass for the
+crash-loop investigation: whatever the bricked persistent state does, it drives
+IDLE from ~240 bytes to beyond 1536 — an excursion of more than 1,300 bytes,
+which is the shape of a deep recursion or a large stack buffer, not of a few
+extra frames.
+
+**Two non-findings, checked and dismissed rather than assumed.** Reflex's
+allocator returns 8-byte-aligned payloads where ESP-IDF's `multi_heap` aligns
+to `sizeof(void *)` = 4, so alignment is strictly stronger and task stacks are
+not at risk. And the shim's body, which the host warning gate cannot reach
+because the whole file sits behind `#ifdef REFLEX_HEAP_SHIM`, is compiled under
+`-Wall -Werror=all -Wextra` by the device build — verified by touching the file
+and rebuilding: no warnings.
+
 #### Red-team, round two: a transmit race, a coupling nothing enforced (2026-09-11)
 
 **A task-versus-ISR race in Reflex's own MAC transmit.** The 802.15.4 peripheral

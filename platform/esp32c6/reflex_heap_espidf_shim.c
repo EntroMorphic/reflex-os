@@ -79,7 +79,6 @@ static void ensure_ready(void) {
 
 /* ---- ESP-IDF's real entry points ---- */
 extern void *__real_malloc(size_t n);
-extern void __real_free(void *p);
 extern void *__real_calloc(size_t c, size_t n);
 extern void *__real_realloc(void *p, size_t n);
 extern void *__real_heap_caps_malloc(size_t n, uint32_t caps);
@@ -122,6 +121,30 @@ static inline bool ours_to_serve(uint32_t caps) {
     return (caps & ~(uint32_t)REFLEX_CAPS_SERVEABLE) == 0;
 }
 
+/* Every release path funnels through here, and it goes straight to
+ * __real_heap_caps_free rather than to __real_free.
+ *
+ * ESP-IDF's free() is exactly `heap_caps_free(ptr)` — components/newlib/src/
+ * heap.c — and heap_caps_free is itself wrapped, so releasing a foreign
+ * pointer via __real_free re-entered this shim: free -> __wrap_heap_caps_free
+ * -> range-check a second time -> __real_heap_caps_free. Going straight to
+ * __real_heap_caps_free removes a pointless round trip through our own
+ * wrapper and the duplicate range check that came with it.
+ *
+ * This was first justified here as stack relief for the IDLE task, which
+ * reaps deleted task stacks through this path and had been seen overflowing.
+ * Measurement does not support that: uxTaskGetStackHighWaterMark on the idle
+ * task reports 1296 bytes free of 1536 and perfectly flat, so IDLE uses about
+ * 240 and three frames were never what threatened it. The change is kept
+ * because the round trip is genuinely redundant, and the claim is corrected
+ * because a comment asserting a measurement nobody took is worse than no
+ * comment. */
+static inline void free_any(void *p) {
+    if (!p) return;
+    if (reflex_heap_owns(p)) { reflex_heap_free(p); return; }
+    __real_heap_caps_free(p);
+}
+
 /* ---- the malloc family ---- */
 
 void *__wrap_malloc(size_t n);
@@ -132,11 +155,7 @@ void *__wrap_malloc(size_t n) {
 }
 
 void __wrap_free(void *p);
-void __wrap_free(void *p) {
-    if (!p) return;
-    if (reflex_heap_owns(p)) { reflex_heap_free(p); return; }
-    __real_free(p);
-}
+void __wrap_free(void *p) { free_any(p); }
 
 void *__wrap_calloc(size_t c, size_t n);
 void *__wrap_calloc(size_t c, size_t n) {
@@ -171,7 +190,7 @@ void *__wrap__malloc_r(struct _reent *r, size_t n);
 void *__wrap__malloc_r(struct _reent *r, size_t n) { (void)r; return __wrap_malloc(n); }
 
 void __wrap__free_r(struct _reent *r, void *p);
-void __wrap__free_r(struct _reent *r, void *p) { (void)r; __wrap_free(p); }
+void __wrap__free_r(struct _reent *r, void *p) { (void)r; free_any(p); }
 
 void *__wrap__calloc_r(struct _reent *r, size_t c, size_t n);
 void *__wrap__calloc_r(struct _reent *r, size_t c, size_t n) { (void)r; return __wrap_calloc(c, n); }
@@ -239,11 +258,7 @@ void *__wrap_heap_caps_realloc(void *p, size_t n, uint32_t caps) {
 }
 
 void __wrap_heap_caps_free(void *p);
-void __wrap_heap_caps_free(void *p) {
-    if (!p) return;
-    if (reflex_heap_owns(p)) { reflex_heap_free(p); return; }
-    __real_heap_caps_free(p);
-}
+void __wrap_heap_caps_free(void *p) { free_any(p); }
 
 /* Reporting. These are the three calls the whole exercise exists to be able to
  * answer from Reflex's own bookkeeping, and they report the region Reflex
