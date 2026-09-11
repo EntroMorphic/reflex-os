@@ -644,6 +644,7 @@ def main():
             print(f"    {rel}:{n}  {inc}")
 
     config = os.path.basename(_build_dir)
+    off_total = len(off)
 
     if update:
         doc = load_baseline_doc()
@@ -655,6 +656,22 @@ def main():
         doc.setdefault("configurations", {})[config] = {
             t: cur.get(t, 0) for t in ("A", "B", "C", "D", "E", "F")
         }
+        # Off-path is ratcheted too, as a single total.
+        #
+        # These are the alternative backends — the classic-ESP32 target, the
+        # ESP-NOW radio, the FreeRTOS task backend, Wi-Fi — compiled by other
+        # configurations and deliberately borrowed by this one. They were
+        # reported and never checked, which made "deliberately" an assertion
+        # rather than a decision: a new ESP-IDF include could appear in any of
+        # them and nothing would say so.
+        #
+        # A total rather than per tier, because the question is not which tier
+        # grew but whether unwatched surface grew at all. Growth is legitimate —
+        # a borrowed backend may genuinely need something new — so this is a
+        # forcing function rather than a prohibition: it fails until someone
+        # runs --update, which is the moment the decision gets made instead of
+        # defaulted.
+        doc.setdefault("off_path", {})[config] = off_total
         doc["note"] = ("Ratchet baseline, per build configuration. Lower is the only "
                        "legal direction. Regenerate deliberately with "
                        "tools/check_independence.py --update [--build <dir>].")
@@ -715,6 +732,19 @@ def main():
             regressed = True
     if regressed:
         return 1
+
+    off_base = doc.get("off_path", {}).get(config)
+    if off_base is None:
+        print(f"\nFAILED: no off-path baseline for '{config}'. Record it with "
+              f"--update --build {config}.")
+        return 1
+    if off_total > off_base:
+        print(f"\nFAILED: off-path grew from {off_base} to {off_total}. Those are the "
+              f"alternative backends, deliberately borrowed — and a decision that grows "
+              f"should be made rather than defaulted. Run --update once it is.")
+        return 1
+    if off_total < off_base:
+        print(f"\n  off-path improved: {off_base} -> {off_total}. Run --update to lower it.")
 
     improved = [(t, base.get(t, 0), n) for t, n in sorted(cur.items()) if n < base.get(t, 0)]
     for t, b, n in improved:

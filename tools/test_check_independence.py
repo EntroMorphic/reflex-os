@@ -256,6 +256,17 @@ check("migration does not disturb an already-per-configuration baseline",
       ci.migrate_baseline_doc({"configurations": {"x": {"C": 1}}})["configurations"]
       == {"x": {"C": 1}}, "idempotent")
 
+print("\n--- off-path is ratcheted, not merely reported ---")
+# These are the alternative backends, deliberately borrowed. They were reported
+# and never checked, which made "deliberately" an assertion rather than a
+# decision: a new ESP-IDF include could appear in any of them unnoticed.
+_doc = ci.load_baseline_doc()
+_off = _doc.get("off_path", {})
+check("an off-path baseline exists for the own-entry build", "build_own_entry" in _off, sorted(_off))
+check("and for the independence build", "build_independence" in _off, sorted(_off))
+check("the recorded totals are positive integers",
+      all(isinstance(v, int) and v > 0 for v in _off.values()), _off)
+
 print("\n--- the own-entry build really has dropped intr_handler_set ---")
 # The claim that Tier C fell from 4 to 2 rests on the compiler, not the scan.
 # If the build is present, ask the object file directly.

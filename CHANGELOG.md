@@ -7,6 +7,12 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ## [Unreleased]
 
+### Changed
+
+- **Off-path dependencies are ratcheted now, not merely reported.** Thirty-one of them — the classic-ESP32 target, the ESP-NOW radio, the NVS store, the FreeRTOS task backend, Wi-Fi — real alternative backends compiled by other configurations and deliberately borrowed by this one. "Deliberately" was an assertion: a new ESP-IDF include could appear in any of them and nothing would say so, the same shape as every other hole this ledger records. `--check` now ratchets the off-path total per configuration (`build_independence` 30, `build_own_entry` 31), as a total rather than per tier because the question is whether unwatched surface grew at all. Growth is legitimate, so it is a forcing function rather than a prohibition: it fails until someone runs `--update`, which is where the decision gets made instead of defaulted. Verified by making it fail; a configuration with no off-path baseline is refused rather than passed.
+
+- **`esp_heap_caps.h` and `esp_system.h` will not be taken by moving them.** They are one concern — `heap_caps_get_free_size`, `esp_get_free_heap_size`, `esp_get_minimum_free_heap_size` — reached from two files. Consolidating behind a `reflex_hal_heap_free()` would take the count 2 → 1 and improve the layering, and would also be a rename the ratchet would reward: the dependency relocates rather than ends. That is the move refused three times for Tier C and it is refused here. Heap reporting can only be taken by owning the heap, which is a different piece of work — ESP-IDF's allocator is what newlib's `malloc`, `esp_flash` and the PHY calibration all use. Recorded as the blocker, with the layering improvement deliberately left on the table so taking it later cannot be mistaken for independence progress.
+
 ### Fixed
 
 - **Retracted: the bench hypothesis that a detached serial monitor silences a peer board.** Recorded last commit as a hypothesis so it could be tested; tested, and both halves are wrong. The suspected mechanism — Reflex's console spinning on a USB FIFO with no reader — cannot happen: `usj_write_bytes` carries a 50 ms budget and drops the rest of the line. And controlled, over identical 180-second windows, the monitored peer delivered **more** frames than the never-monitored one (17 against 9).

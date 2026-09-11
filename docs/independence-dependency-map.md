@@ -1353,6 +1353,53 @@ hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
 forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
 this entry.
 
+### Off-path is ratcheted now (2026-09-10)
+
+The last unwatched surface, and one this ledger flagged itself: **31 off-path
+dependencies, reported every run and checked by nothing.**
+
+They are real alternative backends, not dead code — the classic-ESP32 target,
+the ESP-NOW radio, the NVS key-value store, the FreeRTOS task backend, Wi-Fi.
+Every one is compiled by some other configuration and deliberately borrowed by
+this one. But "deliberately" was an assertion: a new ESP-IDF include could
+appear in any of them and nothing would say so, which is the same shape as every
+other hole this document records.
+
+`--check` now ratchets the off-path total per configuration, recorded beside the
+per-tier floors:
+
+```json
+"off_path": { "build_independence": 30, "build_own_entry": 31 }
+```
+
+A total rather than per tier, because the question is not which tier grew but
+whether unwatched surface grew at all. Growth is legitimate — a borrowed backend
+may genuinely need something new — so this is a forcing function, not a
+prohibition: it fails until someone runs `--update`, which is the moment the
+decision gets made instead of defaulted. Verified by making it fail, and a
+configuration with no off-path baseline is refused rather than passed.
+
+### Two dependencies that will not be taken by moving them
+
+`esp_heap_caps.h` (Tier B) and `esp_system.h` (Tier F) are the same concern
+reached from two places: `heap_caps_get_free_size` in `goose_metabolic.c`, and
+`esp_get_free_heap_size` / `esp_get_minimum_free_heap_size` in `shell.c`. Three
+calls, all of them "how much heap is left".
+
+Consolidating them behind a `reflex_hal_heap_free()` would take the count from 2
+to 1 and improve the layering — application code has no business knowing the
+allocator. It would also be a rename, and the ratchet would reward it. The
+dependency does not end, it relocates, which is the move refused three times
+over for Tier C and is refused again here.
+
+**Heap reporting can only be taken by owning the heap**, which is Tier F's
+standing item and a different piece of work entirely: ESP-IDF's allocator is
+what newlib's `malloc`, `esp_flash` and the PHY calibration all use, so
+replacing it is not a Reflex-side change. Recorded as the honest blocker rather
+than worked around, and the layering improvement is left on the table
+deliberately so that taking it later cannot be mistaken for progress on
+independence.
+
 ### The PHY bring-up: nine tenths taken, and stopped one call short (2026-09-10)
 
 Attempted and **reverted**. Tier D stays at 1. What follows is the measurement

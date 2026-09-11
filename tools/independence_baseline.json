@@ -60,5 +60,9 @@
       "why": "Not a removal. That include sits behind #ifdef REFLEX_OWN_ENTRY, and until the tool could resolve that symbol it counted both branches \u2014 so the independence build, which never compiles the include, was charged for it. Reading REFLEX_OWN_ENTRY back from the build's own compile_commands.json resolves it to not-defined there and the include drops out. The same change resolves it to defined for build_own_entry, where the include is real and Tier F is correspondingly 3."
     }
   ],
-  "note": "Ratchet baseline, per build configuration. Lower is the only legal direction. Regenerate deliberately with tools/check_independence.py --update [--build <dir>]."
+  "note": "Ratchet baseline, per build configuration. Lower is the only legal direction. Regenerate deliberately with tools/check_independence.py --update [--build <dir>].",
+  "off_path": {
+    "build_independence": 30,
+    "build_own_entry": 31
+  }
 }

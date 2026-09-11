@@ -217,6 +217,10 @@ jobs:
         # bytes and 5 blob symbols without touching a single include, and the
         # independence ratchet reported no movement for it. This is the measure
         # that would have.
+        #
+        # The independence step above now also ratchets the off-path total — the
+        # alternative backends, deliberately borrowed and previously checked by
+        # nothing.
         run: |
           . $IDF_PATH/export.sh
           make blob-check
