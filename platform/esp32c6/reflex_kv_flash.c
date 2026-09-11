@@ -595,6 +595,10 @@ reflex_err_t reflex_kv_set_str(reflex_kv_handle_t h, const char *key,
     return kv_write_entry(GET_NS(h), key, KV_TYPE_STR, val, strlen(val) + 1);
 }
 
+/* The sector-packed limit: a 4 KB sector, entries with a 5-byte header and a
+ * key, and KV_VAL_MAX chosen so a maximum entry still leaves the sector usable. */
+size_t reflex_kv_value_max(void) { return KV_VAL_MAX; }
+
 reflex_err_t reflex_kv_get_blob(reflex_kv_handle_t h, const char *key,
                                 void *buf, size_t *len) {
     uint32_t off; kv_entry_header_t eh;

@@ -139,6 +139,18 @@
 #ifndef REFLEX_SUPERVISOR_METABOLIC_DIV
 #define REFLEX_SUPERVISOR_METABOLIC_DIV  10   /* 1Hz at 10Hz supervisor */
 #endif
+/* How long `vm run` may hold the shell task.
+ *
+ * The step budget beside it bounds work; this bounds time. Without it a
+ * program whose loop logs made the board unresponsive for hours, because each
+ * console write is a real wait and `vm stop` is unreachable while the shell is
+ * inside the run loop. Two seconds is chosen to sit inside the hardware
+ * suite's per-command window, so a bounded run still reads as a prompt
+ * returning rather than as a hang. */
+#ifndef REFLEX_VM_SHELL_RUN_BUDGET_MS
+#define REFLEX_VM_SHELL_RUN_BUDGET_MS 2000
+#endif
+
 #ifndef REFLEX_METABOLIC_HEAP_CRITICAL
 #define REFLEX_METABOLIC_HEAP_CRITICAL   8192
 #endif

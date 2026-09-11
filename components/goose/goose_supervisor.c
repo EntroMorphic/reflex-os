@@ -660,8 +660,20 @@ reflex_err_t goose_snapshot_save(void) {
          * made the header describe a payload that was not there — harmless to
          * read, because load is bounded by the blob length, but a lie that
          * would mislead any other consumer of the format. */
-        size_t n = goose_policy_snap_entry_count(field->route_count, SNAP_MAX_ROUTES);
-        bool truncated = (field->route_count > SNAP_MAX_ROUTES);
+        /* Cap by what the backend will actually accept, not by the format's
+         * own maximum. The two are not the same: this blob is sized 612 bytes
+         * against a comment reading "well within NVS limits", and the
+         * 802.15.4 build does not use NVS — its raw-flash store refuses
+         * anything over 240 bytes, so a field with more than twelve routes
+         * used to persist *nothing at all*. Truncating to what fits keeps
+         * twelve routes' learning instead of losing all of it, and the
+         * truncation is already reported below. */
+        size_t fits = (reflex_kv_value_max() > SNAP_HEADER_SIZE)
+                          ? (reflex_kv_value_max() - SNAP_HEADER_SIZE) / SNAP_ROUTE_ENTRY_SIZE
+                          : 0;
+        size_t cap = (fits < SNAP_MAX_ROUTES) ? fits : SNAP_MAX_ROUTES;
+        size_t n = goose_policy_snap_entry_count(field->route_count, cap);
+        bool truncated = (field->route_count > cap);
         uint16_t count = (uint16_t)n;
         memcpy(&buf[pos], &count, 2); pos += 2;
 
@@ -679,8 +691,10 @@ reflex_err_t goose_snapshot_save(void) {
          * that is exactly the kind of slow call this restructure exists to keep
          * off the lock. */
         if (truncated) {
-            REFLEX_LOGW(TAG, "snapshot: field %s has %u routes, persisting first %u",
-                        field->name, (unsigned)field->route_count, (unsigned)SNAP_MAX_ROUTES);
+            REFLEX_LOGW(TAG, "snapshot: field %s has %u routes, persisting first %u "
+                        "(backend value cap %u bytes)",
+                        field->name, (unsigned)field->route_count, (unsigned)cap,
+                        (unsigned)reflex_kv_value_max());
         }
 
         char key[16];

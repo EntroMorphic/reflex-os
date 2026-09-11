@@ -62,6 +62,13 @@ reflex_err_t reflex_kv_set_str(reflex_kv_handle_t h, const char *key,
     return (reflex_err_t)nvs_set_str((nvs_handle_t)(uintptr_t)h, key, val);
 }
 
+/* NVS. ESP-IDF permits far larger blobs than this, but 4000 is the size a
+ * single NVS entry holds without spilling into the multi-page path, and it is
+ * the number a caller can rely on without knowing the partition layout.
+ * Reported conservatively on purpose: the cost of understating it is a
+ * truncated record that says so, and of overstating it a rejected write. */
+size_t reflex_kv_value_max(void) { return 4000; }
+
 reflex_err_t reflex_kv_get_blob(reflex_kv_handle_t h, const char *key,
                                 void *buf, size_t *len) {
     return (reflex_err_t)nvs_get_blob((nvs_handle_t)(uintptr_t)h, key, buf, len);

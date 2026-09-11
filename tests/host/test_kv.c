@@ -91,6 +91,10 @@ int esp_rom_spiflash_erase_sector(uint32_t sector) {
 /* Include the KV implementation directly (it uses the above mocks) */
 #include "../../platform/esp32c6/reflex_kv_flash.c"
 
+#define CHECK_KV(name, expr) do { \
+        if (!(expr)) { printf("FAIL %s\n", (name)); failures++; } \
+    } while (0)
+
 int test_kv(void) {
     int failures = 0;
     printf("[kv]      ");
@@ -229,6 +233,42 @@ int test_kv(void) {
             printf("FAIL tracked key reverted across compaction (rc=0x%x got=%s)\n",
                    (unsigned)rc, rc == REFLEX_OK ? buf : "-");
             failures++;
+        }
+    }
+
+    /* reflex_kv_value_max() is a contract, not a hint.
+     *
+     * goose_snapshot_save now sizes its per-field blob against it, having
+     * previously sized it at 612 bytes against a comment reading "well within
+     * NVS limits" on a build that does not use NVS. If the reported maximum
+     * were ever larger than what a write actually accepts, that caller would
+     * silently go back to losing whole fields — so the number is pinned to the
+     * behaviour here: exactly the maximum must be accepted, one byte more must
+     * be refused. */
+    {
+        memset(s_mock_flash, 0xFF, MOCK_FLASH_SIZE);
+        s_initialized = false;
+        reflex_kv_init();
+        reflex_kv_handle_t h3;
+        reflex_kv_open("test", false, &h3);
+
+        size_t vmax = reflex_kv_value_max();
+        CHECK_KV("value max is a sane, non-zero size", vmax > 0 && vmax < KV_SECTOR_SIZE);
+
+        static uint8_t at_max[512];
+        for (size_t i = 0; i < sizeof(at_max); i++) at_max[i] = (uint8_t)i;
+
+        if (vmax <= sizeof(at_max)) {
+            CHECK_KV("a value of exactly the reported maximum is accepted",
+                     reflex_kv_set_blob(h3, "atmax", at_max, vmax) == REFLEX_OK);
+            CHECK_KV("one byte over the reported maximum is refused",
+                     reflex_kv_set_blob(h3, "over", at_max, vmax + 1) != REFLEX_OK);
+
+            uint8_t back2[512];
+            size_t blen2 = sizeof(back2);
+            CHECK_KV("the maximum-size value reads back intact",
+                     reflex_kv_get_blob(h3, "atmax", back2, &blen2) == REFLEX_OK &&
+                     blen2 == vmax && memcmp(back2, at_max, vmax) == 0);
         }
     }
 

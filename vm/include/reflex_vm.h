@@ -91,6 +91,16 @@ reflex_err_t reflex_vm_step(reflex_vm_state_t *vm);
  */
 reflex_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps);
 
+/** Run with a wall-clock bound as well as a step bound.
+ *
+ *  A step budget does not bound time once a single step can block on a console
+ *  write, so a caller running the VM on a task something else needs — the
+ *  shell — passes @p budget_us and gets control back within it. 0 means no
+ *  wall-clock bound, which is what the VM task uses. Returns REFLEX_ERR_TIMEOUT
+ *  when either bound is reached, leaving the VM where it stopped. */
+reflex_err_t reflex_vm_run_bounded(reflex_vm_state_t *vm, uint32_t max_steps,
+                                   uint32_t budget_us);
+
 /**
  * @brief Boot-time self-check that exercises the interpreter
  * against a small canned program and known-bad inputs.

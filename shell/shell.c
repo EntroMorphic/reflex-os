@@ -2171,10 +2171,21 @@ static void shell_cmd_vm(int argc, char *argv[]) {
         if (rc != REFLEX_OK) { printf("vm run: load failed rc=0x%x\n", rc); outcome(SHELL_FAILED); return; }
         reflex_shell_vm_loaded = true;
         reflex_vm_use_default_syscalls(&reflex_shell_vm);
-        rc = reflex_vm_run(&reflex_shell_vm, 100000);
-        printf("vm run: %s status=%s steps=%lu\n", argv[2],
+        /* Bounded in time as well as steps. Running this inline in the shell
+         * task is only tolerable if it gives the task back; see
+         * REFLEX_VM_SHELL_RUN_BUDGET_MS and reflex_vm_run_bounded. */
+        uint64_t vm_started_us = reflex_hal_time_us();
+        rc = reflex_vm_run_bounded(&reflex_shell_vm, 100000,
+                                   (uint32_t)REFLEX_VM_SHELL_RUN_BUDGET_MS * 1000u);
+        unsigned long vm_ms =
+            (unsigned long)((reflex_hal_time_us() - vm_started_us) / 1000u);
+        bool out_of_time = (rc == REFLEX_ERR_TIMEOUT &&
+                            vm_ms >= (unsigned long)REFLEX_VM_SHELL_RUN_BUDGET_MS);
+        printf("vm run: %s status=%s steps=%lu elapsed=%lums%s\n", argv[2],
                reflex_shell_vm_status_name(reflex_shell_vm.status),
-               (unsigned long)reflex_shell_vm.steps_executed);
+               (unsigned long)reflex_shell_vm.steps_executed, vm_ms,
+               out_of_time ? " — stopped on the time budget; `vm stop` to halt it"
+                           : "");
     } else if (argc >= 2 && strcmp(argv[1], "stop") == 0) {
         reflex_shell_vm.status = REFLEX_VM_STATUS_HALTED;
         printf("vm stopped\n");

@@ -1006,10 +1006,20 @@ typedef struct {
 } telem_defer_t;
 #define TELEM_DEFER_MAX 8
 
-static reflex_err_t internal_process_transitions(goose_field_t *field, int depth) {
-    if (!field || depth > 3) return REFLEX_ERR_INVALID_STATE;
+/* No `depth` parameter, and there never was a recursion for it to guard.
+ *
+ * This carried `int depth`, refused `depth > 3`, and took the loom only when
+ * `depth == 0`. Nothing recurses into it — the sole caller passes 0 — so the
+ * refusal was unreachable and both lock conditions were always true. Code that
+ * appears to guard against re-entry it does not have is worse than no guard:
+ * it invites the reader to believe the re-entrant case was thought about.
+ *
+ * Verified before removing that the lock is balanced on every path: between
+ * the acquire here and the release at the end there is no other `return`. */
+static reflex_err_t internal_process_transitions(goose_field_t *field) {
+    if (!field) return REFLEX_ERR_INVALID_STATE;
     uint64_t now = reflex_hal_time_us();
-    if (depth == 0 && !goose_loom_try_lock(field)) return REFLEX_ERR_TIMEOUT;
+    if (!goose_loom_try_lock(field)) return REFLEX_ERR_TIMEOUT;
 
     /* Collect telemetry snapshots inside the lock; emit after unlock. */
     telem_defer_t tdefer[TELEM_DEFER_MAX];
@@ -1123,7 +1133,7 @@ static reflex_err_t internal_process_transitions(goose_field_t *field, int depth
             goose_atmosphere_emit_arc(r->cached_source);
         }
     }
-    if (depth == 0) goose_loom_unlock();
+    goose_loom_unlock();
 
     /* Emit deferred telemetry outside the lock. */
     for (size_t td = 0; td < tdefer_n; td++) {
@@ -1137,7 +1147,7 @@ static reflex_err_t internal_process_transitions(goose_field_t *field, int depth
     field->stats.total_pulses++; return REFLEX_OK;
 }
 
-reflex_err_t goose_process_transitions(goose_field_t *field) { return internal_process_transitions(field, 0); }
+reflex_err_t goose_process_transitions(goose_field_t *field) { return internal_process_transitions(field); }
 static void goose_regional_pulse_task(void *arg) {
     goose_field_t *field = (goose_field_t *)arg; uint32_t delay_ms = 1000 / (uint32_t)field->rhythm;
     while(1) { goose_process_transitions(field); reflex_task_delay_ms(delay_ms ? delay_ms : 1); }

@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "reflex_types.h"
+#include "reflex_hal.h"
 #include "reflex_fabric.h"
 #include "reflex_cache.h"
 #include "goose.h"
@@ -369,18 +370,55 @@ reflex_err_t reflex_vm_step(reflex_vm_state_t *vm)
     return REFLEX_OK;
 }
 
-reflex_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps)
+/* A step budget bounds work. It does not bound time, and those are different
+ * things once a single step can block.
+ *
+ * `TSYS`'s log syscall writes to the console, and a console write is a real
+ * wait — measured at about two lines a second on a board whose USB serial is
+ * the only sink. A program whose loop logs therefore spends almost all of its
+ * wall-clock inside individual steps, so a budget of 100,000 steps is a budget
+ * of roughly fourteen hours. `vm run` was executing that inline in the shell
+ * task, which is why the only recovery from `vm run blink` was a hardware
+ * reset: `vm stop` could not help because the shell was *inside* the run loop
+ * and never reached the dispatcher.
+ *
+ * @p budget_us of 0 means no wall-clock bound, which is what the VM task wants:
+ * it owns its own task and slices its own work, so the clock read per step
+ * would be overhead with nothing to protect. Callers that run the VM on a task
+ * somebody else needs — the shell — pass a budget and get it back.
+ *
+ * Checked every step rather than every N, deliberately. The whole failure mode
+ * is one step that blocks for half a second, so a check every 256 steps would
+ * bound the wall-clock at 256 blocking syscalls and miss the point entirely.
+ *
+ * The bound is therefore "return within @p budget_us plus one step", not
+ * "within @p budget_us": the check follows the step that overran it, and a
+ * step cannot be interrupted. Measured on hardware, `vm run blink` with a
+ * 2,000 ms budget returns at 2,499 ms — the extra half second is exactly the
+ * console write that was in flight. Bounding it more tightly would mean
+ * preempting a syscall, which is a different piece of work. */
+reflex_err_t reflex_vm_run_bounded(reflex_vm_state_t *vm, uint32_t max_steps,
+                                   uint32_t budget_us)
 {
     uint32_t steps = 0;
     REFLEX_RETURN_ON_FALSE(max_steps > 0, REFLEX_ERR_INVALID_ARG, "vm", "max steps must be positive");
     REFLEX_RETURN_ON_ERROR(reflex_vm_validate_state(vm), "vm", "invalid vm state");
+    uint64_t started_us = budget_us ? reflex_hal_time_us() : 0;
     while (vm->status != REFLEX_VM_STATUS_HALTED && steps < max_steps) {
         reflex_err_t err = reflex_vm_step(vm);
         if (err != REFLEX_OK) return err;
         steps += 1;
+        if (budget_us && (reflex_hal_time_us() - started_us) >= (uint64_t)budget_us) {
+            return REFLEX_ERR_TIMEOUT;
+        }
     }
     if (vm->status == REFLEX_VM_STATUS_HALTED) return REFLEX_OK;
     return REFLEX_ERR_TIMEOUT;
+}
+
+reflex_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps)
+{
+    return reflex_vm_run_bounded(vm, max_steps, 0);
 }
 
 reflex_err_t reflex_vm_self_check(void)

@@ -59,6 +59,18 @@ reflex_err_t reflex_kv_set_u8(reflex_kv_handle_t h, const char *key, uint8_t val
 reflex_err_t reflex_kv_erase(reflex_kv_handle_t h, const char *key);
 reflex_err_t reflex_kv_commit(reflex_kv_handle_t h);
 
+/** Largest value, in bytes, that this build's backend will accept.
+ *
+ *  A property of the backend, not of the interface, and it differs by more than
+ *  an order of magnitude: the raw-flash store packs entries into a 4 KB sector
+ *  and caps a value at 240 bytes, while the NVS-backed stores take kilobytes.
+ *  Callers that size a blob from a format constant need to ask, because sizing
+ *  it against the wrong backend is not a compile error — it is a write that is
+ *  refused at runtime, and the whole record lost. `goose_snapshot_save` sized
+ *  its per-field blob at 612 bytes against a comment reading "well within NVS
+ *  limits" on a build that does not use NVS. */
+size_t reflex_kv_value_max(void);
+
 #ifdef __cplusplus
 }
 #endif
