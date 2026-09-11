@@ -257,6 +257,12 @@ size_t __wrap_heap_caps_get_free_size(uint32_t caps) {
     return reflex_heap_free_bytes() + __real_heap_caps_get_free_size(caps);
 }
 
+/* Two low-water marks added together, which is not the low-water mark of the
+ * sum: the two pools reach their minima at different moments, so
+ * min(a) + min(b) <= min(a + b). The answer is therefore an underestimate and
+ * never an overestimate, which is the safe direction for the only thing this
+ * figure is used for — noticing that memory is getting tight. Said plainly
+ * here because "add the two" looks like it ought to be exact and is not. */
 size_t __wrap_heap_caps_get_minimum_free_size(uint32_t caps);
 size_t __wrap_heap_caps_get_minimum_free_size(uint32_t caps) {
     if (!ours_to_serve(caps)) return __real_heap_caps_get_minimum_free_size(caps);

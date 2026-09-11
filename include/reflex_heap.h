@@ -67,7 +67,12 @@ size_t reflex_heap_free_bytes(void);
 /** Low-water mark of free bytes since init. */
 size_t reflex_heap_min_free_bytes(void);
 
-/** Fill @p out with a consistent snapshot. */
+/** Fill @p out with a consistent snapshot.
+ *
+ * Walks every block with the heap's lock held, so on a device that lock is
+ * interrupts-off for the length of the walk. That is fine for a shell command
+ * and wrong for a hot path; free_bytes and min_free_bytes are O(1) and are
+ * what the metabolic breaker and `status` actually use. */
 void reflex_heap_get_stats(reflex_heap_stats_t *out);
 
 /** Walk every block and verify the structure. Returns true if intact.
