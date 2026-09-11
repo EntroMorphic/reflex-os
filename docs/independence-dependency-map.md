@@ -1620,6 +1620,86 @@ The test that would actually isolate it: keep a reference to `modem_clock.c`
 alive — take the address of one of its functions without calling it — and see
 whether presence alone is enough.
 
+#### Owning the flash window: a hypothesis, measured and refused (2026-09-11)
+
+Tier F's two `esp_flash_*` dependencies are a deliberate borrow, and the ledger
+named the target as "give `esp_flash_*` an `os_func` layer that needs no
+scheduler". That was done and shipped. This is an attempt to remove the borrow
+entirely, by owning the window instead of the layer. It failed, and it moved
+the target, which is why it is written down.
+
+**The hypothesis.** ESP-IDF's no-OS flash window in `spi_flash_os_func_noos.c`
+is two steps, not one:
+
+```c
+#if SOC_BRANCH_PREDICTOR_SUPPORTED
+    esp_cpu_branch_prediction_disable();   /* "branch predictor will start
+                                              cache request as well" */
+#endif
+cache_hal_suspend(CACHE_LL_LEVEL_EXT_MEM, CACHE_TYPE_ALL);
+```
+
+Attempt 3 in `reflex_kv_flash.c`'s history bracketed the ROM calls with
+`Cache_Suspend_ICache`/`Cache_Resume_ICache` and still persisted nothing, and
+concluded — correctly but without a mechanism — that "suspending the
+instruction cache is not the whole of what ESP-IDF's flash path does". The
+branch predictor looked exactly like the missing half: it issues its own
+instruction fetches, and a fetch issued while the cache is suspended is still a
+fetch from flash.
+
+**Refuted on the board.** Built, flashed, and it panicked:
+
+```
+Guru Meditation Error: Core 0 panic'ed (Illegal instruction).
+MEPC : 0x408030ce    ->    csrrc s2,0x7c1,s2
+```
+
+`SOC_BRANCH_PREDICTOR_SUPPORTED` is defined for the C5, C61, H4 and P4 and not
+for the C6. This core has no branch predictor, MHCR is not implemented on it,
+and writing that CSR traps. The hypothesis is dead, and it was dead in the
+vendor's own header the whole time.
+
+**Which sharpens the target rather than restoring it.** With the predictor step
+correctly absent, ESP-IDF's *entire* no-OS window on the C6 is
+`cache_hal_suspend`, and on the C6 `cache_ll_suspend_cache` is literally
+`Cache_Suspend_ICache()` — the same ROM call Reflex was already making. So
+Reflex's window and ESP-IDF's window are the same two ROM calls, and the
+difference between a write that reaches the medium and one that does not is
+**not the cache window at all**. It is the transfer: ESP-IDF's `spi_flash_hal`
+driver programs the MSPI registers itself, while `esp_rom_spiflash_*` uses the
+ROM's own legacy SPI state. Owning flash means owning the transfer, not the
+window. That is a different and much larger piece of work than the ledger
+previously implied, and it is the honest next statement of this target.
+
+**Measured, with the control run first.** The corrected window — interrupts
+masked, `Cache_Suspend_ICache`, ROM call, resume with the sampled autoload
+setting, everything IRAM- or ROM-resident and verified so by disassembly (the
+window at `0x4080309e` in `.iram0.text`, every call target at `0x4000xxxx`) —
+boots, and on two consecutive boots reports:
+
+```
+[reflex.kv] flash KV initialised fresh: sector=0 seq=1 write_offset=8 base=0x10000
+[reflex.kv] flash KV initialised fresh: sector=0 seq=1 write_offset=8 base=0x10000
+```
+
+"initialised fresh" twice is the whole result: the header written on the first
+boot was not there on the second. Attempt 3 reproduced exactly.
+
+**And it costs the console, which is a second finding.** The hardware suite goes
+from 183/183 at HEAD to a board that prints its banner, reaches `reflex>` and
+`system_stable=confirmed`, and then answers nothing — TX alive, RX dead. The
+window holds interrupts masked across the whole operation, and a sector erase is
+tens of milliseconds; the tick and the USB-serial RX FIFO do not survive it.
+ESP-IDF's no-OS layer pointedly does *not* disable interrupts. Reflex must,
+because a trap taken inside the window would fetch `reflex_trap_handler` from
+flash, which is not there. That tension — the window needs interrupts off, and
+interrupts cannot be off for an erase — is the second thing owning the transfer
+would have to solve.
+
+Reverted. Tier F stays at 3, `esp_flash.h` and `esp_flash_internal.h` remain the
+deliberate borrow they were, and the control was run *before* the conclusion:
+183/183 at HEAD on the same board, same cable, same session.
+
 #### The root cause: a reference count, not a register (2026-09-11)
 
 Found, measured, and understood. The hang is a **reference-counting** bug, and
