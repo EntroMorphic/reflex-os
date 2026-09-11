@@ -1476,19 +1476,43 @@ new command reports anything. The second line above is the same measurement
 taken again from the shipped code, which is what should have been done before
 quoting the first.
 
-#### A bench observation, recorded rather than concluded
+#### A bench hypothesis, tested and wrong
 
-Twice in this session a peer board appeared not to be transmitting, and once
-that produced four wasted build cycles chasing a regression that did not exist.
-Both times the board had had a serial monitor attached and then detached. Reset
-through esptool instead, with no monitor, it transmitted immediately and
-reliably.
+Twice a peer board appeared not to be transmitting, and once that cost four
+build cycles chasing a regression that did not exist. Both times the board had
+had a serial monitor attached and then detached, and the suspected mechanism was
+Reflex's console spinning on a USB-serial-JTAG FIFO no host was draining.
 
-The suspected mechanism is the console blocking on a USB-serial-JTAG FIFO that
-no host is draining — Reflex's console emit spins on it. That is a hypothesis,
-not a finding: two observations, no controlled test. It is written down because
-the bench procedure depends on it, and "the peer is running because I saw it
-boot" has now been wrong twice.
+**Both halves are wrong, and it was written down as a hypothesis precisely so it
+could be tested rather than believed.**
+
+The mechanism first: `usj_write_bytes` already carries a 50 ms budget and drops
+the rest of a line rather than blocking, so the console cannot stall a board
+indefinitely whether a host is attached or not. Reading the code took a minute
+and would have cost nothing earlier.
+
+Then the observation, controlled — identical 180-second windows, the same two
+boards, only the peer's treatment differing:
+
+| peer | frames received |
+|---|---|
+| reset by esptool, never monitored | 9 |
+| monitor attached for 12 s, then detached | **17** |
+
+The monitored condition received *more*. Attaching and detaching a monitor does
+not silence a peer.
+
+What the episode actually shows is something more useful: **received-frame
+counts over short windows are wildly variable on this bench** — 0, 4, 6, 9, 11
+and 17 across comparable windows — so a single short measurement cannot
+distinguish a broken radio from a quiet one. That is the real reason four cycles
+were lost, and the fix is not a bench ritual about monitors, it is refusing to
+read a regression out of one short count.
+
+It does not undermine the PHY reference, and that is worth stating: what varies
+is the *count*, while the signal quality is stable — RSSI mean −50.0 in both
+five-minute and three-minute samples, LQI 10.0–10.1. A distribution of RSSI and
+LQI is a usable baseline; a frame count is not.
 
 ### esp_btbb_enable is Reflex's, and the PHY is fully measured (2026-09-10)
 

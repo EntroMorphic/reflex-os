@@ -9,6 +9,10 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Fixed
 
+- **Retracted: the bench hypothesis that a detached serial monitor silences a peer board.** Recorded last commit as a hypothesis so it could be tested; tested, and both halves are wrong. The suspected mechanism — Reflex's console spinning on a USB FIFO with no reader — cannot happen: `usj_write_bytes` carries a 50 ms budget and drops the rest of the line. And controlled, over identical 180-second windows, the monitored peer delivered **more** frames than the never-monitored one (17 against 9).
+
+  What the episode really shows is more useful: received-frame counts over short windows are wildly variable on this bench — 0, 4, 6, 9, 11, 17 across comparable windows — so a single short count cannot distinguish a broken radio from a quiet one. That, not monitor handling, is why four cycles were lost. It does not undermine the PHY reference: what varies is the count, while RSSI mean held at −50.0 across both samples and LQI at 10.0–10.1. A distribution is a usable baseline; a frame count is not.
+
 - **`mesh macstats` shipped reporting RSSI and LQI that nothing populated.** The previous commit added the struct fields and the shell display but not the accumulation: a `git checkout --` on the MAC during a revert took that block out while the changes in the other two files survived. The result always printed *"signal: no frames received yet"*. Builds passed, all eleven gates passed, and the feature did nothing — and the reference measurement quoted in the changelog and the ledger could not have been produced by the code that shipped. It was taken before the revert, from code that then disappeared.
 
   Restored and verified on hardware rather than by building: `signal n=11 rssi mean=-50.0 min=-51 max=-50 | lqi mean=10.0 min=10 max=10`, which reproduces the published reference within noise.
