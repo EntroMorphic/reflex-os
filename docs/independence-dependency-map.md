@@ -1441,7 +1441,7 @@ explained, and seven build-and-flash cycles of bisection did not find it:
 | The ICG clock-gating map was missing | Implemented, ten fields across two registers — still hangs |
 | The ICG map must precede any clock enable | Reordered to match ESP-IDF — still hangs |
 | Clock settling time | 100 µs delay — still hangs |
-| Linking `esp_hw_support` has a side effect | **No.** Component linked, call removed — still hangs |
+| Linking `esp_hw_support` has a side effect | **Weaker than recorded.** See below |
 | `PERIPH_RCC_ACQUIRE_ATOMIC` touches another register | Read: refcount and critical section only |
 | ESP-IDF's clock enable *instead of* Reflex's | **Works.** So Reflex's is insufficient, not harmful |
 | ESP-IDF's call writes a register outside the five watched | **No.** A wide scan of MODEM_SYSCON and MODEM_LPCON, 96 words, shows **zero deltas** across the call |
@@ -1473,6 +1473,30 @@ That instrumentation was then done, in the red-team pass, and it made the
 mystery sharper rather than solving it: **ESP-IDF's call changes no register at
 all** in either modem peripheral, and a 10 ms delay cannot substitute for it.
 Whatever it provides is neither state nor time.
+
+#### One arm of that bisection was weaker than it was written up as
+
+"Component linked, call removed — still hangs" was recorded as ruling out a
+link-time side effect. It does not, and the flaw is in the linker's own
+semantics: **an archive member is only pulled in to resolve an undefined
+symbol.** Removing the only call to `modem_clock_module_enable` very likely
+removed `modem_clock.c.obj` from the image altogether, so that arm varied two
+things at once — whether the call happens, and whether the code is present at
+all — and cannot separate them.
+
+Adding `esp_hw_support` to `REQUIRES` changes what the linker may search, not
+what it takes. In the working build `modem_clock.c.obj` is linked, pulled in
+through `modem_clock_hal_set_clock_domain_icg_bitmap` among others; whether it
+was in the broken build was never checked.
+
+That is the same mechanism this project already documented once, in the
+`--wrap` lesson and again when `esp_startup_start_app` was resolved from a local
+object rather than from FreeRTOS's archive. Knowing it and still writing the
+conclusion down is the part worth recording.
+
+The test that would actually isolate it: keep a reference to `modem_clock.c`
+alive — take the address of one of its functions without calling it — and see
+whether presence alone is enough.
 
 #### It does not hang. It spins. (2026-09-11)
 
