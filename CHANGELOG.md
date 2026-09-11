@@ -9,6 +9,14 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Changed
 
+- **The PHY does not hang — it spins, and that is the first description of the failure rather than another eliminated cause.** Wrapping the blob's own callback instead of watching registers: `phy_i2c_enter_critical` brackets every analog-bus transaction `register_chipv7_phy` makes, so counting it measures how far calibration gets. The working configuration completes **430** transactions and returns; the broken one passes 380, 390, 400 **and keeps climbing indefinitely**.
+
+  Logging the caller's return address shows two addresses alternating for ever — both in **mask ROM**, in the unexported region past `wifi_get_target_power`, which the linker scripts cannot name further. Two call sites alternating is a polling loop: the blob is waiting on a hardware condition that never becomes true.
+
+  That reframes every earlier hypothesis at once. The registers *are* right, which is why five register-level theories died; and the clock bits hold steady at `lpcon=0x7`, `syscon1=0x7e7ff` right through the loop, which kills the refcount theory too — Reflex's direct clock write is not being undone. Something calibration waits for does not happen, and `modem_clock_module_enable(PERIPH_PHY_MODULE)` supplies it while writing no register in either modem peripheral.
+
+  Next attempt looks **outside** those two peripherals. The PMU is the candidate: the ICG codes are PMU power-state codes, and `MODEM_CLOCK_instance()` builds a HAL context on first call that was never examined. The scan that found nothing covered 96 words of two peripherals; the next should cover the PMU. Tier D is unchanged at 1; the diagnostics are reverted and the finding is the deliverable.
+
 - **The ledger's headline table had drifted several months out of date, and is now generated.** It read Tier C 8 where the measurement says 0, Tier E 8 where it says 0, a total of 23 where it is 6, and 19 off-path where there are 31 — sitting above a document whose every other number was current and whose own opening line is *"Prose drifts. A measurement that CI runs does not."* The summary was the one part nothing recomputed. Worse, the previous commit edited that very sentence without noticing the number beside it.
 
   `make independence-doc` now regenerates it from the two configurations on the independence path and fails if it stops matching; `make independence-doc-update` rewrites it. Verified three ways: matching passes, a corrupted number fails with the reason, and absent builds decline to judge rather than failing. Added to the CI independence job and to `tools-test`.

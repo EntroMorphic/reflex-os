@@ -1474,6 +1474,51 @@ mystery sharper rather than solving it: **ESP-IDF's call changes no register at
 all** in either modem peripheral, and a 10 ms delay cannot substitute for it.
 Whatever it provides is neither state nor time.
 
+#### It does not hang. It spins. (2026-09-11)
+
+The breakthrough came from wrapping the blob's own callback rather than watching
+registers. `phy_i2c_enter_critical` is what `register_chipv7_phy` brackets every
+analog-bus transaction with, so counting it says how far calibration gets:
+
+```
+working config   430 transactions, then register_chipv7_phy returns rc=1
+broken config    380, 390, 400 ... and it keeps climbing, for ever
+```
+
+**It is not stalled — it is looping.** The count never stops rising, so the blob
+is alive and working the analog bus indefinitely. Logging the caller's return
+address near the end shows two addresses alternating, over and over:
+
+```
+[reflex.phy] i2c x391 from 0x40003dd8
+[reflex.phy] i2c x392 from 0x400040ce
+[reflex.phy] i2c x393 from 0x40003dd8
+[reflex.phy] i2c x394 from 0x400040ce
+```
+
+Both are **mask ROM**, in the unexported region past `wifi_get_target_power` —
+ROM PHY code the vendor did not export, so the linker scripts can name it no
+further. Two call sites alternating forever is a polling loop: the blob is
+waiting on a hardware condition — a PLL lock, a calibration-done flag, a power
+detector settling — that never becomes true.
+
+That reframes every earlier failed hypothesis at once. The registers *are*
+right, which is why five register-level theories all died; the clock bits hold
+steady at `lpcon=0x7` and `syscon1=0x7e7ff` right through the loop, which kills
+the refcount theory too. Something the calibration waits for does not happen,
+and `modem_clock_module_enable(PERIPH_PHY_MODULE)` is what makes it happen
+without writing a single register in either modem peripheral.
+
+What that leaves, and what a next attempt should look at: state *outside*
+MODEM_SYSCON and MODEM_LPCON. The PMU is the obvious candidate — the ICG codes
+programmed into the gating map are PMU power-state codes, and
+`MODEM_CLOCK_instance()` builds a HAL context on first call whose construction
+was never examined. The scan that found nothing covered 96 words of two
+peripherals; the next one should cover the PMU.
+
+This is the first evidence in the whole investigation that describes the failure
+rather than eliminating a cause, and it cost one wrapped symbol.
+
 #### What the blob actually needs, which reframes the whole problem
 
 The measurement that should have come first. `libphy.a` is not a library that
