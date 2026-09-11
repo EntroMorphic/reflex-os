@@ -116,6 +116,9 @@ EXTERN_TIERS = {
     # init exactly where ESP-IDF's mac_init calls it. Declared locally because
     # there is nothing to include; counted because it is still borrowed.
     "ieee802154_txon_delay_set": ("D", "Radio"),
+    # libbtbb's baseband bring-up, likewise headerless, called once from
+    # Reflex's MAC init where ESP-IDF's mac_init calls it.
+    "bt_bb_v2_init_cmplx": ("D", "Radio"),
     "intr_handler_set": ("C", "ESP-IDF interrupt dispatch table"),
     "intr_handler_get": ("C", "ESP-IDF interrupt dispatch table"),
     "intr_handler_get_arg": ("C", "ESP-IDF interrupt dispatch table"),

@@ -12,7 +12,7 @@
       "A": 0,
       "B": 2,
       "C": 0,
-      "D": 1,
+      "D": 3,
       "E": 0,
       "F": 3
     }
@@ -37,6 +37,16 @@
       "to": 4,
       "what": "esp_private/esp_modem_clock.h, esp_private/phy.h, esp_phy_init.h and the libbtbb symbol ieee802154_txon_delay_set, in platform/esp32c6/reflex_802154_mac.c",
       "why": "Reflex's own 802.15.4 MAC replaces ESP-IDF's ieee802154 component \u2014 about 3,240 lines across ten objects, and the owner of the peripheral's state machine \u2014 with 229 lines of register programming against bridge-proved constants. What it cannot replace is the RF bring-up: esp_phy_enable and esp_btbb_enable sequence libphy.a and libbtbb.a for calibration and the analog front end, and modem_clock_module_enable is refcounted clock gating shared with Wi-Fi and Bluetooth. Those three are one-shot silicon bring-up, not an ongoing state machine, and they are Tier D's acknowledged bedrock. The include count treats a whole driver and a one-line bring-up call as equal weight, which is the known weakness of counting surface rather than substance; every other measure moves the right way or not at all."
+    },
+    {
+      "configuration": "build_own_entry",
+      "decided": "2026-09-11",
+      "evidence": "make independence-own-entry now runs in verify and reports B=2 C=0 D=3 E=0 F=3, on-path 8. The three Tier D entries are the RF bring-up blobs and nothing else: libphy.a via esp_phy_enable and two headerless libbtbb symbols.",
+      "from": 1,
+      "tier": "D",
+      "to": 3,
+      "what": "esp_private/phy.h and the libbtbb externs ieee802154_txon_delay_set and bt_bb_v2_init_cmplx, in platform/esp32c6/reflex_802154_mac.c",
+      "why": "A baseline correction, not a regression. The 2026-09-10 decision that accepted Reflex's own MAC recorded this tier going to 4, but the baseline file was never updated from 1, and nothing caught it because `independence-own-entry` was not in `make verify` \u2014 the one configuration the independence claim rests on was ungated. With the gate added and bt_bb_v2_init_cmplx classified, the honest number is 3: one better than the accepted 4, because esp_private/esp_modem_clock.h and esp_phy_init.h have since been taken."
     }
   ],
   "measurement_corrections": [

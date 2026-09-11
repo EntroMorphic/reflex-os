@@ -189,7 +189,13 @@ independence-doc:
 independence-doc-update:
 	@python3 tools/check_independence.py --update-doc
 
-independence-own-entry:
+# The own-entry configuration's numbers are the ones the independence claim
+# rests on, so this is part of `verify` rather than something to remember to
+# run. It was not, for a long time, and the cost was exactly what an ungated
+# measurement costs: its ratchet baseline drifted three tiers out of date and
+# an unclassified extern sat in the frontier file unnoticed, because the only
+# configuration that compiles that file was never checked.
+independence-own-entry: own-entry-build
 	@python3 tools/check_independence.py --check --build build_own_entry -v
 
 # Measure the Reflex scheduler tick across repeated cold starts. Delivery is
@@ -245,9 +251,9 @@ idf-build:
 	             idf.py -B build build'
 
 # Everything runnable without a board. Run this before pushing firmware changes.
-verify: test tasm-test doc-links warn-check lock-check independence-check ci-lint soc-check rom-check idf-build soc-bridge
+verify: test tasm-test doc-links warn-check lock-check independence-check independence-own-entry ci-lint soc-check rom-check idf-build soc-bridge
 	@echo ""
-	@echo "verify: host tests, TASM, doc links, warning gate, lock discipline, the independence ratchet, workflow schema, a real ESP-IDF build, and the SoC constant bridge all passed."
+	@echo "verify: host tests, TASM, doc links, warning gate, lock discipline, the independence ratchet in both configurations, workflow schema, a real ESP-IDF build, and the SoC constant bridge all passed."
 
 hw-test:
 	@test -n "$(PORT)" || { echo "Usage: make hw-test PORT=/dev/cu.usbmodemXXXX"; exit 1; }

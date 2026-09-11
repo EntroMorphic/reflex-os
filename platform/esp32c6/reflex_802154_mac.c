@@ -87,6 +87,24 @@ extern void bt_bb_v2_init_cmplx(int print_version);
  * scheduler tick unaffected in both.
  */
 static void reflex_802154_clock_enable(void) {
+    /* Interrupts off across all three read-modify-writes.
+     *
+     * These are not private registers. ESP-IDF read-modify-writes the very
+     * same words under its periph_spinlock: the modem clock HAL touches
+     * CLK_CONF1 for the front-end clocks, and every regi2c transaction on the
+     * chip brackets itself with an ANALOG_CLOCK_ENABLE/DISABLE pair that
+     * read-modify-writes MODEM_LPCON.CLK_CONF bit 2. An unsynchronised RMW
+     * here can therefore write back a stale bit 2 and strand the analog I2C
+     * master clock, which is exactly the failure documented in
+     * docs/independence-dependency-map.md: with that clock gated, the PHY
+     * blob polls a done bit that never sets and spins forever.
+     *
+     * The C6 is single-core, so ESP-IDF's spinlock is interrupt-disable and
+     * nothing more; disabling interrupts here is the same mutual exclusion
+     * without taking a dependency on esp_private/periph_ctrl.h. */
+    uint32_t saved;
+    __asm__ volatile("csrrci %0, mstatus, 0x8" : "=r"(saved));
+
     uint32_t c = REFLEX_REG_READ(REFLEX_MODEM_SYSCON_CLK_CONF_REG);
     c |= REFLEX_MODEM_CLK_ZB_APB_EN | REFLEX_MODEM_CLK_ZB_MAC_EN | REFLEX_MODEM_CLK_ETM_EN;
     REFLEX_REG_WRITE(REFLEX_MODEM_SYSCON_CLK_CONF_REG, c);
@@ -98,6 +116,10 @@ static void reflex_802154_clock_enable(void) {
     uint32_t lp = REFLEX_REG_READ(REFLEX_MODEM_LPCON_CLK_CONF_REG);
     lp |= REFLEX_MODEM_LPCON_CLK_COEX_EN;
     REFLEX_REG_WRITE(REFLEX_MODEM_LPCON_CLK_CONF_REG, lp);
+
+    if (saved & 0x8u) {
+        __asm__ volatile("csrsi mstatus, 0x8");
+    }
 }
 
 /* Reset the MAC: assert then release, which is what

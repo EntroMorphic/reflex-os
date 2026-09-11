@@ -1525,6 +1525,14 @@ diff the instruction streams. Everything reachable from inside the firmware has
 now been tried, and the remaining permutations are guesses rather than
 experiments — which is the point at which to stop permuting.
 
+> **Retracted (2026-09-11).** The mechanism was not outside observable state and
+> no debugger was needed. It was outside the *registers*, which is not the same
+> thing: the state that matters is a `static uint8_t` in ESP-IDF's
+> `periph_ctrl.c`. See "The root cause" below. The paragraph above is kept
+> because the error in it is instructive — "no register differs" was true, and
+> reasoning from it to "no observable state differs" was the thing that cost
+> eighteen experiments.
+
 #### Twelve more experiments, and the root cause is still not found (2026-09-11)
 
 Asked to iterate until the cause was found and understood, I did not find it.
@@ -1611,6 +1619,107 @@ conclusion down is the part worth recording.
 The test that would actually isolate it: keep a reference to `modem_clock.c`
 alive — take the address of one of its functions without calling it — and see
 whether presence alone is enough.
+
+#### The root cause: a reference count, not a register (2026-09-11)
+
+Found, measured, and understood. The hang is a **reference-counting** bug, and
+every register-level theory in the sections above was looking one layer too low.
+
+**The mechanism.** ESP-IDF manages the analog I2C master clock
+(`MODEM_LPCON.CLK_CONF.CLK_I2C_MST_EN`, bit 2 of `0x600AF018`) by reference
+count, not by ownership. `regi2c_ctrl.h` defines a matched pair:
+
+```c
+#define ANALOG_CLOCK_ENABLE()  PERIPH_RCC_ACQUIRE_ATOMIC(PERIPH_ANA_I2C_MASTER_MODULE, rc) { \
+      if (rc == 0) { regi2c_ctrl_ll_master_enable_clock(true); } }
+#define ANALOG_CLOCK_DISABLE() PERIPH_RCC_RELEASE_ATOMIC(PERIPH_ANA_I2C_MASTER_MODULE, rc) { \
+      if (rc == 0) { regi2c_ctrl_ll_master_enable_clock(false); } }
+```
+
+Every `regi2c` transaction on the chip — PLL calibration, RNG, ADC, and the PHY —
+brackets itself with that pair. The counter is `static uint8_t ref_counts[]` in
+`periph_ctrl.c`, index `PERIPH_ANA_I2C_MASTER_MODULE` (38).
+
+`modem_clock_module_enable(PERIPH_PHY_MODULE)` reaches, through its dependency
+set, `modem_clock_i2c_master_configure` — which *is* `ANALOG_CLOCK_ENABLE()`.
+Its real product is not the register write. It is **`ref_counts[38] = 1`**: a
+reference held for as long as the PHY is enabled.
+
+With that reference held, each transaction inside the blob's calibration takes
+the count 1 → 2 and returns it 2 → 1. It never reaches zero, so the clock is
+never switched off. Writing bit 2 directly and leaving the count at 0 inverts
+this: the blob's first transaction goes 0 → 1 (redundantly re-enabling a clock
+already on) and then **1 → 0, which switches the clock off**. The next analog
+transaction — `freq_chan_en_sw`, inside `ram_set_chan_freq_sw_start` — is issued
+onto a bus with no clock, and the PHY spins on a done bit that can never set:
+
+```
+42026f86:  lui  a4,0x600a0
+42026f8a:  lw   a5,204(a4)      # 0x600A00CC, analog transaction status
+42026f8e:  andi a5,a5,256       # bit 8 = done
+42026f92:  beqz a5,42026f8a     # forever
+```
+
+**Measured, both directions.** A watcher task at priority 10, sampling while the
+main task spins:
+
+```
+imitation (bit written, no reference taken)   genuine call
+PROBE imitate: clk=1                          PROBE real: clk=1
+WATCH 0 clk=1  st600a00cc=25824e50            WATCH 0 clk=1  st600a00cc=25824e50
+WATCH 1 clk=0  st600a00cc=25824e50            WATCH 1 clk=1  st600a00cc=25824f50  <- bit 8 sets
+WATCH 2 clk=0  st600a00cc=25824e50            radio up, ch=15
+...  clk=0 forever, status frozen
+```
+
+The clock is on at the moment of the call and off 200 ms later, switched off by
+ESP-IDF's own refcounted disable. In the genuine path it stays on and the poll
+completes.
+
+**The bisection, each arm three runs, all deterministic.**
+
+| # | what the wrapper did for `PERIPH_PHY_MODULE` | result |
+|---|---|---|
+| T | genuine call, then clear bit 2 | hangs 1/1 |
+| W | write bit 2 only | hangs |
+| Z | mirror every register write the real path makes, in order | hangs |
+| AE | write bit 2 with interrupts disabled | hangs 3/3 |
+| AG | write bit 2, then wait 50 µs | hangs 3/3 |
+| AF | take the lock, write bit 2, release **without** storing the count | hangs 3/3 |
+| AC | genuine `modem_clock_module_enable(PERIPH_ANA_I2C_MASTER_MODULE)` | works |
+| AD | `periph_rcc_acquire_enter` / write / `periph_rcc_acquire_exit` | works 3/3 |
+| AH | write bit 2 **bare**, then the bookkeeping around nothing | works 3/3 |
+
+AF against AD isolates it to a single statement, `ref_counts[38] = 1`. AH shows
+the write's position is irrelevant: the bookkeeping alone is what matters.
+
+**Why this took eighteen experiments.** Every earlier test compared register
+state *across the call* and found it identical — which it is. The divergence is
+in RAM, and its effect does not appear until hundreds of analog transactions
+later, when the count reaches zero. A full-chip scan of 8,597 words across 42
+peripherals was therefore guaranteed to find nothing, and did. Two further
+traps: the scan window `0x600AF000..0x600AF034` excluded the analog I2C master's
+own block at `0x600AF800`, which reads as all-zero while unclocked and comes
+alive when bit 2 is set; and there is no `modem_clock_hal_*` function for this
+clock at all — it is written inline inside a static function — so every
+replication attempt built from the HAL API necessarily missed it.
+
+**The invariant, for whoever owns this next.** Taking the modem clock means
+taking the *reference count*, not the register bit. `CLK_I2C_MST_EN` is
+necessary but not sufficient; it is a consequence of the count, and anything
+that writes it without participating in the count will be overruled by the next
+`regi2c` transaction. Reflex cannot hold that reference without ESP-IDF's
+`periph_rcc_*` API, which is the real dependency behind `esp_phy_enable` —
+a sharper boundary than "the PHY blob needs its clocks".
+
+**One defect fixed.** `reflex_802154_clock_enable` read-modify-wrote
+`MODEM_LPCON.CLK_CONF` and `MODEM_SYSCON.CLK_CONF1` with no mutual exclusion,
+while ESP-IDF RMWs those same words under `periph_spinlock` — the front-end
+clocks in `CLK_CONF1`, and bit 2 of `CLK_CONF` on every analog transaction. A
+tear there writes back a stale bit 2 and strands the analog clock: this exact
+failure, arrived at by a different road. The three writes are now bracketed with
+interrupts disabled, which on a single-core C6 is the same mutual exclusion
+ESP-IDF's spinlock provides, without taking a new dependency.
 
 #### It does not hang. It spins. (2026-09-11)
 
