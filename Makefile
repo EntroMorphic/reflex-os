@@ -232,7 +232,7 @@ rom-check:
 # Schema only: shellcheck flags pre-existing SC2086 style in jobs this does not
 # own, and failing on that would make the gate noise rather than signal.
 ci-lint:
-	@command -v docker >/dev/null 2>&1 || { echo "docker required for ci-lint"; exit 1; }
+	@tools/require_docker.sh ci-lint
 	@docker run --rm -v "$$PWD":/repo -w /repo $(ACTIONLINT_IMAGE) -no-color -shellcheck= \
 	  && echo "Workflows: schema valid."
 ACTIONLINT_IMAGE ?= rhysd/actionlint:latest
@@ -243,7 +243,7 @@ ACTIONLINT_IMAGE ?= rhysd/actionlint:latest
 IDF_IMAGE ?= espressif/idf:release-v5.5
 IDF_TARGET_ ?= esp32c6
 idf-build:
-	@command -v docker >/dev/null 2>&1 || { echo "docker required for idf-build"; exit 1; }
+	@tools/require_docker.sh idf-build
 	docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e IDF_COMPONENT_MANAGER=0 \
 	    -v "$$PWD":/work -w /work $(IDF_IMAGE) \
 	    bash -c '. $$IDF_PATH/export.sh >/dev/null 2>&1 && \

@@ -1620,6 +1620,86 @@ The test that would actually isolate it: keep a reference to `modem_clock.c`
 alive — take the address of one of its functions without calling it — and see
 whether presence alone is enough.
 
+#### Red-teaming the heap: eight findings, all remediated (2026-09-11)
+
+The allocator and its splice went in with 680 host assertions and 183/183 on
+hardware, which is what made an adversarial pass worth doing: a change that
+passes everything is exactly the one whose defects are still in it.
+
+**The capability mask was wrong, and wrong in the dangerous direction.** The
+shim listed the capabilities it thought the region could *not* serve and passed
+those through, using `MALLOC_CAP_RTCRAM (1 << 4)`. RTCRAM is bit 15. Bit 4 is
+`MALLOC_CAP_PID2`. A request for RTC fast memory would have been served out of
+DRAM, and a PID2 request passed through for no reason. The shape was the real
+error: enumerating what is unsupported silently claims every capability nobody
+thought of. It is now a positive mask of what this region genuinely satisfies —
+`DEFAULT | INTERNAL | 8BIT | 32BIT | DMA`, matching what ESP-IDF's own C6
+memory layout declares for the `SOC_MEMORY_TYPE_RAM` region this array sits
+inside — and anything outside it passes through. `EXEC` is excluded even though
+that layout can carry it, because it is conditional there and executing out of
+the application's .bss is not something to infer.
+
+**`heap_caps_realloc` handed a Reflex pointer to ESP-IDF.** When the caller
+asked for a capability the region cannot serve, the pointer was ours and the
+realloc was theirs. It now performs a move — allocate there, copy, release here
+— and it also falls back that way when Reflex's region is full, which it
+previously did not do at all.
+
+**First-use init was a check-then-act race.** `reflex_heap_init` resets the
+region wholesale, so a second init racing the first would discard every
+allocation already handed out and leave its owners pointing into free space.
+Now double-checked, with the second check under interrupts.
+
+**The allocator trusted its callers.** `free`, `realloc` and `block_size` read
+a block header sixteen bytes below whatever pointer they are given. The shim
+range-checks before calling in, but the guarantee should not depend on every
+caller remembering, so the check now lives at the boundary that actually
+dereferences: a pointer outside the region, inside the region's header area, or
+misaligned is refused.
+
+**The structural audit did not check that the blocks cover the region.** It
+verified that each block abuts the next, which says they touch, not that they
+tile — a chain that lost its tail would have passed every assertion. It now
+verifies the chain starts at the region base, ends exactly at its end, and that
+the spans sum to the region size. And because the differential test leans on
+that audit to notice damage, there is now a test that damages the structure on
+purpose — overrunning one allocation into its neighbour's header — and asserts
+the audit fails. The audit having teeth was a claim; now it is a test.
+
+**The measurement tool's exclusion was too broad.** Dropping generated files
+from the unanimity vote was done by testing for the substring `/build`, which
+also matches a real source whose path happens to contain it. Silently dropping
+project files from a vote is the same class of error as counting generated
+ones. It now compares against the build directory actually being measured, and
+falls back to counting the file if the comparison cannot be made.
+
+**`make verify` hung rather than failed.** `command -v docker` proves the client
+exists, not that the daemon answers. With Docker wedged, `make verify` sat
+inside a `docker run` for thirty-four minutes; it would have sat there all day.
+A gate that hangs is worse than one that fails, because a failure is a result.
+`tools/require_docker.sh` now bounds the probe and the four docker-dependent
+gates use it. Not `timeout(1)`, which macOS does not ship, and not perl's
+`alarm`, which was tried and does not work: the Docker client is a Go program
+and the runtime swallows SIGALRM.
+
+**The region cannot simply be made bigger.** 192 KiB leaves ESP-IDF about
+170 KiB of which roughly 4 KiB is ever used, so claiming more of it looked free.
+288 KiB panics during startup with a `Stack protection fault`, with ESP-IDF's
+residual confirmed down to 73 KiB — the image was right and the size was wrong.
+192 KiB is what has been run against the full suite, so 192 KiB is what ships;
+the idle residual is a real cost, recorded rather than guessed away.
+
+**And one process finding.** The 288 KiB measurement first came back reporting a
+free figure byte-identical to the 192 KiB build. That is not a coincidence, and
+the cause was a reflash that had silently failed while the flashing output was
+swallowed by a pipe. It was caught by checking ESP-IDF's own `heap_init`
+arithmetic — 362 KiB total minus 169 KiB residual is 193, which is the *old*
+region — rather than by trusting the number. Verify the state you think you
+set, including the one you just flashed.
+
+691 host assertions, 183/183 on hardware, every runnable gate green, the
+Wi-Fi configuration still builds and contains none of the shim.
+
 #### The heap is Reflex's, and heap reporting with it (2026-09-11)
 
 On-path 8 -> 6. Tier B 2 -> 1 and Tier F 3 -> 2, because `esp_heap_caps.h` in

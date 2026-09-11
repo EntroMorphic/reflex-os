@@ -19,7 +19,7 @@ LD=platform/esp32c6/reflex_rom_esp32c6.ld
 IDF_IMAGE=${IDF_IMAGE:-espressif/idf:release-v5.5}
 
 [ -f "$LD" ] || { echo "$LD not found"; exit 1; }
-command -v docker >/dev/null 2>&1 || { echo "docker required for rom-check"; exit 1; }
+"$(dirname "$0")/require_docker.sh" rom-check || exit 1
 
 # "PROVIDE ( name = 0xADDR );" -> "name 0xADDR"
 grep -oE '^PROVIDE \( *[A-Za-z_][A-Za-z0-9_]* *= *0x[0-9a-fA-F]+' "$LD" \

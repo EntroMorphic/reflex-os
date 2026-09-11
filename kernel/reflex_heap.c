@@ -75,6 +75,24 @@ static inline bool size_is_sane(size_t size) {
     return size <= (size_t)-1 - (ALIGN - 1u) - HDR;
 }
 
+/* Could @p ptr be a payload this allocator handed out?
+ *
+ * Not a proof — an interior pointer into a large allocation passes — but it
+ * rejects every pointer from outside the region, the region's own header area,
+ * and anything misaligned. The public free/realloc/block_size entry points
+ * read a block header sixteen bytes below the pointer they are given, and
+ * doing that to a foreign pointer corrupts whatever lives there. The shim in
+ * platform/esp32c6 already range-checks before calling in; this is the same
+ * check at the boundary that actually dereferences, so the guarantee does not
+ * depend on every caller remembering. */
+static bool plausible_payload(const void *ptr) {
+    const uint8_t *p = (const uint8_t *)ptr;
+    if (!s_ready || !p) return false;
+    if (p < s_region_lo + HDR || p >= s_region_hi) return false;
+    if ((((uintptr_t)p) & (ALIGN - 1u)) != 0) return false;
+    return true;
+}
+
 static void note_free_change(void) {
     if (s_free < s_min_free) s_min_free = s_free;
 }
@@ -212,14 +230,14 @@ static void free_locked(void *ptr) {
 }
 
 void reflex_heap_free(void *ptr) {
-    if (!ptr || !s_ready) return;
+    if (!plausible_payload(ptr)) return;
     heap_lock_t s = heap_lock();
     free_locked(ptr);
     heap_unlock(s);
 }
 
 size_t reflex_heap_block_size(const void *ptr) {
-    if (!ptr || !s_ready) return 0;
+    if (!plausible_payload(ptr)) return 0;
     heap_lock_t s = heap_lock();
     size_t n = block_of(ptr)->size;
     heap_unlock(s);
@@ -230,6 +248,9 @@ void *reflex_heap_realloc(void *ptr, size_t size) {
     if (!ptr) return reflex_heap_alloc(size);
     if (size == 0) { reflex_heap_free(ptr); return NULL; }
     if (!s_ready || !size_is_sane(size)) return NULL;
+    /* A pointer this allocator did not hand out cannot be resized by it.
+     * Refused rather than guessed at; the shim never passes one. */
+    if (!plausible_payload(ptr)) return NULL;
 
     heap_lock_t s = heap_lock();
     block_t *b = block_of(ptr);
@@ -324,9 +345,16 @@ bool reflex_heap_check(void) {
     heap_lock_t s = heap_lock();
     bool ok = true;
     size_t free_seen = 0;
+    size_t span = 0;
     block_t *prev = NULL;
+    block_t *last = NULL;
+
+    /* The chain must start where the region starts. */
+    if (!s_ready || (uint8_t *)s_first != s_region_lo) ok = false;
 
     for (block_t *b = s_first; b && ok; b = b->next) {
+        span += HDR + b->size;
+        last = b;
         if (b->prev != prev) ok = false;
         if ((b->size & (ALIGN - 1u)) != 0) ok = false;
         if (b->used > 1u) ok = false;
@@ -342,6 +370,11 @@ bool reflex_heap_check(void) {
         prev = b;
     }
     if (ok && free_seen != s_free) ok = false;
+    /* Adjacency between neighbours is not enough on its own: it says the
+     * blocks touch, not that they cover the region. A chain that ends early
+     * has lost its tail, and every check above would still pass. */
+    if (ok && last && (uint8_t *)payload_of(last) + last->size != s_region_hi) ok = false;
+    if (ok && span != (size_t)(s_region_hi - s_region_lo)) ok = false;
     heap_unlock(s);
     return ok;
 }

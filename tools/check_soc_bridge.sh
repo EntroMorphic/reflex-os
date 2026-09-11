@@ -32,8 +32,7 @@ IDF_IMAGE=${IDF_IMAGE:-espressif/idf:release-v5.5}
 NATIVE=0
 [ -n "${IDF_PATH:-}" ] && [ -d "${IDF_PATH:-/nonexistent}" ] && NATIVE=1
 if [ "$NATIVE" = "0" ]; then
-    command -v docker >/dev/null 2>&1 || {
-        echo "docker required (or run inside an ESP-IDF environment)"; exit 1; }
+    "$(dirname "$0")/require_docker.sh" "soc-bridge (or run inside an ESP-IDF environment)" || exit 1
 fi
 
 WORK=$(mktemp -d)

@@ -359,13 +359,26 @@ def apply_build_defines():
         f = str(e.get("file", ""))
         if not f.endswith(".c"):
             continue
-        # Generated stubs inside the build directory are not project sources
-        # and do not carry the project's compile definitions —
+        # Generated sources inside the build directory being measured are not
+        # project sources and do not carry the project's compile definitions —
         # project_elf_src_<target>.c is emitted by ESP-IDF's own CMake. Voting
         # them in makes unanimity unreachable (981 of 982) and silently
         # downgrades every build-defined symbol to "unknown", which counts both
-        # branches of every fence and quietly inflates the dependency numbers.
-        if (os.sep + "build" in f) or os.path.basename(f).startswith("project_elf_src_"):
+        # branches of every fence and inflates the dependency numbers.
+        #
+        # Matched against the measured build directory rather than the
+        # substring "/build", which the first version of this used: that also
+        # excludes any real source whose path happens to contain it, and
+        # silently dropping project files from a unanimity vote is the same
+        # class of error in the other direction.
+        try:
+            inside_build = os.path.commonpath([os.path.abspath(f), _build_dir]) == _build_dir
+        except ValueError:
+            # commonpath refuses paths that share no root. That is not a
+            # reason to stop measuring, and treating it as "not generated" is
+            # the conservative answer: the file is counted rather than dropped.
+            inside_build = False
+        if inside_build:
             continue
         seen_c += 1
         cmd = e.get("command") or " ".join(e.get("arguments", []))

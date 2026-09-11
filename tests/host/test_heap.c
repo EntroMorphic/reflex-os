@@ -306,6 +306,52 @@ static void test_ownership(void) {
     CHECK("still owns the range after free", reflex_heap_owns(p));
 }
 
+/* The public entry points read a block header from below the pointer they are
+ * given. Handing them something that is not theirs must be refused, not
+ * dereferenced. */
+static void test_foreign_pointers_refused(void) {
+    fresh();
+    size_t before = reflex_heap_free_bytes();
+    static uint8_t elsewhere[64];
+    int on_stack = 0;
+
+    reflex_heap_free(elsewhere);
+    reflex_heap_free(&on_stack);
+    reflex_heap_free((void *)(s_region + REGION + 8));
+    CHECK("foreign frees changed nothing", reflex_heap_free_bytes() == before);
+    CHECK("intact after foreign frees", reflex_heap_check());
+
+    CHECK("foreign block_size is zero", reflex_heap_block_size(elsewhere) == 0);
+    CHECK("foreign realloc refused", reflex_heap_realloc(elsewhere, 32) == NULL);
+    CHECK("intact after foreign realloc", reflex_heap_check());
+
+    /* Inside the region but misaligned, and inside the region but pointing at
+     * the first block's header rather than its payload. */
+    reflex_heap_free(s_region + 3);
+    reflex_heap_free(s_region);
+    CHECK("misaligned and header-area frees refused", reflex_heap_free_bytes() == before);
+    CHECK("intact after those", reflex_heap_check());
+}
+
+/* The differential test leans on reflex_heap_check() to notice damage. That is
+ * only worth leaning on if it actually fails when the structure is damaged, so
+ * damage it on purpose and watch it fail. */
+static void test_audit_detects_corruption(void) {
+    fresh();
+    uint8_t *a = reflex_heap_alloc(64);
+    void *b = reflex_heap_alloc(64);
+    CHECK("corruption setup allocated", a != NULL && b != NULL);
+    CHECK("intact before corruption", reflex_heap_check());
+
+    /* Overrun a's payload into what physically follows it, which is b's
+     * header. A real overflow bug looks exactly like this. */
+    memset(a + 64, 0x5A, 32);
+    CHECK("audit detects a trampled neighbour header", !reflex_heap_check());
+
+    fresh(); /* the region is knowingly wrecked; start clean for later tests */
+    CHECK("intact after re-init", reflex_heap_check());
+}
+
 int test_reflex_heap(void) {
     printf("[heap] ");
     test_init();
@@ -318,6 +364,8 @@ int test_reflex_heap(void) {
     test_double_free_refused();
     test_split_boundaries();
     test_ownership();
+    test_foreign_pointers_refused();
+    test_audit_detects_corruption();
     test_differential();
     if (s_fail == 0) printf("ok\n");
     return s_fail;
