@@ -211,6 +211,11 @@ jobs:
           echo "own-entry build carries the flag and has dropped intr_handler_set."
       - name: Ratchet the own-entry independence floor
         run: make independence-own-entry
+      - name: Check the ledger's scope table against the measurement
+        # The first table a reader sees had drifted several months out of date
+        # while every number below it was current — the one part nothing
+        # recomputed, in a document whose own opening line is that prose drifts.
+        run: make independence-doc
       - name: Ratchet the vendor blobs
         # check_independence.py counts ESP-IDF *source* dependencies and cannot
         # see a linked binary at all. Disabling coexistence removed 10,130

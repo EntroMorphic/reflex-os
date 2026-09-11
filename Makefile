@@ -8,7 +8,7 @@ RELEASE_DIR := release/$(RELEASE_NAME)
 .PHONY: build flash release clean test tasm-test loomc-test tools-test hw-test doc-links \
         format format-check format-diff warn-check lock-check independence independence-check tick-measure ci-lint soc-header soc-bridge \
         own-entry-build parity-base parity-other parity-diff independence-own-entry \
-        blob-check blob-check-all blobs-test \
+        blob-check blob-check-all blobs-test independence-doc independence-doc-update \
         soc-check rom-check idf-build verify config-reset docs atlas
 
 build:
@@ -177,6 +177,17 @@ blob-check-all:
 	@for b in build build_independence build_own_entry; do \
 	    python3 tools/check_blobs.py --check --build $$b || exit 1; \
 	done
+
+# The ledger's scope table, regenerated from the measurement.
+#
+# It is the first thing a reader sees and it had drifted several months out of
+# date while every number below it was current — the one part nothing
+# recomputed, in the document whose own opening line is that prose drifts.
+independence-doc:
+	@python3 tools/check_independence.py --check-doc
+
+independence-doc-update:
+	@python3 tools/check_independence.py --update-doc
 
 independence-own-entry:
 	@python3 tools/check_independence.py --check --build build_own_entry -v

@@ -256,6 +256,18 @@ check("migration does not disturb an already-per-configuration baseline",
       ci.migrate_baseline_doc({"configurations": {"x": {"C": 1}}})["configurations"]
       == {"x": {"C": 1}}, "idempotent")
 
+print("\n--- the ledger's scope table is generated, not written ---")
+# It had drifted several months out of date — Tier C 8 where the measurement
+# said 0, a total of 23 where it was 6 — while every number below it was
+# current. The summary was the one part nothing recomputed.
+_ledger = open(ci.LEDGER, errors="replace").read()
+check("the ledger carries a generated scope block",
+      ci.DOC_BEGIN in _ledger and ci.DOC_END in _ledger)
+check("the block is not empty",
+      _ledger.index(ci.DOC_END) - _ledger.index(ci.DOC_BEGIN) > len(ci.DOC_BEGIN) + 40)
+check("no hand-written total survives above it",
+      "**total** | **23**" not in _ledger, "stale 23-total table still present")
+
 print("\n--- off-path is ratcheted, not merely reported ---")
 # These are the alternative backends, deliberately borrowed. They were reported
 # and never checked, which made "deliberately" an assertion rather than a
