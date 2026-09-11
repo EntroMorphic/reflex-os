@@ -223,7 +223,7 @@ demand.
 | `kernel tasks` | The Reflex scheduler's slot table: state, name, priority, stack size and the running slot, plus how many slots are dead and unreclaimed. A dead slot can never be reused, so a non-zero count after a task has retired is a leak. Empty, and says so, on a build where FreeRTOS is still the task backend |
 | `kernel tick` | Measure the tick and print the routing readback live — matrix entry, PLIC enable/priority/threshold, CSR bits, the comparator and its alarm against the counter. Printed whether or not the tick fired, so "working" and "broken" can be compared |
 | `kernel selftest` | Hand the machine to the Reflex scheduler and run two cooperative tasks (admin). One-way — it takes the trap vector and quiesces FreeRTOS, so the shell does not return |
-| `kernel wdt [ms\|off]` | Read, disarm, or arm the low-power watchdog (admin). Arming is behind a build flag: a fired watchdog does not return a usable board |
+| `kernel wdt [ms\|off\|observe <ms>\|expired\|entry]` | Read, disarm, or arm the low-power watchdog (admin). Arming is behind a build flag: a fired watchdog does not return a usable board. `observe` arms it to latch rather than reset, so it is safe to run; `expired` reads that latch; `entry` reports the state this boot started with, captured before startup disarmed it |
 
 `tapestry signal` refuses `sys.*` cells. Supervisor state belongs to the OS,
 and a hand-signalled disposition is indistinguishable downstream from one the

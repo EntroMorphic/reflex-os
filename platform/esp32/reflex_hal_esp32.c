@@ -181,6 +181,27 @@ void reflex_hal_wdt_regs(uint32_t *c0, uint32_t *c1) {
     if (c1) *c1 = 0;
 }
 
+/* The observe-mode pair is C6-only. The classic ESP32's RWDT is a different
+ * block with a different register map, and nothing here needs the measurement
+ * it exists for, so this reports "not armed, never expired" rather than
+ * pretending. */
+reflex_err_t reflex_hal_wdt_arm_observe(uint32_t timeout_ms) {
+    (void)timeout_ms;
+    return REFLEX_ERR_NOT_SUPPORTED;
+}
+
+bool reflex_hal_wdt_expired(void) {
+    return false;
+}
+
+void reflex_hal_wdt_capture_entry(void) { }
+
+void reflex_hal_wdt_entry_state(uint32_t *config0, uint32_t *config1, bool *expired) {
+    if (config0) *config0 = 0;
+    if (config1) *config1 = 0;
+    if (expired) *expired = false;
+}
+
 void reflex_hal_pcnt_snapshot(reflex_pcnt_snapshot_t *out) {
     if (!out) return;
     memset(out, 0, sizeof *out);

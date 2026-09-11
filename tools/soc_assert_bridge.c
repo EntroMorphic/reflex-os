@@ -45,6 +45,10 @@ _Static_assert(REFLEX_LP_WDT_CONFIG1_REG == (uint32_t)(LP_WDT_CONFIG1_REG),
                "REFLEX_LP_WDT_CONFIG1_REG diverges from LP_WDT_CONFIG1_REG");
 _Static_assert(REFLEX_LP_WDT_FEED_REG == (uint32_t)(LP_WDT_FEED_REG),
                "REFLEX_LP_WDT_FEED_REG diverges from LP_WDT_FEED_REG");
+_Static_assert(REFLEX_LP_WDT_INT_RAW_REG == (uint32_t)(LP_WDT_INT_RAW_REG),
+               "REFLEX_LP_WDT_INT_RAW_REG diverges from LP_WDT_INT_RAW_REG");
+_Static_assert(REFLEX_LP_WDT_INT_RAW_BIT == (uint32_t)(LP_WDT_LP_WDT_INT_RAW),
+               "REFLEX_LP_WDT_INT_RAW_BIT diverges from LP_WDT_LP_WDT_INT_RAW");
 _Static_assert(REFLEX_LP_WDT_WPROTECT_REG == (uint32_t)(LP_WDT_WPROTECT_REG),
                "REFLEX_LP_WDT_WPROTECT_REG diverges from LP_WDT_WPROTECT_REG");
 _Static_assert(REFLEX_LP_WDT_EN == (uint32_t)(LP_WDT_WDT_EN),

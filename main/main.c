@@ -133,9 +133,34 @@ void app_main(void)
      * finished — as close to the first instruction of the application as this
      * file gets. ESP-IDF's own startup disarms this watchdog for exactly the
      * same reason, and at the same point. */
+    /* Report what the watchdog looked like on the way in, before clearing it.
+     *
+     * The disarm below is the only thing standing between a board and a reset
+     * loop, so it has to run first — but it also destroys the evidence of why
+     * the board just restarted. One line costs nothing and is the difference
+     * between "it rebooted" and "the low-power watchdog had expired". It is
+     * also the only way to observe what deep sleep does to that watchdog,
+     * since by the time a shell exists this has already run. */
+    reflex_hal_wdt_capture_entry();
     reflex_hal_wdt_disarm();
 
     reflex_boot_print_banner();
+
+    /* Reported after the banner, captured before the disarm above.
+     *
+     * The disarm has to run first — it is the only thing standing between a
+     * board and a reset loop — but it also destroys the evidence of why the
+     * board just restarted. Logging at the point of capture does not work
+     * either: that is earlier than the USB serial console exists, so the line
+     * goes nowhere, which is exactly what happened the first time this was
+     * tried. Captured there, printed here. */
+    {
+        uint32_t wc0 = 0, wc1 = 0;
+        bool wexp = false;
+        reflex_hal_wdt_entry_state(&wc0, &wc1, &wexp);
+        REFLEX_LOGI("reflex.boot", "lp_wdt on entry: conf0=0x%08lx conf1=%lu expired=%d",
+                    (unsigned long)wc0, (unsigned long)wc1, (int)wexp);
+    }
     
     // 1. Init Storage
     if (reflex_storage_init() != REFLEX_OK) {

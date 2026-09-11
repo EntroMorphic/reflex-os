@@ -3593,13 +3593,51 @@ to the tick — and nothing happened, because both reset-signal length fields we
 zero: a 100 ns pulse that does not take, where ESP-IDF uses 3.2 us. Armed is not
 working, and only the readback showed it.
 
-**Across ESP-IDF's deep sleep it does not fire, and that is not understood.**
-Armed for 5 s and told to sleep 30, the board came back at 33.6 s on its own
-timer. `WDT_PAUSE_IN_SLP` was clear, and ESP-IDF's sleep path states plainly
-that a watchdog enabled in user code is left alone. Source and measurement
-disagree; neither has been discarded. Until that is resolved the net cannot be
-relied on for the case it exists for, so owning the sleep entry stays blocked —
-not on the writing, on the ability to survive getting it wrong.
+**Across ESP-IDF's deep sleep it does not fire, and now it is understood: the
+watchdog does not count while the chip is asleep.** (2026-09-11)
+
+The first attempt to measure this could not have answered it, and the reason is
+worth more than the answer. Expiry was read from what the board *did* — a reset
+action — so every measurement cost a board. Stage action 1 latches
+`LP_WDT.INT_RAW` bit 31 and resets nothing, which makes expiry observable for
+free; `reflex_hal_wdt_arm_observe` and `kernel wdt observe` exist for that.
+
+But the instrument was still blind, twice over. The capture in `app_main` runs
+*after* ESP-IDF's `init_disable_rtc_wdt` has already rewritten the register
+(`CONFIG_BOOTLOADER_WDT_DISABLE_IN_USER_CODE` is not set), and — the part that
+mattered — **Reflex's own boot0 cleared the latch**, writing `LP_WDT_INT_CLR` to
+drop stale interrupts before any application code could read it. Reflex was
+erasing its own evidence. Capture now happens in
+`reflex_hal_wdt_capture_entry()` before startup disarms anything, boot0 clears
+`INT_ENA` (which is what actually prevents a stale interrupt) and deliberately
+leaves `INT_RAW` alone, and `kernel wdt entry` reports it.
+
+With a working instrument the experiment is four phases, and the controls are
+the point:
+
+| phase | what it establishes | C6-A | C6-B |
+|---|---|---|---|
+| P1 latch awake, then **reboot** | the latch survives a reset path | `expired=1` | `expired=1` |
+| **P4 latch awake, then sleep 10 s** | **the latch survives a deep-sleep wake** | `expired=1` | `expired=1` |
+| P2 latch at 3 s, sleep 10 s | the test | `expired=0` | `expired=0` |
+| P3 latch at 20 s, sleep 10 s | negative control | `expired=0` | `expired=0` |
+
+P4 is what makes P2 mean anything: a wake is a different ROM path from a reboot,
+and it preserves the latch. So a timeout during those ten seconds would have
+been visible, and it was not — on two boards, and twice on one. `PAUSE_IN_SLP`
+was clear throughout, and the configuration was read back each time.
+
+**The mechanism is not identified in source, and is recorded as such rather than
+guessed.** Nothing in the C6's `pmu_sleep.c`, `pmu_param.c`, `pmu_init.c` or
+`lpperi_reg.h` mentions the LP watchdog; `pause_in_slp` is only ever written by
+the HAL, never by the sleep path. Source says the watchdog is left alone, and
+the boards say it stops counting. The measurement is the reliable half.
+
+Two facts fell out along the way. The ROM reprograms this watchdog on every
+boot — entry always reads `conf0=0x40000000 conf1=612000`, which is stage 0 =
+`RESET_RTC` at about 4.5 s, matching no software in this tree — and neither
+ESP-IDF's disable nor Reflex's disarm clears flashboot mode, which ESP-IDF's
+bootloader turns off and boot0 replaces.
 
 One property was learned the hard way and is now load-bearing: **the watchdog
 survives the reset it causes**, so any boot must disarm it. Arming it and
@@ -3614,9 +3652,14 @@ behind, not the watchdog re-firing — recoverable only by reflashing.
 physical power cycle. The mitigation intended to make sleep ownership safe is
 what stranded a board.
 
-So `esp_sleep.h` stays, and the reason is now sharper than "the entry sequence
-is hard". It is that **there is no demonstrated way to survive getting the entry
-wrong**, and that is the problem to solve before the entry is worth writing.
+So `esp_sleep.h` stays, and the reason is sharper again. It is not that the net
+is unproven: it is that **this watchdog cannot be the net for deep sleep at
+all**, because it does not count there. The case it was meant to rescue — an
+entry sequence that sleeps and never wakes — is precisely the case it cannot
+reach. A net for that has to come from something that does keep counting while
+the chip is asleep, and identifying it is the next piece of work. That is a
+better place to be than "source and measurement disagree", and it was reached
+by measuring rather than by reading.
 Arming is behind `-DREFLEX_WDT_EXPERIMENT=1`; the boot-time disarm stays,
 because it is the only part of this that protects anything.
 

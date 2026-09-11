@@ -1487,6 +1487,54 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
             printf("kernel wdt: disarmed (armed=%d)\n", (int)reflex_hal_wdt_armed());
             return;
         }
+        if (argc == 4 && strcmp(argv[2], "observe") == 0) {
+            /* Non-destructive arming: stage 0 latches an interrupt nobody
+             * handles instead of resetting, so the watchdog can be watched
+             * expiring — across deep sleep in particular — without the reset
+             * actions that have twice cost a board. Deliberately *not* behind
+             * REFLEX_WDT_EXPERIMENT, because there is nothing here to protect
+             * anyone from: it cannot reset the board, so the floor that
+             * protects the reset path does not apply either. */
+            long oms = strtol(argv[3], NULL, 10);
+            if (oms < 100 || oms > 600000) {
+                printf("kernel wdt observe <100..600000 ms>\n");
+                outcome(SHELL_INVALID);
+                return;
+            }
+            reflex_err_t orc = reflex_hal_wdt_arm_observe((uint32_t)oms);
+            if (orc != REFLEX_OK) {
+                printf("kernel wdt observe: unsupported here (rc=0x%x)\n", orc);
+                outcome(SHELL_FAILED);
+                return;
+            }
+            uint32_t oc0 = 0, oc1 = 0;
+            reflex_hal_wdt_regs(&oc0, &oc1);
+            printf("kernel wdt observe: armed %ldms conf0=0x%08lx conf1=%lu expired=%d\n",
+                   oms, (unsigned long)oc0, (unsigned long)oc1,
+                   (int)reflex_hal_wdt_expired());
+            return;
+        }
+        if (argc == 3 && strcmp(argv[2], "entry") == 0) {
+            /* What the watchdog looked like when this boot started, captured
+             * before startup disarmed it. The boot log carries the same line,
+             * but on a USB-serial console that line is printed before the host
+             * can reconnect after a deep-sleep wake, so it is never seen —
+             * which is the whole reason this is readable from here. */
+            uint32_t bc0 = 0, bc1 = 0;
+            bool bexp = false;
+            reflex_hal_wdt_entry_state(&bc0, &bc1, &bexp);
+            printf("kernel wdt entry: conf0=0x%08lx conf1=%lu expired=%d\n",
+                   (unsigned long)bc0, (unsigned long)bc1, (int)bexp);
+            return;
+        }
+        if (argc == 3 && strcmp(argv[2], "expired") == 0) {
+            uint32_t ec0 = 0, ec1 = 0;
+            reflex_hal_wdt_regs(&ec0, &ec1);
+            printf("kernel wdt expired=%d armed=%d conf0=0x%08lx conf1=%lu\n",
+                   (int)reflex_hal_wdt_expired(), (int)reflex_hal_wdt_armed(),
+                   (unsigned long)ec0, (unsigned long)ec1);
+            return;
+        }
         if (argc == 3) {
             long ms = strtol(argv[2], NULL, 10);
             /* The floor is the point of this range, not the ceiling.

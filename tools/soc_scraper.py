@@ -56,6 +56,10 @@ REGS = [
     ("REFLEX_LP_WDT_CONFIG0_REG",      "LP_WDT_CONFIG0_REG",      "LP_WDT", "WDTCONFIG0",  None, "stage actions, enable, pause-in-sleep"),
     ("REFLEX_LP_WDT_CONFIG1_REG",      "LP_WDT_CONFIG1_REG",      "LP_WDT", "CONFIG1",     None, "stage 0 timeout, in slow-clock ticks"),
     ("REFLEX_LP_WDT_FEED_REG",         "LP_WDT_FEED_REG",         "LP_WDT", "WDTFEED",     None, ""),
+    # Interrupt status, so the watchdog can be observed expiring without being
+    # allowed to reset the board in order to prove it.
+    ("REFLEX_LP_WDT_INT_RAW_REG",      "LP_WDT_INT_RAW_REG",      "LP_WDT", "INT_RAW",     None, "stage expiry, latched"),
+    ("REFLEX_LP_WDT_INT_RAW_BIT",      "LP_WDT_LP_WDT_INT_RAW",   "LP_WDT", "INT_RAW",     "LP_WDT_INT_RAW", "set when stage 0 expires"),
     ("REFLEX_LP_WDT_WPROTECT_REG",     "LP_WDT_WPROTECT_REG",     "LP_WDT", "WDTWPROTECT", None, "write the key here to unlock the rest"),
     ("REFLEX_LP_WDT_EN",               "LP_WDT_WDT_EN",           "LP_WDT", "WDTCONFIG0",  "WDT_EN", ""),
     ("REFLEX_LP_WDT_PAUSE_IN_SLP",     "LP_WDT_WDT_PAUSE_IN_SLP", "LP_WDT", "WDTCONFIG0",  "WDT_PAUSE_IN_SLP", "set means the watchdog stops while asleep; the net depends on it being clear"),
@@ -480,6 +484,26 @@ LITERALS = [
 ]
 
 
+
+def _assert_no_duplicate_names(table):
+    """Refuse two rows that define the same Reflex constant.
+
+    The generator happily emitted `#define REFLEX_LP_WDT_INT_CLR_REG` twice
+    when a row was added for a constant the table already carried. Identical
+    values make that harmless to the compiler and invisible to everyone, which
+    is exactly the kind of quiet duplication that later diverges.
+    """
+    seen = {}
+    for i, row in enumerate(table):
+        name = row[0]
+        if name in seen:
+            # enumerate, not table.index: index() returns the *first* match, so
+            # both halves of a duplicate report the same row and the message
+            # points at neither of the places you need to look.
+            raise KeyError(f"{name} defined twice in the constant table "
+                           f"(rows {seen[name]} and {i})")
+        seen[name] = i
+
 def load_svd():
     root = ET.parse(SVD).getroot()
     per = {}
@@ -658,6 +682,9 @@ def main():
     ap.add_argument("--emit-bridge", action="store_true")
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args()
+
+    for _table in (REGS, WIDTH_MASKS, SHIFTS, LITERALS):
+        _assert_no_duplicate_names(_table)
 
     entries, bridge = build()
     header = render_header(entries)

@@ -105,6 +105,28 @@ void reflex_hal_wdt_disarm(void);
 bool reflex_hal_wdt_armed(void);
 void reflex_hal_wdt_regs(uint32_t *config0, uint32_t *config1);
 
+/** Arm the low-power watchdog to *latch* rather than reset when it expires.
+ *
+ *  Stage 0 raises an interrupt nothing is wired to, so expiry is observable
+ *  through reflex_hal_wdt_expired() and costs nothing. It exists so the
+ *  question "does this watchdog count during deep sleep?" can be asked without
+ *  a reset action that has twice cost a board. */
+reflex_err_t reflex_hal_wdt_arm_observe(uint32_t timeout_ms);
+
+/** True if stage 0 has expired since it was armed. */
+bool reflex_hal_wdt_expired(void);
+
+/** Latch the watchdog's state for later reporting, before anything disarms it.
+ *
+ *  Startup must disarm the watchdog before doing anything else, which destroys
+ *  the evidence of why the board restarted. Logging at that point does not help
+ *  either — it is earlier than the USB serial console exists, so the line is
+ *  never seen. Capture there, read it back from a shell that exists. */
+void reflex_hal_wdt_capture_entry(void);
+
+/** The state captured by reflex_hal_wdt_capture_entry(). */
+void reflex_hal_wdt_entry_state(uint32_t *config0, uint32_t *config1, bool *expired);
+
 /* Release ESP-IDF's stack-pointer watchpoint, which is armed with FreeRTOS task
  * bounds and fires when a scheduler switches to a stack it does not know. */
 void reflex_hal_stack_guard_disable(void);

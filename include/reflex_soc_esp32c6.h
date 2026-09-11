@@ -21,6 +21,10 @@
 #define REFLEX_LP_WDT_CONFIG1_REG 0x600B1C04u
 /* LP_WDT.WDTFEED @ base+0x14 */
 #define REFLEX_LP_WDT_FEED_REG 0x600B1C14u
+/* LP_WDT.INT_RAW @ base+0x24 — stage expiry, latched */
+#define REFLEX_LP_WDT_INT_RAW_REG 0x600B1C24u
+/* LP_WDT.INT_RAW.LP_WDT_INT_RAW bit 31 — set when stage 0 expires */
+#define REFLEX_LP_WDT_INT_RAW_BIT 0x80000000u
 /* LP_WDT.WDTWPROTECT @ base+0x18 — write the key here to unlock the rest */
 #define REFLEX_LP_WDT_WPROTECT_REG 0x600B1C18u
 /* LP_WDT.WDTCONFIG0.WDT_EN bit 31 */

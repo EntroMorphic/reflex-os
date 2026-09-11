@@ -215,6 +215,8 @@ void reflex_hal_reboot(void) {
  * power-down. */
 
 #define LP_WDT_STAGE_OFF 0u
+/* 1 raises an interrupt and latches INT_RAW; it resets nothing. */
+#define LP_WDT_STAGE_INTERRUPT 1u
 /* 3 resets the CPU and peripherals; 4 resets the RTC domain as well.
  *
  * RESET_RTC was the first choice, reasoning that a board asleep with domains
@@ -253,6 +255,63 @@ static void wdt_unlock(void) {
 
 static void wdt_lock(void) {
     REFLEX_REG(REFLEX_LP_WDT_WPROTECT_REG) = 0u;
+}
+
+/* Arm with the interrupt stage action instead of a reset, and report whether
+ * stage 0 has expired.
+ *
+ * This exists to answer one question without destroying a board to do it: does
+ * the LP watchdog count while the chip is in deep sleep? The recorded attempts
+ * to find out armed it for a reset and read the answer from what the board did
+ * next, and both reset actions cost a board — RESET_RTC left it resetting every
+ * five to eight seconds until it was reflashed, RESET_SYSTEM left it
+ * unreachable by the shell *and* by esptool until it was power-cycled. Neither
+ * is a measurement anyone can afford to repeat.
+ *
+ * Stage action 1 raises an interrupt and latches LP_WDT.INT_RAW bit 31 instead.
+ * Nothing is wired to that interrupt, so nothing happens — the bit is simply
+ * there to be read afterwards, which is all the experiment needs. */
+reflex_err_t reflex_hal_wdt_arm_observe(uint32_t timeout_ms) {
+    if (timeout_ms == 0u) return REFLEX_ERR_INVALID_ARG;
+    uint64_t ticks = ((uint64_t)timeout_ms * LP_WDT_SLOW_HZ) / 1000u;
+    if (ticks == 0u || ticks > 0xFFFFFFFFULL) return REFLEX_ERR_INVALID_ARG;
+
+    wdt_unlock();
+    /* Clear any latched expiry so the bit read afterwards is this run's.
+     * Through INT_CLR: writing the bit back to INT_RAW does not clear it, which
+     * the first version of this did and which showed up as an arm that
+     * reported expired=1 immediately. */
+    REFLEX_REG(REFLEX_LP_WDT_INT_CLR_REG) = REFLEX_LP_WDT_INT_RAW_BIT;
+    REFLEX_REG(REFLEX_LP_WDT_CONFIG1_REG) = (uint32_t)ticks;
+    uint32_t c0 = REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG);
+    c0 &= ~(REFLEX_LP_WDT_STG_MASK << REFLEX_LP_WDT_STG0_S);
+    c0 |= (LP_WDT_STAGE_INTERRUPT << REFLEX_LP_WDT_STG0_S);
+    c0 &= ~REFLEX_LP_WDT_PAUSE_IN_SLP;
+    c0 |= REFLEX_LP_WDT_EN;
+    REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG) = c0;
+    REFLEX_REG(REFLEX_LP_WDT_FEED_REG) = 1u;
+    wdt_lock();
+    return REFLEX_OK;
+}
+
+static uint32_t s_wdt_entry_c0, s_wdt_entry_c1;
+static bool s_wdt_entry_expired;
+
+void reflex_hal_wdt_capture_entry(void) {
+    s_wdt_entry_c0 = REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG);
+    s_wdt_entry_c1 = REFLEX_REG(REFLEX_LP_WDT_CONFIG1_REG);
+    s_wdt_entry_expired =
+        (REFLEX_REG(REFLEX_LP_WDT_INT_RAW_REG) & REFLEX_LP_WDT_INT_RAW_BIT) != 0u;
+}
+
+void reflex_hal_wdt_entry_state(uint32_t *config0, uint32_t *config1, bool *expired) {
+    if (config0) *config0 = s_wdt_entry_c0;
+    if (config1) *config1 = s_wdt_entry_c1;
+    if (expired) *expired = s_wdt_entry_expired;
+}
+
+bool reflex_hal_wdt_expired(void) {
+    return (REFLEX_REG(REFLEX_LP_WDT_INT_RAW_REG) & REFLEX_LP_WDT_INT_RAW_BIT) != 0u;
 }
 
 reflex_err_t reflex_hal_wdt_arm(uint32_t timeout_ms) {

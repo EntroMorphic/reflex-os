@@ -203,7 +203,20 @@ static void hw_clock_init(void) {
     REFLEX_REG_CLR_BIT(REFLEX_PMU_HP_INT_ENA_REG, REFLEX_PMU_SOC_WAKEUP_INT_ENA);
     REFLEX_REG_CLR_BIT(REFLEX_PMU_HP_INT_ENA_REG, REFLEX_PMU_SOC_SLEEP_REJECT_INT_ENA);
     REFLEX_REG_SET_BIT(REFLEX_LP_WDT_INT_CLR_REG, REFLEX_LP_WDT_SUPER_WDT_INT_CLR);
-    REFLEX_REG_SET_BIT(REFLEX_LP_WDT_INT_CLR_REG, REFLEX_LP_WDT_LP_WDT_INT_CLR);
+    /* The LP watchdog's own latched status is deliberately *not* cleared here.
+     *
+     * Clearing INT_ENA above is what stops a stale interrupt from firing, and
+     * that is the whole reason this block exists. INT_RAW is only a status bit
+     * — nothing is wired to it — and it is the single piece of evidence that
+     * says whether the low-power watchdog had expired before this boot. Boot0
+     * is the first Reflex code to run, so clearing it here destroyed that
+     * evidence before anything could report it, and `kernel wdt entry` read a
+     * zero it could not distinguish from "never expired".
+     *
+     * That blindness is not hypothetical: it invalidated the first attempt to
+     * measure whether this watchdog counts during deep sleep. It is now
+     * preserved, captured by reflex_hal_wdt_capture_entry() before startup
+     * disarms the watchdog, and reported by `kernel wdt entry`. */
     REFLEX_REG_SET_BIT(REFLEX_LP_ANA_INT_CLR_REG, REFLEX_LP_ANA_BOD_MODE0_INT_CLR);
 }
 
