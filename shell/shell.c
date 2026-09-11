@@ -1888,6 +1888,20 @@ static void shell_cmd_mesh(int argc, char *argv[]) {
                (unsigned long)m.rx_dropped);
         printf("            spurious=%lu last_events=0x%08lx\n", (unsigned long)m.spurious,
                (unsigned long)m.last_events);
+        /* Signal quality, the reference for the PHY bring-up. Mean printed in
+         * tenths so it carries a digit without dragging floating point into a
+         * shell command. */
+        if (m.sig_count) {
+            long rssi_x10 = (long)(m.rssi_sum * 10) / (long)m.sig_count;
+            long lqi_x10 = (long)(m.lqi_sum * 10) / (long)m.sig_count;
+            printf("            signal n=%lu rssi mean=%ld.%ld min=%d max=%d | "
+                   "lqi mean=%ld.%ld min=%u max=%u\n",
+                   (unsigned long)m.sig_count, rssi_x10 / 10, labs(rssi_x10 % 10), (int)m.rssi_min,
+                   (int)m.rssi_max, lqi_x10 / 10, labs(lqi_x10 % 10), (unsigned)m.lqi_min,
+                   (unsigned)m.lqi_max);
+        } else {
+            printf("            signal: no frames received yet\n");
+        }
         outcome_rc(REFLEX_OK);
 #else
         printf("mac stats: this build uses ESP-IDF's 802.15.4 driver\n");

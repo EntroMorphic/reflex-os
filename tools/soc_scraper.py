@@ -164,6 +164,21 @@ REGS = [
     ("REFLEX_MODEM_CLK_BT_EN",      "MODEM_SYSCON_CLK_BT_EN",      "MODEM_SYSCON", "CLK_CONF1", "CLK_BT_EN",      "BT/802.15.4 common baseband clock"),
     ("REFLEX_MODEM_RST_ZBMAC",      "MODEM_SYSCON_RST_ZBMAC",      "MODEM_SYSCON", "MODEM_RST_CONF", "RST_ZBMAC", "pulsed 1 then 0 to reset the MAC"),
     ("REFLEX_MODEM_LPCON_CLK_COEX_EN", "MODEM_LPCON_CLK_COEX_EN",  "MODEM_LPCON",  "CLK_CONF",  "CLK_COEX_EN",    "coexistence arbiter clock"),
+    # The PHY's own clock domains, which esp_phy_common_clock_enable reaches
+    # through modem_clock_module_enable(PERIPH_PHY_MODULE): I2C_MASTER (the
+    # analog register bus the PHY calibration writes through),
+    # MODEM_ADC_COMMON_FE and MODEM_PRIVATE_FE (the front end).
+    ("REFLEX_MODEM_CLK_FE_APB_EN",     "MODEM_SYSCON_CLK_FE_APB_EN",     "MODEM_SYSCON", "CLK_CONF1", "CLK_FE_APB_EN",     "front-end APB clock"),
+    ("REFLEX_MODEM_CLK_FE_80M_EN",     "MODEM_SYSCON_CLK_FE_80M_EN",     "MODEM_SYSCON", "CLK_CONF1", "CLK_FE_80M_EN",     ""),
+    ("REFLEX_MODEM_CLK_FE_160M_EN",    "MODEM_SYSCON_CLK_FE_160M_EN",    "MODEM_SYSCON", "CLK_CONF1", "CLK_FE_160M_EN",    ""),
+    ("REFLEX_MODEM_CLK_FE_CAL_160M_EN","MODEM_SYSCON_CLK_FE_CAL_160M_EN","MODEM_SYSCON", "CLK_CONF1", "CLK_FE_CAL_160M_EN",""),
+    ("REFLEX_MODEM_LPCON_CLK_I2C_MST_EN","MODEM_LPCON_CLK_I2C_MST_EN",   "MODEM_LPCON",  "CLK_CONF",  "CLK_I2C_MST_EN",    "analog register bus; PHY calibration writes through it"),
+    # The modem clock-gating (ICG) map: which PMU power states each clock domain
+    # keeps running in. Ten 4-bit fields across two registers, and the piece
+    # whose absence hangs register_chipv7_phy — isolated by measurement, since
+    # the CLK_CONF registers read identically with and without it.
+    ("REFLEX_MODEM_SYSCON_CLK_POWER_ST_REG", "MODEM_SYSCON_CLK_CONF_POWER_ST_REG", "MODEM_SYSCON", "CLK_CONF_POWER_ST", None, ""),
+    ("REFLEX_MODEM_LPCON_CLK_POWER_ST_REG",  "MODEM_LPCON_CLK_CONF_POWER_ST_REG",  "MODEM_LPCON",  "CLK_CONF_POWER_ST", None, ""),
 
     # --- IEEE 802.15.4 MAC (Tier D: owning the radio) ---
     #
@@ -345,6 +360,7 @@ WIDTH_MASKS = [
     ("REFLEX_154_TX_POWER_MASK",     "IEEE802154_TX_POWER",     "IEEE802154", "TX_POWER", "TX_POWER",     ""),
     ("REFLEX_154_ED_SAMPLE_MODE_MASK","IEEE802154_ED_SAMPLE_MODE","IEEE802154","ED_SCAN_CFG","ED_SAMPLE_MODE",""),
     ("REFLEX_154_RX_STATE_MASK",     "IEEE802154_RX_STATE",     "IEEE802154", "RX_STATUS","RX_STATE",     ""),
+    ("REFLEX_MODEM_ICG_MASK",        "MODEM_SYSCON_CLK_ZB_ST_MAP", "MODEM_SYSCON", "CLK_CONF_POWER_ST", "CLK_ZB_ST_MAP", "4 bits; every ICG field has the same width"),
     ("REFLEX_PCR_LEDC_SCLK_SEL_MASK","PCR_LEDC_SCLK_SEL_V",     "PCR",  "LEDC_SCLK_CONF", "LEDC_SCLK_SEL", "3 selects XTAL"),
     ("REFLEX_PCNT_MODE_MASK",        "PCNT_CH0_POS_MODE_U0_V",  "PCNT", "U%s_CONF0", "CH0_POS_MODE", "all four mode fields are 2 bits"),
     ("REFLEX_PCNT_LIM_MASK",         "PCNT_CNT_H_LIM_U0_V",     "PCNT", "U%s_CONF2", "CNT_H_LIM",    ""),
@@ -377,6 +393,16 @@ SHIFTS = [
     ("REFLEX_154_TX_POWER_S",      "IEEE802154_TX_POWER_S",      "IEEE802154", "TX_POWER", "TX_POWER",     ""),
     ("REFLEX_154_ED_SAMPLE_MODE_S","IEEE802154_ED_SAMPLE_MODE_S","IEEE802154", "ED_SCAN_CFG","ED_SAMPLE_MODE",""),
     ("REFLEX_154_RX_STATE_S",      "IEEE802154_RX_STATE_S",      "IEEE802154", "RX_STATUS","RX_STATE",     ""),
+    ("REFLEX_MODEM_ICG_ZB_S",         "MODEM_SYSCON_CLK_ZB_ST_MAP_S",         "MODEM_SYSCON", "CLK_CONF_POWER_ST", "CLK_ZB_ST_MAP", ""),
+    ("REFLEX_MODEM_ICG_FE_S",         "MODEM_SYSCON_CLK_FE_ST_MAP_S",         "MODEM_SYSCON", "CLK_CONF_POWER_ST", "CLK_FE_ST_MAP", ""),
+    ("REFLEX_MODEM_ICG_BT_S",         "MODEM_SYSCON_CLK_BT_ST_MAP_S",         "MODEM_SYSCON", "CLK_CONF_POWER_ST", "CLK_BT_ST_MAP", ""),
+    ("REFLEX_MODEM_ICG_WIFI_S",       "MODEM_SYSCON_CLK_WIFI_ST_MAP_S",       "MODEM_SYSCON", "CLK_CONF_POWER_ST", "CLK_WIFI_ST_MAP", ""),
+    ("REFLEX_MODEM_ICG_PERI_S",       "MODEM_SYSCON_CLK_MODEM_PERI_ST_MAP_S", "MODEM_SYSCON", "CLK_CONF_POWER_ST", "CLK_MODEM_PERI_ST_MAP", ""),
+    ("REFLEX_MODEM_ICG_APB_S",        "MODEM_SYSCON_CLK_MODEM_APB_ST_MAP_S",  "MODEM_SYSCON", "CLK_CONF_POWER_ST", "CLK_MODEM_APB_ST_MAP", ""),
+    ("REFLEX_MODEM_ICG_WIFIPWR_S",    "MODEM_LPCON_CLK_WIFIPWR_ST_MAP_S",     "MODEM_LPCON",  "CLK_CONF_POWER_ST", "CLK_WIFIPWR_ST_MAP", ""),
+    ("REFLEX_MODEM_ICG_COEX_S",       "MODEM_LPCON_CLK_COEX_ST_MAP_S",        "MODEM_LPCON",  "CLK_CONF_POWER_ST", "CLK_COEX_ST_MAP", ""),
+    ("REFLEX_MODEM_ICG_I2C_MST_S",    "MODEM_LPCON_CLK_I2C_MST_ST_MAP_S",     "MODEM_LPCON",  "CLK_CONF_POWER_ST", "CLK_I2C_MST_ST_MAP", ""),
+    ("REFLEX_MODEM_ICG_LP_APB_S",     "MODEM_LPCON_CLK_LP_APB_ST_MAP_S",      "MODEM_LPCON",  "CLK_CONF_POWER_ST", "CLK_LP_APB_ST_MAP", ""),
     ("REFLEX_LEDC_DUTY_RES_S",    "LEDC_TIMER0_DUTY_RES_S", "LEDC", "TIMER%s_CONF", "DUTY_RES",    ""),
     ("REFLEX_LEDC_CLK_DIV_S",     "LEDC_CLK_DIV_TIMER0_S",  "LEDC", "TIMER%s_CONF", "CLK_DIV",     ""),
     ("REFLEX_PCR_LEDC_SCLK_SEL_S","PCR_LEDC_SCLK_SEL_S",    "PCR",  "LEDC_SCLK_CONF", "LEDC_SCLK_SEL", ""),

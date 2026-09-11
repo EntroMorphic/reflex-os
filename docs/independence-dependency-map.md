@@ -1353,6 +1353,84 @@ hand-off, and those must keep going to ESP-IDF's table — so the wrapper has to
 forward to `__real_esp_intr_alloc` until Reflex owns the vector. Untried as of
 this entry.
 
+### The PHY bring-up: nine tenths taken, and stopped one call short (2026-09-10)
+
+Attempted and **reverted**. Tier D stays at 1. What follows is the measurement
+trail, because it is worth more than the code was.
+
+`reflex_phy_esp32c6.c` replaced `esp_phy_enable(PHY_MODEM_IEEE802154)`: the
+clock domains, the combo-module parameter, the 1,904-byte calibration buffer,
+the 128-byte init table, the `register_chipv7_phy` call and a PLL-tracking entry
+point for Reflex's scheduler to drive at 1 Hz. On hardware it got as far as:
+
+```
+[reflex.phy] 331,5b89037,Mar  3 2025,16:01:12, register_chipv7_phy rc=1 (full calibration)
+I (reflex.radio.154) 802.15.4 radio (Reflex MAC): ch=15 panid=0x4f52 addr=0xc824
+```
+
+— the PHY blob initialised, its version printed, the radio up. **Every part of
+the sequence is Reflex's and works, except one call.** With
+`modem_clock_module_enable(PERIPH_PHY_MODULE)` present alongside Reflex's own
+clock enable, the radio comes up. Without it, `register_chipv7_phy` hangs and
+boot stops silently.
+
+The reason it was reverted rather than shipped is that the difference cannot be
+explained, and seven build-and-flash cycles of bisection did not find it:
+
+| hypothesis | result |
+|---|---|
+| Reflex's clock enable writes different bits | **No.** `conf`, `conf1`, `lpcon` read byte-identical: `0x01e00000`, `0x0007e7ff`, `0x00000007` |
+| The ICG clock-gating map was missing | Implemented, ten fields across two registers — still hangs |
+| The ICG map must precede any clock enable | Reordered to match ESP-IDF — still hangs |
+| Clock settling time | 100 µs delay — still hangs |
+| Linking `esp_hw_support` has a side effect | **No.** Component linked, call removed — still hangs |
+| `PERIPH_RCC_ACQUIRE_ATOMIC` touches another register | Read: refcount and critical section only |
+
+After Reflex's clock enable *and* ESP-IDF's, all five registers read identically
+— `icg_sys=0x64646400 icg_lp=0x66660000 conf=0x01e00000 conf1=0x0007e7ff
+lpcon=0x00000007`. Same observable state, different outcome. Whatever
+`modem_clock_module_enable` does that matters is not in the registers this work
+knew to look at.
+
+**So the honest position is: the PHY bring-up is takeable, it is 90% written and
+demonstrably works, and the last call is an unexplained dependency.** Shipping it
+with ESP-IDF's call still in would have been a Tier D reduction on paper with the
+dependency intact — the exact move this ledger exists to refuse. Leaving the file
+in the tree unbuilt would repeat the 802.15.4 shim that was cited as the
+isolation mechanism and had never been compiled. So it is reverted, and this
+entry is what remains.
+
+What was kept, because it was proved independently:
+
+- **Thirteen more bridge constants** — the PHY clock domains and the ten ICG
+  gating fields — now among the **263 `make soc-bridge` proves identical to
+  ESP-IDF**. They cost nothing and the next attempt starts with them.
+- **The signal-quality reference**, below, which was built first precisely
+  because the PHY is where a wrong sequence does not fail visibly.
+
+What the next attempt should do differently: instrument ESP-IDF's
+`modem_clock_module_enable` itself — dump every modem and PMU register before
+and after it, not the five this work guessed at — and diff. The technique is the
+one that cracked coexistence; it was applied to too narrow a set here.
+
+### Signal quality is recorded, and there is a reference
+
+`mesh macstats` now reports RSSI and LQI — count, mean, min and max — accumulated
+per received frame in the MAC's interrupt handler. It was built before attempting
+the PHY, for a stated reason: the PHY is the one place where a wrong sequence
+does not fail visibly, and a radio can pass every frame while having degraded
+sensitivity or the wrong transmit power. "It works" is weak evidence for that
+change; a distribution against a reference is not.
+
+The reference, five minutes between two boards on a fixed bench, under ESP-IDF's
+bring-up:
+
+```
+signal n=15 rssi mean=-50.0 min=-50 max=-50 | lqi mean=10.1 min=9 max=11
+```
+
+Whoever takes the PHY next has a number to match rather than an impression.
+
 ### esp_btbb_enable is Reflex's, and the PHY is fully measured (2026-09-10)
 
 **Tier D: 1. On-path total: 6, plus 2 bedrock.**

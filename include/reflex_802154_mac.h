@@ -58,6 +58,25 @@ typedef struct {
     uint32_t rx_dropped; /**< frame arrived with no callback registered */
     uint32_t spurious;   /**< interrupt with no event bit Reflex handles */
     uint32_t last_events;
+
+    /* Signal quality, accumulated per received frame.
+     *
+     * Here because the PHY bring-up is the next thing to take, and the PHY is
+     * where a wrong sequence does not fail visibly: a radio can pass every
+     * frame and still have degraded sensitivity or the wrong transmit power.
+     * "It works" is weak evidence for that change. A distribution of RSSI and
+     * LQI over a fixed two-board setup, recorded under ESP-IDF's bring-up and
+     * then under Reflex's, is a comparison against a reference instead.
+     *
+     * Integer only — accumulated in the interrupt handler. The mean is
+     * sum/count at the point of display. */
+    uint32_t sig_count;
+    int32_t rssi_sum;
+    int8_t rssi_min;
+    int8_t rssi_max;
+    uint32_t lqi_sum;
+    uint8_t lqi_min;
+    uint8_t lqi_max;
 } reflex_154_mac_stats_t;
 
 void reflex_802154_mac_get_stats(reflex_154_mac_stats_t *out);

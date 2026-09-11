@@ -7,7 +7,19 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ## [Unreleased]
 
+### Added
+
+- **`mesh macstats` reports RSSI and LQI** — count, mean, min and max, accumulated per received frame in the MAC's interrupt handler. Built *before* attempting the PHY bring-up and for a stated reason: the PHY is the one place where a wrong sequence does not fail visibly, and a radio can pass every frame while having degraded sensitivity or the wrong transmit power. "It works" is weak evidence for that change. The reference, five minutes between two boards on a fixed bench under ESP-IDF's bring-up: `signal n=15 rssi mean=-50.0 min=-50 max=-50 | lqi mean=10.1 min=9 max=11`.
+
+- **Thirteen more SoC bridge constants** — the PHY's three clock domains and the ten modem clock-gating (ICG) fields — among the **263 `make soc-bridge` proves identical to ESP-IDF's macros**.
+
 ### Changed
+
+- **The PHY bring-up was attempted and reverted. Tier D stays at 1.** `reflex_phy_esp32c6.c` replaced `esp_phy_enable(PHY_MODEM_IEEE802154)` — clock domains, combo parameter, 1,904-byte calibration buffer, 128-byte init table, the `register_chipv7_phy` call, and a PLL-tracking entry point for Reflex's scheduler. On hardware it initialised the PHY blob, printed its version and brought the radio up. **Every part of the sequence is Reflex's and works, except one call:** with `modem_clock_module_enable(PERIPH_PHY_MODULE)` alongside Reflex's own clock enable the radio comes up; without it `register_chipv7_phy` hangs.
+
+  Reverted because the difference cannot be explained, and seven build-and-flash cycles did not find it. Ruled out by measurement: different clock bits (no — `conf`/`conf1`/`lpcon` read byte-identical), the missing ICG gating map (implemented, ten fields, still hangs), ICG ordering (matched ESP-IDF, still hangs), clock settling (100 µs, still hangs), a link-time side effect of `esp_hw_support` (component linked and call removed — still hangs), and `PERIPH_RCC_ACQUIRE_ATOMIC` touching another register (read: refcount and critical section only). After both clock enables, all five registers read identically.
+
+  Shipping it with ESP-IDF's call still present would have been a Tier D reduction on paper with the dependency intact — the move this ledger exists to refuse. Leaving the file unbuilt would have repeated the 802.15.4 shim that was cited as the isolation mechanism and had never been compiled. The bridge constants and the signal-quality reference were kept because they were proved independently.
 
 - **`esp_btbb_enable` is Reflex's. Tier D: 1. On-path total 6, plus 2 bedrock.** It looked unavoidable and was not: everything it does besides one call is refcounting Reflex has no use for, and sleep-retention registration behind config this build does not have. What remains is `bt_bb_v2_init_cmplx(1)`, a bedrock symbol Reflex now calls directly — keeping a header for that would be borrowing a dependency rather than typing a declaration. Confirmed by the blob's own output, which is what that argument selects: `phy: libbtbb version: ec2ecba`, radio up, receive authenticated against a peer.
 
