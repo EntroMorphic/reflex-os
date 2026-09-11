@@ -127,6 +127,31 @@ void reflex_hal_wdt_capture_entry(void);
 /** The state captured by reflex_hal_wdt_capture_entry(). */
 void reflex_hal_wdt_entry_state(uint32_t *config0, uint32_t *config1, bool *expired);
 
+/** Why the machine last restarted, captured before startup could clear it.
+ *
+ *  @p reason is the raw ROM reset-reason code (0x05 deep sleep, 0x10 the
+ *  low-power watchdog, 0x12 the super watchdog, 0x01 power-on). @p swd_flag is
+ *  the super watchdog's own record of having caused it, which is the only
+ *  unambiguous way to tell its reset apart from any other. */
+void reflex_hal_reset_cause(uint32_t *reason, bool *swd_flag);
+
+/** Enable or disable the super watchdog's automatic feed.
+ *
+ *  The super watchdog lives in the always-on domain and is fed by hardware
+ *  while @p enable is true, which is how Boot0 leaves it on every boot.
+ *  Disabling the feed arms it, and it then resets the chip.
+ *
+ *  It was expected that Boot0 re-enabling the feed would make that reset
+ *  self-silencing, unlike the low-power watchdog's reset actions. Measured on
+ *  hardware, it is not: the watchdog fires about 2.9 s after the feed stops,
+ *  and the board does not come back — no console, nothing, until it is
+ *  reflashed. Whatever the reset leaves behind, Boot0's write does not undo
+ *  it. So this is the same failure class as RESET_RTC, and the super watchdog
+ *  is not a recovery net either.
+ *
+ *  Returns the SWD configuration register as it reads back. */
+uint32_t reflex_hal_swd_auto_feed(bool enable);
+
 /* Release ESP-IDF's stack-pointer watchpoint, which is armed with FreeRTOS task
  * bounds and fires when a scheduler switches to a stack it does not know. */
 void reflex_hal_stack_guard_disable(void);

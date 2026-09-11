@@ -27,6 +27,16 @@
 #define REFLEX_EXTMEM_L1_CACHE_AUTOLOAD_ENA 0x00000001u
 /* LP_WDT.INT_RAW @ base+0x24 — stage expiry, latched */
 #define REFLEX_LP_WDT_INT_RAW_REG 0x600B1C24u
+/* LP_WDT.INT_RAW.SUPER_WDT_INT_RAW bit 30 — set when the super watchdog expires */
+#define REFLEX_LP_WDT_SUPER_WDT_INT_RAW 0x40000000u
+/* LP_WDT.SWD_CONF.SWD_DISABLE bit 30 — stop it counting entirely */
+#define REFLEX_LP_WDT_SWD_DISABLE 0x40000000u
+/* LP_WDT.SWD_CONF.SWD_FEED bit 31 — write 1 to feed it once */
+#define REFLEX_LP_WDT_SWD_FEED 0x80000000u
+/* LP_WDT.SWD_CONF.SWD_RESET_FLAG bit 0 — set if the last reset was its doing */
+#define REFLEX_LP_WDT_SWD_RESET_FLAG 0x00000001u
+/* LP_WDT.SWD_CONF.SWD_RST_FLAG_CLR bit 19 — write 1 to clear that flag */
+#define REFLEX_LP_WDT_SWD_RST_FLAG_CLR 0x00080000u
 /* LP_WDT.INT_RAW.LP_WDT_INT_RAW bit 31 — set when stage 0 expires */
 #define REFLEX_LP_WDT_INT_RAW_BIT 0x80000000u
 /* LP_WDT.WDTWPROTECT @ base+0x18 — write the key here to unlock the rest */

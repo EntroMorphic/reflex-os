@@ -196,6 +196,21 @@ bool reflex_hal_wdt_expired(void) {
 
 void reflex_hal_wdt_capture_entry(void) { }
 
+/* The classic ESP32's reset-reason ROM entry point differs, and nothing on
+ * this target needs the answer yet, so it reports "unknown" rather than
+ * guessing at a code the decode table would mislabel. */
+/* The classic ESP32 has no equivalent always-on super watchdog block that
+ * Reflex drives, so this reports "nothing changed" rather than pretending. */
+uint32_t reflex_hal_swd_auto_feed(bool enable) {
+    (void)enable;
+    return 0;
+}
+
+void reflex_hal_reset_cause(uint32_t *reason, bool *swd_flag) {
+    if (reason) *reason = 0;
+    if (swd_flag) *swd_flag = false;
+}
+
 void reflex_hal_wdt_entry_state(uint32_t *config0, uint32_t *config1, bool *expired) {
     if (config0) *config0 = 0;
     if (config1) *config1 = 0;

@@ -52,6 +52,16 @@ _Static_assert(REFLEX_EXTMEM_L1_CACHE_AUTOLOAD_ENA == (uint32_t)(EXTMEM_L1_CACHE
                "REFLEX_EXTMEM_L1_CACHE_AUTOLOAD_ENA diverges from EXTMEM_L1_CACHE_AUTOLOAD_ENA");
 _Static_assert(REFLEX_LP_WDT_INT_RAW_REG == (uint32_t)(LP_WDT_INT_RAW_REG),
                "REFLEX_LP_WDT_INT_RAW_REG diverges from LP_WDT_INT_RAW_REG");
+_Static_assert(REFLEX_LP_WDT_SUPER_WDT_INT_RAW == (uint32_t)(LP_WDT_SUPER_WDT_INT_RAW),
+               "REFLEX_LP_WDT_SUPER_WDT_INT_RAW diverges from LP_WDT_SUPER_WDT_INT_RAW");
+_Static_assert(REFLEX_LP_WDT_SWD_DISABLE == (uint32_t)(LP_WDT_SWD_DISABLE),
+               "REFLEX_LP_WDT_SWD_DISABLE diverges from LP_WDT_SWD_DISABLE");
+_Static_assert(REFLEX_LP_WDT_SWD_FEED == (uint32_t)(LP_WDT_SWD_FEED),
+               "REFLEX_LP_WDT_SWD_FEED diverges from LP_WDT_SWD_FEED");
+_Static_assert(REFLEX_LP_WDT_SWD_RESET_FLAG == (uint32_t)(LP_WDT_SWD_RESET_FLAG),
+               "REFLEX_LP_WDT_SWD_RESET_FLAG diverges from LP_WDT_SWD_RESET_FLAG");
+_Static_assert(REFLEX_LP_WDT_SWD_RST_FLAG_CLR == (uint32_t)(LP_WDT_SWD_RST_FLAG_CLR),
+               "REFLEX_LP_WDT_SWD_RST_FLAG_CLR diverges from LP_WDT_SWD_RST_FLAG_CLR");
 _Static_assert(REFLEX_LP_WDT_INT_RAW_BIT == (uint32_t)(LP_WDT_LP_WDT_INT_RAW),
                "REFLEX_LP_WDT_INT_RAW_BIT diverges from LP_WDT_LP_WDT_INT_RAW");
 _Static_assert(REFLEX_LP_WDT_WPROTECT_REG == (uint32_t)(LP_WDT_WPROTECT_REG),

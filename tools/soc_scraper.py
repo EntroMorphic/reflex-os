@@ -64,6 +64,13 @@ REGS = [
     ("REFLEX_EXTMEM_L1_CACHE_AUTOLOAD_CTRL_REG", "EXTMEM_L1_CACHE_AUTOLOAD_CTRL_REG", "EXTMEM", "L1_CACHE_AUTOLOAD_CTRL", None, ""),
     ("REFLEX_EXTMEM_L1_CACHE_AUTOLOAD_ENA", "EXTMEM_L1_CACHE_AUTOLOAD_ENA", "EXTMEM", "L1_CACHE_AUTOLOAD_CTRL", "L1_CACHE_AUTOLOAD_ENA", "cache autoload enable"),
     ("REFLEX_LP_WDT_INT_RAW_REG",      "LP_WDT_INT_RAW_REG",      "LP_WDT", "INT_RAW",     None, "stage expiry, latched"),
+    # Super-watchdog: the other always-on watchdog. Its expiry latches here too,
+    # which is what lets it be observed rather than only survived.
+    ("REFLEX_LP_WDT_SUPER_WDT_INT_RAW", "LP_WDT_SUPER_WDT_INT_RAW", "LP_WDT", "INT_RAW",  "SUPER_WDT_INT_RAW", "set when the super watchdog expires"),
+    ("REFLEX_LP_WDT_SWD_DISABLE",       "LP_WDT_SWD_DISABLE",       "LP_WDT", "SWD_CONF", "SWD_DISABLE",       "stop it counting entirely"),
+    ("REFLEX_LP_WDT_SWD_FEED",          "LP_WDT_SWD_FEED",          "LP_WDT", "SWD_CONF", "SWD_FEED",          "write 1 to feed it once"),
+    ("REFLEX_LP_WDT_SWD_RESET_FLAG",    "LP_WDT_SWD_RESET_FLAG",    "LP_WDT", "SWD_CONF", "SWD_RESET_FLAG",    "set if the last reset was its doing"),
+    ("REFLEX_LP_WDT_SWD_RST_FLAG_CLR",  "LP_WDT_SWD_RST_FLAG_CLR",  "LP_WDT", "SWD_CONF", "SWD_RST_FLAG_CLR",  "write 1 to clear that flag"),
     ("REFLEX_LP_WDT_INT_RAW_BIT",      "LP_WDT_LP_WDT_INT_RAW",   "LP_WDT", "INT_RAW",     "LP_WDT_INT_RAW", "set when stage 0 expires"),
     ("REFLEX_LP_WDT_WPROTECT_REG",     "LP_WDT_WPROTECT_REG",     "LP_WDT", "WDTWPROTECT", None, "write the key here to unlock the rest"),
     ("REFLEX_LP_WDT_EN",               "LP_WDT_WDT_EN",           "LP_WDT", "WDTCONFIG0",  "WDT_EN", ""),

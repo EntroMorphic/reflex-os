@@ -297,7 +297,57 @@ reflex_err_t reflex_hal_wdt_arm_observe(uint32_t timeout_ms) {
 static uint32_t s_wdt_entry_c0, s_wdt_entry_c1;
 static bool s_wdt_entry_expired;
 
+/* Declared here, not in reflex_rom_esp32c6.h, and deliberately.
+ *
+ * ESP-IDF's rom/rtc.h declares this as returning its own RESET_REASON enum.
+ * Boot0 includes both that header and Reflex's, so a second declaration in the
+ * shared header is a conflicting-types error at compile time — the same
+ * collision reflex_kv_flash.c already documents for the ROM flash routines.
+ * This translation unit is the only one that needs the value, so the
+ * declaration lives here where it cannot collide. The return is an int-sized
+ * enum; the codes are in soc/reset_reasons.h (0x05 deep-sleep wake, 0x10 the
+ * low-power watchdog, 0x12 the super watchdog, 0x01 power-on). */
+extern int rtc_get_reset_reason(int cpu_no);
+
+static uint32_t s_reset_reason;
+static bool s_reset_swd_flag;
+
+/* Same key as the low-power watchdog's, on its own write-protect register;
+ * ESP-IDF calls it LP_WDT_SWD_WKEY_VALUE and Boot0 writes the same literal.
+ *
+ * Arming this is destructive and the shell keeps it behind an experiment
+ * flag: measured, the watchdog fires ~2.9 s after the feed stops and the
+ * board does not return until reflashed, despite Boot0 re-enabling the feed
+ * on every boot. */
+#define LP_WDT_SWD_WKEY 0x50D83AA1u
+
+uint32_t reflex_hal_swd_auto_feed(bool enable) {
+    REFLEX_REG(REFLEX_LP_WDT_SWD_WPROTECT_REG) = LP_WDT_SWD_WKEY;
+    uint32_t c = REFLEX_REG(REFLEX_LP_WDT_SWD_CONFIG_REG);
+    if (enable) {
+        c |= REFLEX_LP_WDT_SWD_AUTO_FEED_EN;
+    } else {
+        c &= ~REFLEX_LP_WDT_SWD_AUTO_FEED_EN;
+    }
+    REFLEX_REG(REFLEX_LP_WDT_SWD_CONFIG_REG) = c;
+    uint32_t readback = REFLEX_REG(REFLEX_LP_WDT_SWD_CONFIG_REG);
+    REFLEX_REG(REFLEX_LP_WDT_SWD_WPROTECT_REG) = 0u;
+    return readback;
+}
+
+void reflex_hal_reset_cause(uint32_t *reason, bool *swd_flag) {
+    if (reason) *reason = s_reset_reason;
+    if (swd_flag) *swd_flag = s_reset_swd_flag;
+}
+
 void reflex_hal_wdt_capture_entry(void) {
+    /* Captured here for the same reason as the watchdog state beside it: this
+     * runs before anything in startup has a chance to clear either, and the
+     * console does not exist yet to print them. */
+    s_reset_reason = (uint32_t)rtc_get_reset_reason(0);
+    s_reset_swd_flag =
+        (REFLEX_REG(REFLEX_LP_WDT_SWD_CONFIG_REG) & REFLEX_LP_WDT_SWD_RESET_FLAG) != 0u;
+
     s_wdt_entry_c0 = REFLEX_REG(REFLEX_LP_WDT_CONFIG0_REG);
     s_wdt_entry_c1 = REFLEX_REG(REFLEX_LP_WDT_CONFIG1_REG);
     s_wdt_entry_expired =

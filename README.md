@@ -121,7 +121,7 @@ honest claim, and it is a good one; "blob-free" was not true.
 | `kernel tasks` | Print the Reflex scheduler's slot table — state, name, priority, stack and which slot is running — with a count of dead slots that have not been reclaimed. Empty on a build where FreeRTOS is still the task backend |
 | `kernel tick` | Measure the scheduler tick and print the full routing readback — interrupt matrix, PLIC, CSR, comparator — whether or not it fired |
 | `kernel selftest` | Hand the machine to the Reflex scheduler and run two cooperative tasks (admin). One-way: the shell does not come back |
-| `kernel wdt [ms|off|observe <ms>|expired|entry]` | Read, disarm, or arm the low-power watchdog (admin). Arming needs a build flag, because a fired watchdog does not return a usable board. `observe` arms it to latch instead of reset, which is safe; `expired` reads that latch; `entry` reports the watchdog state this boot started with, captured before startup disarmed it |
+| `kernel wdt [ms|off|observe <ms>|expired|entry|why]` | Read, disarm, or arm the low-power watchdog (admin). Arming needs a build flag, because a fired watchdog does not return a usable board. `observe` arms it to latch instead of reset, which is safe; `expired` reads that latch; `entry` reports the watchdog state this boot started with, captured before startup disarmed it; `why` reports what caused the last reset (power-on, deep-sleep wake, a watchdog) |
 | `aura setkey <32 hex>` | Provision the HMAC-SHA256 Aura key into NVS |
 | `aura clear` | Erase the Aura key, returning the board to isolation; a fresh per-board key is generated on the next boot |
 | `mesh mac` | Print the local Wi-Fi STA MAC (used to identify boards in a mesh trial) |

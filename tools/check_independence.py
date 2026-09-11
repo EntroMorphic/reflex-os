@@ -106,7 +106,13 @@ OFF_PATH = (
 # style is exactly the hiding place this tool exists to prevent.
 ROM_EXTERN_PREFIXES = ("esp_rom_", "Cache_", "ets_", "rom_")
 # Mask-ROM entry points that do not carry a rom-ish prefix.
-ROM_EXTERN_NAMES = ("software_reset",)
+#
+# rtc_get_reset_reason is at 0x40000018 in esp32c6.rom.ld — ROM, like
+# software_reset beside it. Reflex declares it locally in
+# reflex_hal_esp32c6.c rather than in its shared ROM header, because ESP-IDF's
+# rom/rtc.h declares the same symbol with its own return type and Boot0
+# includes both.
+ROM_EXTERN_NAMES = ("software_reset", "rtc_get_reset_reason")
 # The project's own symbols, and the linker's wrap machinery. Declaring these
 # across translation units is ordinary C, not a borrowed dependency.
 PROJECT_EXTERN_PREFIXES = ("reflex_", "goose_", "__real_", "__wrap_", "app_main")

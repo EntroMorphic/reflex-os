@@ -1620,6 +1620,44 @@ The test that would actually isolate it: keep a reference to `modem_clock.c`
 alive — take the address of one of its functions without calling it — and see
 whether presence alone is enough.
 
+#### The super watchdog is not a net either, and Reflex can now say why it rebooted (2026-09-11)
+
+Tier B's blocker is that owning the sleep entry needs a way to survive getting
+it wrong, and the low-power watchdog cannot be it — measured earlier today, it
+does not count while the chip is asleep. The always-on **super** watchdog was
+the obvious next candidate, and it had a property the LP watchdog lacked: Boot0
+sets `SWD_AUTO_FEED_EN` on every boot, so its reset should land in a bootloader
+that immediately silences it. Self-recovering by construction, unlike
+`RESET_RTC`.
+
+**It is not.** Clearing the automatic feed arms it; measured on board B, it
+fires **2.9 s** later — a figure ESP-IDF documents nowhere, because the C6's SWD
+has no timeout field, only a reset-pulse width — and the board **does not come
+back**. No console, nothing, until it is reflashed. Boot0's write is not enough
+to undo whatever the reset leaves behind. That is the same failure class as
+`RESET_RTC`, reached by a different route, and it closes the idea: a net that
+needs a reflash to clear is not a net.
+
+Board B was recovered by reflashing (the ROM loader answered throughout), and
+passes 183/0.
+
+So Tier B stays blocked, and the statement of the blocker is now sharper than
+it was this morning. Neither always-on watchdog can rescue a bad sleep entry:
+the low-power one stops counting while asleep, and the super one strands the
+board. A net has to come from something else, and nothing on this chip has yet
+been shown to be it.
+
+**One real capability came out of the attempt.** Reflex could not report why the
+machine last restarted — a board back from a watchdog reset and one that was
+power-cycled looked identical from the console, which is exactly the ambiguity
+this hunt kept running into. `kernel wdt why` now reports the ROM's reset-reason
+code and the super watchdog's own reset flag, captured in
+`reflex_hal_wdt_capture_entry()` before startup can clear either. Calibrated
+against known causes rather than trusted: a software `reboot` reads `0x03`, a
+deep-sleep wake `0x05`, an esptool reset `0x15` (USB UART). Arming the super
+watchdog sits behind `REFLEX_WDT_EXPERIMENT`, the same gate the low-power
+watchdog's arming uses, and for the same reason.
+
 #### Reflex owns flash: Tier F is zero, and a five-year-old claim was false (2026-09-11)
 
 `esp_flash.h` and `esp_flash_internal.h` are gone from `reflex_kv_flash.c`.

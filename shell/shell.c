@@ -1514,6 +1514,58 @@ static void shell_cmd_kernel(int argc, char *argv[]) {
                    (int)reflex_hal_wdt_expired());
             return;
         }
+        if (argc == 4 && strcmp(argv[2], "swd") == 0) {
+#ifndef REFLEX_WDT_EXPERIMENT
+            printf("kernel wdt swd: arming is disabled in this build\n");
+            printf("  it resets the board on purpose; rebuild with "
+                   "-DREFLEX_WDT_EXPERIMENT=1 to investigate\n");
+            outcome(SHELL_FAILED);
+            return;
+#else
+            /* Disabling the automatic feed arms the super watchdog, which
+             * then resets the board about 2.9 s later — and the board does
+             * not come back until it is reflashed. Boot0 re-enables the feed
+             * on every boot, and that is measurably not enough. Kept behind
+             * the experiment flag for the same reason the low-power
+             * watchdog's arming is: it strands the board it was meant to
+             * rescue. */
+            bool on = (strcmp(argv[3], "on") == 0);
+            if (!on && strcmp(argv[3], "off") != 0) {
+                printf("kernel wdt swd <on|off>\n"); outcome(SHELL_INVALID); return;
+            }
+            uint32_t conf = reflex_hal_swd_auto_feed(on);
+            printf("kernel wdt swd: auto_feed=%d conf=0x%08lx\n", (int)on,
+                   (unsigned long)conf);
+            return;
+#endif
+        }
+        if (argc == 3 && strcmp(argv[2], "why") == 0) {
+            /* Why the machine last restarted. Reflex could not answer this at
+             * all, which made a class of question unanswerable from the
+             * console: a board that came back from a watchdog reset and one
+             * that was power-cycled looked identical. */
+            uint32_t reason = 0;
+            bool swd = false;
+            reflex_hal_reset_cause(&reason, &swd);
+            const char *name = "unknown";
+            switch (reason) {
+                case 0x01: name = "power-on"; break;
+                case 0x03: name = "software (core)"; break;
+                case 0x05: name = "deep-sleep wake"; break;
+                case 0x07: name = "main watchdog 0"; break;
+                case 0x09: name = "rtc watchdog (core)"; break;
+                case 0x0C: name = "software (cpu0)"; break;
+                case 0x0F: name = "brownout"; break;
+                case 0x10: name = "low-power watchdog"; break;
+                case 0x12: name = "super watchdog"; break;
+                case 0x15: name = "usb-uart"; break;
+                case 0x16: name = "usb-jtag"; break;
+                default: break;
+            }
+            printf("kernel wdt why: reset=0x%02lx (%s) swd_flag=%d\n",
+                   (unsigned long)reason, name, (int)swd);
+            return;
+        }
         if (argc == 3 && strcmp(argv[2], "entry") == 0) {
             /* What the watchdog looked like when this boot started, captured
              * before startup disarmed it. The boot log carries the same line,

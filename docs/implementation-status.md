@@ -238,6 +238,30 @@ The distinction between "catalog coverage" and "live Loom capacity" is load-bear
 
 ## Known Gaps (docs lead, code trails)
 
+### Deep sleep has no recovery net, and both candidates are now ruled out (2026-09-11, open)
+
+Owning the sleep entry (`esp_sleep.h`, Tier B) is blocked not on writing the
+entry sequence but on having no way to survive getting it wrong: a bad entry
+means a board that never wakes, with nothing running to say why.
+
+Both always-on watchdogs have now been measured and neither can serve:
+
+- The **low-power watchdog** does not count while the chip is asleep. Proved with
+  a latching stage action on two boards, with the controls that make the result
+  mean something — the latch survives both a reboot and a deep-sleep wake, so a
+  timeout during sleep would have been visible, and was not.
+- The **super watchdog** does count, and fires ~2.9 s after its automatic feed
+  is cleared, but its reset **strands the board**: no console until reflashed,
+  despite Boot0 re-enabling the feed on every boot. Same outcome as the
+  low-power watchdog's `RESET_RTC`, which also required a reflash.
+
+So the net must come from something else, and nothing on this chip has yet been
+shown to be it. Arming either watchdog stays behind `REFLEX_WDT_EXPERIMENT`.
+`kernel wdt why` now reports what caused the last reset, which is what made
+these measurements readable in the first place.
+
+
+
 ### The usable flash is capped at 2 MB on a 4 MB chip (2026-09-11, open)
 
 The ROM's flash descriptor reports `chip_size = 2097152` on these boards, and
