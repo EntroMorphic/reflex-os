@@ -93,10 +93,17 @@
 /* The application's own entry, still named app_main so nothing else moves. */
 extern void app_main(void);
 
+#ifdef REFLEX_OWN_ENTRY
+/* Guarded, because its only caller is. The task body sat outside the flag
+ * while the reflex_sched_create_task call that names it sat inside, so every
+ * ordinary build compiled a function nothing could reach and carried it in the
+ * image. The compiler had been saying so; the warning gate's find roots did not
+ * include main/, so nobody was listening. */
 static void reflex_main_task(void *arg) {
     (void)arg;
     app_main();
 }
+#endif
 
 /* --wrap, not a competing definition.
  *

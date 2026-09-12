@@ -1903,6 +1903,18 @@ gates use it. Not `timeout(1)`, which macOS does not ship, and not perl's
 `alarm`, which was tried and does not work: the Docker client is a Go program
 and the runtime swallows SIGALRM.
 
+**Bounding the wait was the smaller half; none of those four needs Docker.**
+Failing in twenty seconds instead of thirty-four minutes is still failing, and
+what it was failing at was `idf-build` — the only local check that speaks for
+the firmware build. All four now prefer a native path and keep the container as
+a fallback: `idf-build` and `rom-check` read a local ESP-IDF through `IDF_PATH`
+(`soc-bridge` already could), and `ci-lint` uses `actionlint` from `PATH`.
+Everything ESP-IDF supplies to these gates is a file in its checkout — ROM
+linker scripts, headers, the toolchain — so the container was never a
+requirement, only a habit. Running the real build here for the first time found
+a dead function in `main/reflex_app_entry.c` that the compiler had been
+reporting all along.
+
 **The region cannot simply be made bigger.** 192 KiB leaves ESP-IDF about
 170 KiB of which roughly 4 KiB is ever used, so claiming more of it looked free.
 288 KiB panics during startup with a `Stack protection fault`, with ESP-IDF's

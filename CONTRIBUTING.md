@@ -107,8 +107,22 @@ make verify
 ```
 
 That is host tests, TASM tests, doc links, the warning gate, the loom lock
-check, workflow schema validation, and a **real ESP-IDF build** in the same
-container image CI uses — no local ESP-IDF install required, only Docker.
+check, workflow schema validation, and a **real ESP-IDF build**.
+
+None of it requires Docker. Four gates — `idf-build`, `soc-bridge`, `rom-check`
+and `ci-lint` — used to reach for a container unconditionally, which meant that
+on a machine without a running daemon they did not run at all, and a gate that
+cannot run is not protecting anything. Each now prefers a native path and falls
+back to the container image CI uses:
+
+| Gate | Runs natively when | Otherwise |
+|---|---|---|
+| `idf-build` | `IDF_PATH` points at an ESP-IDF checkout | `espressif/idf` image |
+| `soc-bridge` | `IDF_PATH` is set | `espressif/idf` image |
+| `rom-check` | `IDF_PATH` is set | `espressif/idf` image |
+| `ci-lint` | `actionlint` is on `PATH` (`pip install actionlint-py`) | `rhysd/actionlint` image |
+
+So either `export IDF_PATH=…` or have Docker running; you do not need both.
 
 Renaming a CI job counts as a change that needs checking: GitHub rejects a
 workflow whose `needs:` names a job that no longer exists, and it rejects it at
@@ -141,11 +155,11 @@ build.** Run it before pushing anything that compiles into the image.
 | `make warn-check` | ESP-independent firmware at `-Wall -Wextra -Werror` |
 | `make lock-check` | No telemetry emission while the loom lock is held |
 | `make format-diff` | Formatting of the lines your change touches |
-| `make ci-lint` | Workflow file schema (catches dangling `needs:` after a job rename) |
+| `make ci-lint` | Workflow file schema (catches dangling `needs:` after a job rename); native `actionlint` if installed |
 | `make soc-check` | Generated SoC header is current with the SVD and mapping |
 | `make soc-bridge` | Every generated SoC constant equals the ESP-IDF macro it replaced |
 | `make rom-check` | ROM entry-point addresses match ESP-IDF's `esp32c6.rom.ld` |
-| `make idf-build` | Real ESP-IDF build (Docker) |
+| `make idf-build` | Real ESP-IDF build (native with `IDF_PATH`, else Docker) |
 | `make hw-test PORT=…` | Shell contract against a flashed board |
 
 `make format-check` reports formatting tree-wide and currently fails: the

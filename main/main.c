@@ -39,6 +39,7 @@
 
 static void goose_supervisor_task(void *arg)
 {
+    (void)arg;
     while (1) {
         goose_supervisor_pulse();
         reflex_task_delay_ms(100); // 10Hz Pulse
@@ -47,6 +48,7 @@ static void goose_supervisor_task(void *arg)
 
 static void reflex_stability_task(void *arg)
 {
+    (void)arg;
     reflex_task_delay_ms(REFLEX_STABILITY_MS);
     reflex_config_set_boot_count(0);
     /* Two counters, and only one of them was being cleared here. The NVS

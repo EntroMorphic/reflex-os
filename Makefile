@@ -232,9 +232,7 @@ rom-check:
 # Schema only: shellcheck flags pre-existing SC2086 style in jobs this does not
 # own, and failing on that would make the gate noise rather than signal.
 ci-lint:
-	@tools/require_docker.sh ci-lint
-	@docker run --rm -v "$$PWD":/repo -w /repo $(ACTIONLINT_IMAGE) -no-color -shellcheck= \
-	  && echo "Workflows: schema valid."
+	@tools/check_workflows.sh
 ACTIONLINT_IMAGE ?= rhysd/actionlint:latest
 
 # The real ESP-IDF toolchain, in the image CI uses, without installing it.
@@ -243,12 +241,7 @@ ACTIONLINT_IMAGE ?= rhysd/actionlint:latest
 IDF_IMAGE ?= espressif/idf:release-v5.5
 IDF_TARGET_ ?= esp32c6
 idf-build:
-	@tools/require_docker.sh idf-build
-	docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e IDF_COMPONENT_MANAGER=0 \
-	    -v "$$PWD":/work -w /work $(IDF_IMAGE) \
-	    bash -c '. $$IDF_PATH/export.sh >/dev/null 2>&1 && \
-	             idf.py -B build set-target $(IDF_TARGET_) >/dev/null && \
-	             idf.py -B build build'
+	@IDF_IMAGE=$(IDF_IMAGE) IDF_TARGET_=$(IDF_TARGET_) tools/idf_build.sh build
 
 # Everything runnable without a board. Run this before pushing firmware changes.
 verify: test tasm-test doc-links warn-check lock-check independence-check independence-own-entry ci-lint soc-check rom-check idf-build soc-bridge

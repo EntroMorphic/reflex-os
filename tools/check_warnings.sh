@@ -117,7 +117,7 @@ while IFS= read -r f; do
         fail_list+=("$out"); failed=$((failed+1))
     fi
     checked=$((checked+1))
-done < <(find components core vm kernel platform storage services net drivers \
+done < <(find components core vm kernel platform storage services net drivers main \
               -name '*.c' ! -name 'goose_shadow_atlas.c' | sort)
 
 echo "Warning gate: $checked compiled, $skipped skipped, $failed failed  [$($CC -dumpversion)]"
