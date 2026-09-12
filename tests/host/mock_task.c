@@ -7,6 +7,7 @@
  */
 
 #include "reflex_task.h"
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -41,6 +42,15 @@ reflex_err_t reflex_task_create(void (*fn)(void *), const char *name,
 
 void reflex_task_delete(reflex_task_handle_t handle) {
     if (handle) ((mock_task_t *)handle)->active = false;
+}
+
+/* Whether a task handed out by reflex_task_create has since been deleted.
+ *
+ * s_tasks is file-static, so without this a test cannot tell "the runtime
+ * cleared its handle" from "the task was actually reclaimed" -- which is the
+ * entire distinction P0-M4 turns on. */
+bool mock_task_is_active(reflex_task_handle_t handle) {
+    return handle != NULL && ((mock_task_t *)handle)->active;
 }
 
 void reflex_task_delay_ms(uint32_t ms) { (void)ms; }

@@ -378,12 +378,75 @@ static void test_intr_priority_rule(void) {
     printf("ok\n");
 }
 
+/* --- P0-M4: stop() must reclaim the task, not just observe it retire -------
+ *
+ * reflex_vm_task_entry used to clear the handle and self-delete, and stop()
+ * treated the cleared handle as "gone". It was not gone: a self-delete defers
+ * the TCB and stack teardown, so the watchdog's stop-then-start created the
+ * replacement while the previous stack was still allocated. stop() now waits
+ * for `finished` and deletes by handle, which reclaims in the caller's context.
+ *
+ * The mock never runs task bodies, so the entry's side of the handshake is set
+ * directly here -- which is exactly the state the real entry publishes before
+ * it parks. */
+extern bool mock_task_is_active(reflex_task_handle_t handle);
+
+static void vm_task_dummy_entry(void *arg) {
+    (void)arg;
+}
+
+static void test_vm_task_stop_reclaims_by_handle(void) {
+    printf("[vmreap] ");
+    static reflex_vm_task_runtime_t runtime;
+
+    /* Parked: loop over, waiting to be reaped. */
+    reflex_vm_task_runtime_init(&runtime);
+    reflex_task_handle_t h = NULL;
+    CHECK("mock task created",
+          reflex_task_create(vm_task_dummy_entry, "vm-reap", 1024, NULL, 5, &h) == REFLEX_OK);
+    runtime.handle = h;
+    runtime.running = true;
+    runtime.finished = true;
+
+    CHECK("stop succeeds", reflex_vm_task_stop(&runtime) == REFLEX_OK);
+    CHECK("stop asked the task to park", runtime.stop_requested == true);
+    CHECK("handle cleared", runtime.handle == NULL);
+    /* The invariant P0-M4 is about: reclaimed before stop() returned, so a
+     * restart cannot overlap a stack that is still allocated. */
+    CHECK("task was actually deleted, not merely forgotten", !mock_task_is_active(h));
+
+    /* The self-delete race: the entry retired just before stop() claimed it,
+     * so the handle is already NULL. Must still succeed, and must not delete. */
+    reflex_vm_task_runtime_init(&runtime);
+    runtime.running = true;
+    runtime.finished = true;
+    runtime.handle = NULL;
+    CHECK("stop tolerates a task that self-deleted first",
+          reflex_vm_task_stop(&runtime) == REFLEX_OK);
+
+    /* Still stepping: never delete a task that has not published `finished`.
+     * It may hold the loom lock. Time out and say so instead. */
+    reflex_vm_task_runtime_init(&runtime);
+    reflex_task_handle_t busy = NULL;
+    CHECK("second mock task created",
+          reflex_task_create(vm_task_dummy_entry, "vm-busy", 1024, NULL, 5, &busy) == REFLEX_OK);
+    runtime.handle = busy;
+    runtime.running = true;
+    runtime.finished = false;
+    CHECK("stop reports timeout when the task never retires",
+          reflex_vm_task_stop(&runtime) == REFLEX_ERR_TIMEOUT);
+    CHECK("a still-running task is left alive", mock_task_is_active(busy));
+    CHECK("and its handle is kept, so the caller knows", runtime.handle == busy);
+    printf("ok\n");
+}
+
 int test_vm_regress(void)
 {
     test_cache();
     test_loader_branch_target();
     test_word18_no_clobber();
     test_vm_task_service_init_keeps_cache();
+    test_vm_task_stop_reclaims_by_handle();
     test_intr_priority_rule();
     return s_fail;
 }

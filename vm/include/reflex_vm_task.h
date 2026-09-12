@@ -59,6 +59,22 @@ typedef struct {
     const reflex_vm_image_t *image;
     reflex_vm_task_config_t config;
     bool running;
+
+    /* Teardown handshake. `running` says "keep going"; these two say who
+     * reclaims the task when it stops.
+     *
+     * A task cannot free the stack it is standing on, so a self-delete defers
+     * teardown -- to the idle task under FreeRTOS, to the next scheduling
+     * decision under Reflex's scheduler. The watchdog restarts a faulted VM
+     * with stop() immediately followed by start(), so that deferral is what
+     * held two VM stacks at once. When a stopper is waiting, the entry parks
+     * instead and lets the stopper delete it by handle, which reclaims the
+     * stack in the stopper's own context. With no stopper -- a program that
+     * halts or faults on its own -- self-delete is still right, because
+     * parking with nobody to reap would leak the task for the rest of the
+     * boot. */
+    volatile bool stop_requested; /**< Set by stop() before it waits. */
+    volatile bool finished;       /**< Set by the entry when its loop ends. */
 } reflex_vm_task_runtime_t;
 
 /**

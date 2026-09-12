@@ -35,6 +35,10 @@ static void reflex_vm_task_apply_defaults(reflex_vm_task_config_t *config)
     }
 }
 
+/* How long a retired task sleeps between checks while it waits to be reaped.
+ * It does no work; this only bounds how often it wakes to be deleted. */
+#define REFLEX_VM_TASK_PARK_POLL_MS 10
+
 static void reflex_vm_task_entry(void *arg)
 {
     reflex_vm_task_runtime_t *runtime = (reflex_vm_task_runtime_t *)arg;
@@ -55,6 +59,25 @@ static void reflex_vm_task_entry(void *arg)
         }
     }
 
+    /* Published before the stop_requested read, so a stopper that sets its
+     * flag after this point still finds the task alive and deletes it by
+     * handle below rather than waiting on a task that has already gone. */
+    runtime->finished = true;
+
+    if (runtime->stop_requested) {
+        /* Someone is waiting to reclaim us. Park rather than self-delete: the
+         * stopper's reflex_task_delete(handle) frees this stack in its own
+         * context, with no deferral to the idle task and no second VM stack
+         * alive while the replacement starts. Returning is not an option --
+         * under FreeRTOS a task function that returns hits prvTaskExitError. */
+        for (;;) {
+            reflex_task_delay_ms(REFLEX_VM_TASK_PARK_POLL_MS);
+        }
+    }
+
+    /* Nobody is waiting: the program halted or faulted on its own. Self-delete
+     * is still correct here, because parking with no reaper would hold the
+     * stack for the rest of the boot. */
     runtime->handle = NULL;
     reflex_task_delete(NULL);
 }
@@ -88,6 +111,10 @@ reflex_err_t reflex_vm_task_start(reflex_vm_task_runtime_t *runtime,
     runtime->image = image;
     runtime->config = effective_config;
     runtime->running = true;
+    /* Cleared here, not in stop(): a restart that inherited stop_requested
+     * would park its fresh task immediately instead of running the program. */
+    runtime->stop_requested = false;
+    runtime->finished = false;
     runtime->vm.node_id = REFLEX_NODE_VM;
     reflex_vm_use_default_syscalls(&runtime->vm);
     REFLEX_RETURN_ON_ERROR(reflex_vm_load_image(&runtime->vm, image), "vm_task", "image load failed");
@@ -127,6 +154,10 @@ reflex_err_t reflex_vm_task_start_binary(reflex_vm_task_runtime_t *runtime,
     runtime->image = NULL;
     runtime->config = effective_config;
     runtime->running = true;
+    /* Cleared here, not in stop(): a restart that inherited stop_requested
+     * would park its fresh task immediately instead of running the program. */
+    runtime->stop_requested = false;
+    runtime->finished = false;
     runtime->vm.node_id = REFLEX_NODE_VM;
     reflex_vm_use_default_syscalls(&runtime->vm);
     REFLEX_RETURN_ON_ERROR(reflex_vm_load_binary(&runtime->vm, buffer, len), "vm_task", "binary load failed");
@@ -164,6 +195,13 @@ reflex_err_t reflex_vm_task_stop(reflex_vm_task_runtime_t *runtime)
 {
     REFLEX_RETURN_ON_FALSE(runtime != NULL, REFLEX_ERR_INVALID_ARG, "vm_task", "runtime is required");
 
+    /* Claim the reaping before asking the task to stop.
+     *
+     * The entry publishes `finished` and only then reads `stop_requested`, so
+     * setting it first means any task that retires from this point on parks for
+     * us instead of self-deleting. If it retired a moment earlier it has
+     * already cleared the handle, which the race branch below handles. */
+    runtime->stop_requested = true;
     runtime->running = false;
 
     /* Bounded wait. This used to spin `while (runtime->handle != NULL)` with no
@@ -172,55 +210,56 @@ reflex_err_t reflex_vm_task_stop(reflex_vm_task_runtime_t *runtime)
      * DELAY syscall to cause it; before the negative-delay fix in
      * vm/syscall.c a single instruction could park the task for ~49 days.
      *
-     * Reachability, re-checked on 2026-09-07 and no longer what this comment
-     * used to say. It claimed the path was invoked only by
-     * reflex_service_stop_all, that nothing calls that, and that it was absent
-     * from reflex_os.elf entirely. That is now false in the running system:
-     * reflex_service_watchdog_tick calls svc->stop followed by svc->start for
-     * any service reporting FAULTED, and goose_supervisor_pulse calls the
-     * watchdog every REFLEX_SUPERVISOR_WATCHDOG_DIV pulses — 1 Hz at the 10 Hz
-     * supervisor. reflex_vm_task_service_status reports FAULTED whenever
-     * vm.status is FAULTED, so this runs on every VM fault, not never.
+     * Reachability: reflex_service_watchdog_tick calls svc->stop followed by
+     * svc->start for any service reporting FAULTED, and goose_supervisor_pulse
+     * calls the watchdog every REFLEX_SUPERVISOR_WATCHDOG_DIV pulses -- 1 Hz at
+     * the 10 Hz supervisor. reflex_vm_task_service_status reports FAULTED
+     * whenever vm.status is FAULTED, so this runs on every VM fault, not never.
+     * An unbounded spin here would hang the supervisor pulse, and with it the
+     * whole substrate.
      *
-     * The bounded wait therefore matters: an unbounded spin here would have
-     * hung the supervisor pulse, and with it the whole substrate.
-     *
-     * Timing out is reported rather than papered over: the task is still alive
-     * and still owns its stack, which the caller needs to know. */
+     * The wait is on `finished` rather than on the handle, because the handle
+     * now stays set while the task waits to be reaped. */
     uint32_t waited = 0;
-    while (runtime->handle != NULL && waited < REFLEX_VM_TASK_STOP_TIMEOUT_MS) {
+    while (!runtime->finished && runtime->handle != NULL &&
+           waited < REFLEX_VM_TASK_STOP_TIMEOUT_MS) {
         reflex_task_delay_ms(REFLEX_VM_TASK_STOP_POLL_MS);
         waited += REFLEX_VM_TASK_STOP_POLL_MS;
     }
 
-    if (runtime->handle != NULL) {
+    if (!runtime->finished && runtime->handle != NULL) {
+        /* Reported rather than papered over: the task is still alive and still
+         * owns its stack, which the caller needs to know. Deleting it here
+         * would be the one genuinely unsafe thing available -- it is still
+         * stepping the VM, and may hold the loom lock. */
         REFLEX_LOG_ERROR_IMPL("vm_task", "%s: task did not retire within %u ms",
                               __func__, (unsigned)REFLEX_VM_TASK_STOP_TIMEOUT_MS);
         return REFLEX_ERR_TIMEOUT;
     }
 
-    /* The handle clear says the entry function finished its loop; it does not
-     * say the task's memory is back. reflex_vm_task_entry clears the handle and
-     * then calls reflex_task_delete(NULL), and vTaskDelete on the *calling*
-     * task defers the TCB and stack teardown to the idle task. The watchdog
-     * restart path — stop() immediately followed by start() — therefore
-     * observed a retired task and created its replacement while the previous
-     * stack was still allocated, holding two VM stacks at once on a board with
-     * no memory to spare for it.
-     *
-     * Yielding for longer than a tick lets the idle task, which is the lowest
-     * priority runnable thing here, actually run and reap. This is a mitigation
-     * and not a guarantee: under sustained load the idle task may still not
-     * have run by the time this returns. Closing the window properly means not
-     * self-deleting at all, which is a change to task teardown that should be
-     * made against hardware rather than reasoned into place — see P0-M4 in
-     * docs/implementation-status.md.
-     *
-     * Safe regardless of ordering, because the entry function touches nothing
-     * in *runtime after clearing the handle, so a restart that overlaps a
-     * not-yet-reaped task cannot corrupt the runtime it reuses. The cost is
-     * memory, not correctness. */
-    reflex_task_delay_ms(REFLEX_VM_TASK_REAP_MS);
+    if (runtime->handle != NULL) {
+        /* The task is parked past the end of its loop, holding no lock and
+         * stepping nothing, so deleting it by handle is safe -- and unlike a
+         * self-delete it reclaims the TCB and stack in *this* context. Under
+         * FreeRTOS vTaskDelete frees a non-current task's memory immediately
+         * (both targets create tasks with xTaskCreate, so they are dynamically
+         * allocated); under Reflex's scheduler the task is marked DEAD and
+         * reflex_sched_reap collects it at the next scheduling decision, which
+         * is the first moment execution is provably off that stack.
+         *
+         * This is what closes P0-M4: the watchdog's stop-then-start no longer
+         * observes a retired task whose stack is still allocated, so it cannot
+         * hold two VM stacks at once. */
+        reflex_task_handle_t doomed = runtime->handle;
+        runtime->handle = NULL;
+        reflex_task_delete(doomed);
+    } else {
+        /* The task read stop_requested just before we set it and self-deleted.
+         * Its teardown is deferred, so keep the old mitigation for this path:
+         * yield longer than a tick so the reaper can run. Narrow, and no worse
+         * than the behaviour this replaced. */
+        reflex_task_delay_ms(REFLEX_VM_TASK_REAP_MS);
+    }
 
     return REFLEX_OK;
 }

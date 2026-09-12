@@ -837,6 +837,19 @@ def main():
         print("    SDKCONFIG_DEFAULTS=sdkconfig.defaults.independence \\")
         print("      idf.py -B build_independence "
               "-DSDKCONFIG=build_independence/sdkconfig build")
+        # Advisory when someone asks for the numbers; a failure when a gate
+        # asked for the ratchet.
+        #
+        # `make verify` prints "the independence ratchet in both configurations
+        # ... passed" and returned success while this half had not run at all:
+        # delete build_independence/ and the gate degraded to an upper bound and
+        # exited 0. A fresh clone has never built it, so the same false
+        # assurance was the default experience. The other half,
+        # independence-own-entry, depends on own-entry-build and so could not
+        # silently skip -- that asymmetry is what hid this.
+        if check:
+            print("\n  --check requires the ratchet to be applied, and it was not.")
+            return 1
         return 0
 
     regressed = False
