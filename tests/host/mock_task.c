@@ -135,12 +135,6 @@ reflex_err_t reflex_service_register(const reflex_service_desc_t *service) {
     return REFLEX_OK;
 }
 
-reflex_err_t reflex_vm_run(reflex_vm_state_t *vm, uint32_t max_steps) {
-    (void)vm;
-    (void)max_steps;
-    return REFLEX_OK;
-}
-
 void reflex_vm_use_default_syscalls(reflex_vm_state_t *vm) {
     (void)vm;
 }

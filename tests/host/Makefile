@@ -5,7 +5,15 @@
 
 CC ?= cc
 CFLAGS = -Wall -Wextra -O2 -g -DREFLEX_RTC_DATA_ATTR= -DREFLEX_HOST_BUILD
-INCLUDES = -I../../include -I../../vm/include -I../../kernel -I../stub_headers -I../../components/goose/include -I../../shell/include -I../../core/include
+# The real headers, not stand-ins.
+#
+# tests/stub_headers/ held four files under ONE shared include guard, three
+# of them byte-identical, so including any one silently disabled the others
+# and the suite compiled only because the superset was always reached first.
+# Worse, its goose_route_t was a hand-written layout stand-in, so host tests
+# ran against a reflex_vm_state_t shaped differently from the firmware's.
+# Every source here compiles against the real headers, so it uses them.
+INCLUDES = -I../../include -I../../vm/include -I../../kernel -I../../components/goose/include -I../../shell/include -I../../core/include -I../../storage/include
 
 SRCS = test_main.c \
        test_scheduler.c \
@@ -21,9 +29,11 @@ SRCS = test_main.c \
        test_shell_outcome.c \
        test_kqueue.c \
        test_heap.c \
+       test_vm_run.c \
        mock_hal.c \
        mock_task.c \
        ../../vm/ternary.c \
+       ../../vm/interpreter.c \
        ../../components/goose/goose_policy.c \
        ../../vm/cache.c \
        ../../vm/loader.c \
@@ -57,7 +67,7 @@ test: $(OUT)
 # passes.
 HDRS := $(shell find ../../include ../../vm/include ../../components/goose/include \
                     ../../shell/include ../../kernel ../../core/include \
-                    ../stub_headers . -name '*.h' 2>/dev/null)
+                    ../../storage/include . -name '*.h' 2>/dev/null)
 
 # .c files that a test source #includes directly.
 #

@@ -202,6 +202,8 @@ int main(void) {
     extern int test_policy_passed(void);
     extern int test_vm_regress(void);
     extern int test_vm_regress_passed(void);
+    extern int test_vm_run(void);
+    extern int test_vm_run_passed(void);
     extern int test_log_format(void);
     extern int test_log_format_passed(void);
     extern int test_lattice(void);
@@ -231,6 +233,8 @@ int main(void) {
     s_passed += test_policy_passed();
     s_failed += test_vm_regress();
     s_passed += test_vm_regress_passed();
+    s_failed += test_vm_run();
+    s_passed += test_vm_run_passed();
     s_failed += test_log_format();
     s_passed += test_log_format_passed();
     s_failed += test_lattice();

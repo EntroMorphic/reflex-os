@@ -31,35 +31,23 @@ static int s_pass = 0, s_fail = 0;
 
 /* --- Backing store for the cache under test ------------------------------
  *
- * vm/cache.c calls out to reflex_vm_mem_get_raw/set_raw. Supplying them here
- * keeps the cache's own logic — states, write-back, eviction — under test
- * without dragging in the MMU. */
+ * vm/cache.c reaches memory through reflex_vm_mem_get_raw/set_raw. This file
+ * used to define those itself, along with inert reflex_vm_reset/unload, so the
+ * suite could link without the interpreter. That worked, but it meant the
+ * interpreter's run loop had no host coverage at all.
+ *
+ * The real accessors translate through the MMU, and mapping one region over
+ * this same array reproduces exactly what the stubs did: index N of the region
+ * is s_mem[N], so every assertion below still reads the bytes the cache wrote.
+ * The stubs are gone and vm/interpreter.c is linked instead. */
 #define TEST_MEM_WORDS 64
 static reflex_word18_t s_mem[TEST_MEM_WORDS];
 
-reflex_err_t reflex_vm_mem_get_raw(const reflex_vm_state_t *vm, uint32_t index, reflex_word18_t *out)
-{
-    (void)vm;
-    if (index >= TEST_MEM_WORDS || !out) return REFLEX_ERR_INVALID_ARG;
-    memcpy(out, &s_mem[index], sizeof(*out));
-    return REFLEX_OK;
+/* Map s_mem as the VM's private memory at address 0. */
+static void bind_test_memory(reflex_vm_state_t *vm) {
+    reflex_vm_mmu_init(&vm->mmu);
+    reflex_vm_mmu_add_region(&vm->mmu, s_mem, TEST_MEM_WORDS, REFLEX_MEM_PRIVATE, 0);
 }
-
-reflex_err_t reflex_vm_mem_set_raw(reflex_vm_state_t *vm, uint32_t index, const reflex_word18_t *in)
-{
-    (void)vm;
-    if (index >= TEST_MEM_WORDS || !in) return REFLEX_ERR_INVALID_ARG;
-    memcpy(&s_mem[index], in, sizeof(*in));
-    return REFLEX_OK;
-}
-
-/* vm/loader.c's load paths call these, which live in the interpreter. The
- * tests below exercise reflex_vm_validate_image only — the pure validator —
- * so these exist to satisfy the linker and are deliberately inert. If a test
- * is ever added for reflex_vm_load_image or _load_binary, it must link the
- * real interpreter instead of these. */
-void reflex_vm_reset(reflex_vm_state_t *vm) { (void)vm; }
-void reflex_vm_unload(reflex_vm_state_t *vm) { (void)vm; }
 
 static reflex_word18_t w(int32_t v)
 {
@@ -90,6 +78,7 @@ static void test_cache(void)
     reflex_vm_state_t vm;
 
     memset(&vm, 0, sizeof(vm));
+    bind_test_memory(&vm);
     memset(s_mem, 0, sizeof(s_mem));
     reflex_cache_init(&cache);
     vm.cache = (struct reflex_cache *)&cache;
