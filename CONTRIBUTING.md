@@ -154,6 +154,8 @@ build.** Run it before pushing anything that compiles into the image.
 | `make doc-links` | Relative links across all tracked Markdown |
 | `make warn-check` | ESP-independent firmware at `-Wall -Wextra -Werror` |
 | `make lock-check` | No telemetry emission while the loom lock is held |
+| `make independence-check` | ESP-IDF surface has not grown, per tier, for the independence configuration. **Needs `build_independence/`** — run `make independence-build` first |
+| `make independence-own-entry` | The same ratchet for the own-entry configuration; builds its own tree |
 | `make format-diff` | Formatting of the lines your change touches |
 | `make ci-lint` | Workflow file schema (catches dangling `needs:` after a job rename); native `actionlint` if installed |
 | `make soc-check` | Generated SoC header is current with the SVD and mapping |
@@ -161,6 +163,17 @@ build.** Run it before pushing anything that compiles into the image.
 | `make rom-check` | ROM entry-point addresses match ESP-IDF's `esp32c6.rom.ld` |
 | `make idf-build` | Real ESP-IDF build (native with `IDF_PATH`, else Docker) |
 | `make hw-test PORT=…` | Shell contract against a flashed board |
+
+**`make independence-check` fails rather than degrading when it cannot measure.**
+It compares the ESP-IDF surface of `build_independence/` against a ratcheted
+baseline, so without that tree there is nothing to filter against. It used to
+print an upper bound and exit 0 — which meant `make verify` announced "the
+independence ratchet in both configurations ... all passed" on a fresh clone
+where that half had never run. It now exits non-zero and tells you to build the
+tree. `make independence-own-entry` was never affected, because it depends on
+`own-entry-build` and so could not silently skip; that asymmetry is what hid the
+problem. The advisory form, `python3 tools/check_independence.py` with no flags,
+still reports an upper bound and succeeds — that is what it is for.
 
 `make format-check` reports formatting tree-wide and currently fails: the
 repository predates any enforced style. CI gates `format-diff` instead, so new

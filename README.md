@@ -186,6 +186,7 @@ The viewer connects to the board, enables telemetry, and renders the live substr
 Canonical project documentation lives in [`docs/`](docs/):
 
 - **[`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) — Start here: hardware, toolchain, build, flash, shell, SDK.**
+- [`docs/USER_MANUAL.md`](docs/USER_MANUAL.md) — The full operator's manual: every shell command, the SDK, and day-to-day use.
 - [`docs/architecture.md`](docs/architecture.md) — Module layout and the GOOSE substrate.
 - [`docs/boot.md`](docs/boot.md) — Boot sequence: what happens from power-on to shell.
 - [`docs/holons.md`](docs/holons.md) — Holon lifecycle: purpose-driven field group activation.
@@ -193,6 +194,8 @@ Canonical project documentation lives in [`docs/`](docs/):
 - [`docs/sleep.md`](docs/sleep.md) — Deep sleep: what survives, what's lost, wakeup.
 - [`docs/storage.md`](docs/storage.md) — Persistent storage: KV store and config patterns.
 - [`docs/implementation-status.md`](docs/implementation-status.md) — What is built, validated, and what limits are known.
+- [`docs/independence-dependency-map.md`](docs/independence-dependency-map.md) — What ESP-IDF is still needed for, measured from the linked image, tier by tier, and the order those needs can be retired.
+- [`docs/DEBUGGING.md`](docs/DEBUGGING.md) — Panic dumps, backtraces, common crash types, and board recovery.
 - [`docs/strategy.md`](docs/strategy.md) — The Chronicler's Path: gaps, advantages, and next phases.
 - [`docs/potentials.md`](docs/potentials.md) — Realized milestones and the biological-frontier roadmap.
 - [`docs/tasm-spec.md`](docs/tasm-spec.md) — Ternary Assembler syntax and GOOSE-native opcodes.

@@ -90,3 +90,41 @@ If the board doesn't respond on serial:
 2. Hold BOOT button while plugging in
 3. Try `esptool.py --chip esp32c6 chip_id` — if it responds, flash normally
 4. If still dead: use a USB-to-UART adapter on TX/RX header pins
+
+## The board prints but ignores input
+
+A different failure, and the steps above are the wrong tree for it. The board is
+**healthy**: it emits a full boot log, prints `reflex>`, and keeps emitting
+supervisor telemetry — it simply never answers anything you type, and
+`make hw-test` reports `no shell response within 25s`.
+
+This is **host-side USB-CDC state on the C6's native USB-serial-JTAG port**, not
+the firmware. It appears after heavy flash-and-reset churn, and it is immune to
+everything that looks like it should help: reflashing, `esptool` resets,
+rebuilding, even reflashing a known-good image. That immunity is exactly what
+makes the firmware look guilty.
+
+**Recovery** — close and reopen the port with a short settle:
+
+```python
+import serial, time
+ser = serial.Serial('/dev/cu.usbmodem11101', 115200, timeout=0.2)
+time.sleep(2.0); ser.reset_input_buffer(); ser.write(b"\r"); time.sleep(1.0)
+print(ser.read(ser.in_waiting or 1)); ser.close()
+```
+
+Then run `make hw-test PORT=…` normally. `tests/hardware/validate_shell.py`
+opens the port once and polls for 25s, so it cannot rescue a port already in
+this state — wake it first.
+
+**The classic ESP32 ("the V3") is the control.** It reaches the console through
+a CP210x bridge rather than native USB-serial-JTAG, so it is unaffected. *If the
+V3 passes and both C6s are deaf on the same image, suspect the host, not the
+substrate.* On 2026-09-11 that distinction cost six wrong hypotheses — boot-loop
+protection, a bad image, USB re-enumeration, hand-toggled DTR/RTS, an
+intervening `esptool chip_id`, and a stale process holding the port — and a
+firmware change was briefly recorded as a suspected regression before both
+boards came back at 183/0 on that same firmware.
+
+Do not hand-toggle DTR/RTS from pyserial to force a reset. It is not the cure,
+and it can put the port into this state.
