@@ -329,9 +329,10 @@ bool goose_fabric_addr_is_sanctuary(uint32_t addr);
 
 /** Loom lock hold duration instrumentation. */
 uint32_t goose_loom_hold_max_us(void);
-/** Field name that held the lock for the peak duration, or "alloc" for the
- *  fabric allocation path. A bare peak cannot distinguish a one-off boot
- *  operation from a recurring steady state; the site and timestamp can. */
+/** Name of the site that held the lock for the peak duration: the owning
+ *  field's name where there is one, otherwise the function that took it.
+ *  It read "alloc" for every fieldless caller until 2026-09-11, which made
+ *  five distinct sites indistinguishable. */
 const char *goose_loom_hold_max_site(void);
 /** Microsecond timestamp at which the peak hold was acquired. Compare against
  *  uptime: a value near zero means the peak was a boot-time bulk operation. */
@@ -717,7 +718,18 @@ reflex_err_t goose_snapshot_clear(void);
  * Pass NULL as field if there is no owning field for stats accounting.
  * NOT recursive — do not call from a context that already holds the lock.
  */
-bool goose_loom_try_lock(goose_field_t *field);
+bool goose_loom_try_lock_at(goose_field_t *field, const char *site);
+
+/* The call-site spelling is unchanged; the caller's own name comes along.
+ *
+ * Five of the seven call sites pass NULL, and the peak recorder rendered every
+ * one of them as "alloc" -- fabric_alloc_internal, goose_supervisor_weave_sync,
+ * goose_supervisor_learn_sync, goose_snapshot_save and goose_snapshot_load all
+ * reported identically. A peak attributed to "alloc" therefore named one of
+ * five sites, four of which allocate nothing, and the open question about the
+ * peak exceeding this budget was reasoned against that label as though it were
+ * specific. __func__ costs nothing at runtime and makes it true. */
+#define goose_loom_try_lock(field) goose_loom_try_lock_at((field), __func__)
 
 /**
  * @brief Release loom_authority. Must be paired with a successful try_lock.

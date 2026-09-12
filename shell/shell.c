@@ -1033,7 +1033,8 @@ static void shell_cmd_status(int argc, char *argv[]) {
      * `max_us=1062` alone, nobody can tell a one-off boot-time bulk operation
      * from a recurring steady state — and two identical C6s on identical
      * firmware were measured at 331us and 1062us with no way to explain the
-     * difference. `max_us=1062@0.4s(alloc)` answers it on sight. */
+     * difference. `max_us=1062@0.4s(fabric_alloc_internal)` answers it on
+     * sight. */
     printf("loom lock_holds=%lu max_us=%lu@%lu.%03lus(%s) avg_us=%lu evictions=%lu cells=%lu\n",
            (unsigned long)hold_count, (unsigned long)goose_loom_hold_max_us(),
            (unsigned long)(goose_loom_hold_max_at_us() / 1000000ULL),

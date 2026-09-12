@@ -251,7 +251,7 @@ static uint32_t s_lock_hold_count = 0;
  * goose_field_t::name, and a field can be freed while this record outlives it.
  * The copy happens at unlock, where the field is still guaranteed alive. */
 static const char *s_lock_holder = "none";
-static char s_lock_hold_max_site[16] = "none";
+static char s_lock_hold_max_site[32] = "none";
 static uint64_t s_lock_hold_max_at_us = 0;
 
 uint32_t goose_loom_hold_max_us(void)   { return s_lock_hold_max_us; }
@@ -264,7 +264,7 @@ uint64_t goose_loom_hold_max_at_us(void) {
     return s_lock_hold_max_at_us;
 }
 
-bool goose_loom_try_lock(goose_field_t *field) {
+bool goose_loom_try_lock_at(goose_field_t *field, const char *site) {
     static uint32_t s_contention_count = 0;
     static uint64_t s_last_log_us = 0;
     uint64_t start = reflex_hal_time_us();
@@ -275,8 +275,7 @@ bool goose_loom_try_lock(goose_field_t *field) {
             uint64_t now = reflex_hal_time_us();
             if (now - s_last_log_us > REFLEX_REPLAY_WINDOW_US) {
                 REFLEX_LOGW(TAG, "LOOM_CONTENTION_FAULT site=%s deferred (%lu in last 5s)",
-                         field ? field->name : "alloc",
-                         (unsigned long)s_contention_count);
+                            field ? field->name : site, (unsigned long)s_contention_count);
                 s_contention_count = 0;
                 s_last_log_us = now;
             }
@@ -287,7 +286,7 @@ bool goose_loom_try_lock(goose_field_t *field) {
     uint64_t end = reflex_hal_time_us();
     if (field) field->stats.lock_contention_us += (uint32_t)(end - start);
     s_lock_acquire_us = end;  /* record for hold duration measurement */
-    s_lock_holder = field ? field->name : "alloc";
+    s_lock_holder = field ? field->name : site;
     return true;
 }
 
