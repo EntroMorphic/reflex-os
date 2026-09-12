@@ -24,6 +24,17 @@ Canonical design and status documents.
 - [`prd.md`](prd.md) — Original product requirements.
 - [`independence-dependency-map.md`](independence-dependency-map.md) — What ESP-IDF is actually needed for, measured from the linked image, and the order those needs can be retired.
 
+## Plans not yet executed
+
+Open roadmaps: work nothing has superseded, kept where it can be found rather
+than rediscovered. Retired plans move to [`archive/`](archive/).
+
+- [`cortexm_port.md`](cortexm_port.md) — Scoping for the first non-Espressif target (STM32L4A6). The portability proof that turns "multi-architecture behind a HAL" into a demonstrated claim.
+
+## Archive
+
+- [`archive/`](archive/) — Documents whose work is finished, kept for provenance. History, not status.
+
 ## Audits
 
 - [`P0-07SEP26.md`](P0-07SEP26.md) — Current. Priority-0 audit: the VM loader's 16-bit syscall check, LoomScript wire validation, an unlocked route mutation, and a format gate that could not fail. Every finding is now closed.

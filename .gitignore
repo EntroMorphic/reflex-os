@@ -1,5 +1,9 @@
 # Archive — local-only scratch and superseded artifacts
 archive/
+# ...but the retired-documents archive is source, not an artifact. The rule
+# above is unanchored, so it swallows any directory named `archive` at any
+# depth; this re-includes the one that holds documentation.
+!docs/archive/
 
 # ESP-IDF build output
 #

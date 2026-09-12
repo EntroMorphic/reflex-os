@@ -9,6 +9,18 @@ and this project uses a loose form of [Semantic Versioning](https://semver.org/s
 
 ### Changed
 
+- **The six unreachable documents are resolved: five retired, one indexed.** Judged on evidence rather than filename — whether the work had shipped, not whether the title looked old.
+
+  Retired to [`docs/archive/`](docs/archive/), which now carries a README saying what each was and what carries it now: `prd-mmio-sync.md` (built — `goose_mmio_sync.c` ships it and `mesh stat` counts its ops), both `remediation-plan*.md` (every item delivered: KV compaction, the integration test, MMIO sync, TASM `--upload`, the service watchdog), `user-manual-sow.md` (its deliverable is the 865-line `USER_MANUAL.md`), and `v3-bootloader-plan.md` — the fifth, and the one that nearly got away, below.
+
+  Kept and indexed, because nothing superseded it: `cortexm_port.md`, scoping for the first non-Espressif target — unstarted rather than abandoned, with no Cortex-M code in the tree. `docs/README.md` gains a "Plans not yet executed" section for it.
+
+  `v3-bootloader-plan.md` was very nearly kept alongside it, on the strength of its own "Current state (Phase 0)" line saying the boot *mechanism* was still ESP-IDF's. The code says otherwise: `bootloader_components/main/reflex_boot0.c` **is** the second-stage bootloader, using no `bootloader_init`, no `bootloader_utility_*` and no `bootloader_support` high-level function, depending only on ROM entry points, SOC constants and thin cache/MMU wrappers. The plan was achieved and its own status line had gone stale — caught by red-teaming the judgement rather than the documents. Read the source before trusting a plan's description of itself.
+
+  Archived rather than deleted, which reverses the earlier convention of deleting completed trackers and leaving their history in the git log. `git mv` keeps `git log --follow` working either way; the difference is that a reader tracing why the code looks as it does can still read the plan that drove it. **Every document under `docs/` is now reachable from an index** — previously six were reachable from nothing at all. The repository root's `REMEDIATION.md` went with them: a completed tracker ("Status: Complete", and verified — the routing is in `goose_runtime.c` and the CHANGELOG records both its items shipped) sitting at the root in no index, which is the same category as the four it now sits beside.
+
+  One trap worth recording: `.gitignore` carried an unanchored `archive/` rule for local scratch, which silently swallowed `docs/archive/`. The moved files stayed tracked (`git mv` preserves tracking; ignore rules only bind untracked paths), but the new README did not, and archiving that quietly dropped a file would have been deletion wearing a better name.
+
 - **Red-teamed the documentation sweep above, and it did not survive intact.** Six findings, five remediated and one dismissed on evidence:
 
   - **Three overclaims about the console failure.** The text asserted the cause was "host-side USB-CDC state", that the fix "is" a close/reopen with a settle, and that the fault survived "even reflashing a known-good image". Only the first half of each was earned. The firmware exoneration is solid — the identical image passes 183/0 — but nothing instrumented the host, the two candidate ingredients (a fresh open, a settle) were never separated, and a known-good *earlier* image was never flashed onto a deaf board at all. All four places carrying the claim (`DEBUGGING.md`, `implementation-status.md`, the CHANGELOG entry, and the bench note) now separate what is established from what is inferred.
