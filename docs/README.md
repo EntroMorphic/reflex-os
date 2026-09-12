@@ -5,6 +5,7 @@ Canonical design and status documents.
 ## Getting started
 
 - [`GETTING_STARTED.md`](GETTING_STARTED.md) — Zero to running firmware: hardware, toolchain, build, flash, shell, SDK.
+- [`USER_MANUAL.md`](USER_MANUAL.md) — The full operator's manual: every shell command, the purpose system, mesh, learning, holons, and the Python SDK.
 - [`ONBOARDING.md`](ONBOARDING.md) — Contributor onboarding (fork → first PR).
 - [`DEBUGGING.md`](DEBUGGING.md) — Panic decoding, crash types, recovery.
 - [`PLATFORM_BACKEND.md`](PLATFORM_BACKEND.md) — Porting to new chips.
@@ -25,7 +26,8 @@ Canonical design and status documents.
 
 ## Audits
 
-- [`audit-2026-09-04.md`](audit-2026-09-04.md) — Current. Console I/O under the loom lock, a policy guard reporting success, the crypto suite that tested determinism rather than correctness, and the verification gates that came out of it.
+- [`P0-07SEP26.md`](P0-07SEP26.md) — Current. Priority-0 audit: the VM loader's 16-bit syscall check, LoomScript wire validation, an unlocked route mutation, and a format gate that could not fail. Every finding is now closed.
+- [`audit-2026-09-04.md`](audit-2026-09-04.md) — Console I/O under the loom lock, a policy guard reporting success, the crypto suite that tested determinism rather than correctness, and the verification gates that came out of it.
 - [`audit-2026-08-12.md`](audit-2026-08-12.md) — Defects ranked by severity × reachability, prior-audit closure status, documentation drift.
 - [`audit-2026-04-16.md`](audit-2026-04-16.md) — First full assessment (post-v2.6.0): novelty, execution quality, and fluff.
 

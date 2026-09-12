@@ -98,13 +98,24 @@ A different failure, and the steps above are the wrong tree for it. The board is
 supervisor telemetry — it simply never answers anything you type, and
 `make hw-test` reports `no shell response within 25s`.
 
-This is **host-side USB-CDC state on the C6's native USB-serial-JTAG port**, not
-the firmware. It appears after heavy flash-and-reset churn, and it is immune to
-everything that looks like it should help: reflashing, `esptool` resets,
-rebuilding, even reflashing a known-good image. That immunity is exactly what
-makes the firmware look guilty.
+**What is established:** the firmware is not at fault. Both boards passed
+`183/0` on the *identical* image once the port was working again, so nothing in
+the build explains it. It was observed only on the C6's native
+USB-serial-JTAG ports, only after heavy flash-and-reset churn, and it survived
+reflashing (the same image), `esptool` resets and a rebuild. That survival is
+exactly what makes the firmware look guilty.
 
-**Recovery** — close and reopen the port with a short settle:
+**What is inferred, not measured:** that the fault lives on the host side of the
+USB link. Nothing here instruments the host, so treat "host-side" as the
+conclusion the evidence points to rather than a diagnosis. A known-good *earlier*
+image was never flashed onto a deaf board, so that particular disconfirmation
+remains untried.
+
+**Recovery — what worked.** Reopening the port cleared it. The exact ingredient
+was not isolated: the first open after a reset returned only buffered boot
+output, and a second open answered. Both a fresh open and a short settle were
+present, so try this and repeat it once if the first attempt returns boot log
+rather than a prompt:
 
 ```python
 import serial, time
@@ -114,8 +125,8 @@ print(ser.read(ser.in_waiting or 1)); ser.close()
 ```
 
 Then run `make hw-test PORT=…` normally. `tests/hardware/validate_shell.py`
-opens the port once and polls for 25s, so it cannot rescue a port already in
-this state — wake it first.
+opens the port once and polls for 25s, and in every observed case did not
+recover a port already in this state — so wake it first.
 
 **The classic ESP32 ("the V3") is the control.** It reaches the console through
 a CP210x bridge rather than native USB-serial-JTAG, so it is unaffected. *If the
@@ -126,5 +137,7 @@ intervening `esptool chip_id`, and a stale process holding the port — and a
 firmware change was briefly recorded as a suspected regression before both
 boards came back at 183/0 on that same firmware.
 
-Do not hand-toggle DTR/RTS from pyserial to force a reset. It is not the cure,
-and it can put the port into this state.
+Do not hand-toggle DTR/RTS from pyserial to force a reset: it was tried here and
+is not the cure. Whether it can *cause* this state is unestablished — one board
+went deaf after such a toggle, the other without one — so it is listed as a dead
+end rather than a culprit.
